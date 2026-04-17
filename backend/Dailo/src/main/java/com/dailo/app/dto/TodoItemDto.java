@@ -23,6 +23,7 @@ public class TodoItemDto {
     public static class UpdateRequest {
         private String content;
         private Boolean isDone;
+        private String type;
     }
 
     @Getter

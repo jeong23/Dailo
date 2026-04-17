@@ -33,6 +33,10 @@ public class TodoItem extends BaseEntity {
         this.isDone = isDone;
     }
 
+    public void updateType(String type) {
+        this.type = type;
+    }
+
     public void toggleDone() {
         this.isDone = !this.isDone;
     }

@@ -41,6 +41,7 @@ public class TodoItemService {
         TodoItem item = todoItemRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("할 일을 찾을 수 없습니다: " + id));
         item.update(request.getContent(), request.getIsDone());
+        if (request.getType() != null) item.updateType(request.getType());
         return TodoItemDto.Response.from(item);
     }
 

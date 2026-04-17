@@ -35,6 +35,7 @@ public class SecurityConfig {
                                 "/settings",
                                 "/todo",
                                 "/planner-board",
+                                "/running",
                                 "/static/**",
                                 "/*.js",
                                 "/*.css",
