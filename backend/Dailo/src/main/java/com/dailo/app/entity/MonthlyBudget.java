@@ -40,10 +40,27 @@ public class MonthlyBudget extends BaseEntity {
 
     private Integer emergencyCumulative;
 
+    @Column(nullable = false, columnDefinition = "DECIMAL(5,4) DEFAULT 0.3500")
+    private Double livingRate;
+
+    @Column(nullable = false, columnDefinition = "DECIMAL(5,4) DEFAULT 0.2500")
+    private Double isaRate;
+
+    @Column(nullable = false, columnDefinition = "DECIMAL(5,4) DEFAULT 0.1500")
+    private Double pensionRate;
+
+    @Column(nullable = false, columnDefinition = "DECIMAL(5,4) DEFAULT 0.1500")
+    private Double emergencyRate;
+
+    @Column(nullable = false, columnDefinition = "DECIMAL(5,4) DEFAULT 0.1000")
+    private Double discretionaryRate;
+
     public void update(Integer netSalary, Integer fixedCostTotal, Integer availableAmount,
                        Integer livingBudget, Integer isaAmount, Integer pensionAmount,
                        Integer emergencyBudget, Integer discretionaryBudget, Integer cardGoal,
-                       Integer livingCarryover, Integer emergencyCumulative) {
+                       Integer livingCarryover, Integer emergencyCumulative,
+                       Double livingRate, Double isaRate, Double pensionRate,
+                       Double emergencyRate, Double discretionaryRate) {
         this.netSalary = netSalary;
         this.fixedCostTotal = fixedCostTotal;
         this.availableAmount = availableAmount;
@@ -55,5 +72,10 @@ public class MonthlyBudget extends BaseEntity {
         this.cardGoal = cardGoal;
         this.livingCarryover = livingCarryover;
         this.emergencyCumulative = emergencyCumulative;
+        this.livingRate = livingRate;
+        this.isaRate = isaRate;
+        this.pensionRate = pensionRate;
+        this.emergencyRate = emergencyRate;
+        this.discretionaryRate = discretionaryRate;
     }
 }

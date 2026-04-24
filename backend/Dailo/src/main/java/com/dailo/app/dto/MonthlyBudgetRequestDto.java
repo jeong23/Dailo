@@ -24,4 +24,9 @@ public class MonthlyBudgetRequestDto {
     private Integer cardGoal;
     private Integer livingCarryover;
     private Integer emergencyCumulative;
+    private Double livingRate;
+    private Double isaRate;
+    private Double pensionRate;
+    private Double emergencyRate;
+    private Double discretionaryRate;
 }

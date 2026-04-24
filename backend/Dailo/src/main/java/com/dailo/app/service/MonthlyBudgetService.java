@@ -23,17 +23,17 @@ public class MonthlyBudgetService {
     private final MemberRepository memberRepository;
     private final FixedCostRepository fixedCostRepository;
 
-    private int[] calcDistribution(Long memberId, Integer netSalary) {
+    private int[] calcDistribution(Long memberId, Integer netSalary, MonthlyBudgetRequestDto req) {
         int fixedCostTotal = fixedCostRepository.sumActiveByMemberId(memberId);
         int available = Math.max(netSalary - fixedCostTotal, 0);
         return new int[]{
             fixedCostTotal,
             available,
-            (int)(available * 0.35),
-            (int)(available * 0.25),
-            (int)(available * 0.15),
-            (int)(available * 0.15),
-            (int)(available * 0.10)
+            (int)(available * req.getLivingRate()),
+            (int)(available * req.getIsaRate()),
+            (int)(available * req.getPensionRate()),
+            (int)(available * req.getEmergencyRate()),
+            (int)(available * req.getDiscretionaryRate())
         };
     }
 
@@ -46,7 +46,7 @@ public class MonthlyBudgetService {
             throw new IllegalArgumentException("해당 월 예산이 이미 존재합니다: " + request.getSettleMonth());
         }
 
-        int[] dist = calcDistribution(member.getId(), request.getNetSalary());
+        int[] dist = calcDistribution(member.getId(), request.getNetSalary(), request);
         // dist: [fixedCostTotal, available, living, isa, pension, emergency, discretionary]
 
         MonthlyBudget budget = MonthlyBudget.builder()
@@ -63,6 +63,11 @@ public class MonthlyBudgetService {
                 .cardGoal(request.getCardGoal())
                 .livingCarryover(request.getLivingCarryover())
                 .emergencyCumulative(request.getEmergencyCumulative())
+                .livingRate(request.getLivingRate())
+                .isaRate(request.getIsaRate())
+                .pensionRate(request.getPensionRate())
+                .emergencyRate(request.getEmergencyRate())
+                .discretionaryRate(request.getDiscretionaryRate())
                 .build();
 
         return MonthlyBudgetResponseDto.from(monthlyBudgetRepository.save(budget));
@@ -91,7 +96,7 @@ public class MonthlyBudgetService {
         MonthlyBudget budget = monthlyBudgetRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("월별 예산을 찾을 수 없습니다: " + id));
 
-        int[] dist = calcDistribution(budget.getMember().getId(), request.getNetSalary());
+        int[] dist = calcDistribution(budget.getMember().getId(), request.getNetSalary(), request);
 
         budget.update(
                 request.getNetSalary(),
@@ -104,7 +109,12 @@ public class MonthlyBudgetService {
                 dist[6],
                 request.getCardGoal(),
                 request.getLivingCarryover(),
-                request.getEmergencyCumulative()
+                request.getEmergencyCumulative(),
+                request.getLivingRate(),
+                request.getIsaRate(),
+                request.getPensionRate(),
+                request.getEmergencyRate(),
+                request.getDiscretionaryRate()
         );
 
         return MonthlyBudgetResponseDto.from(budget);

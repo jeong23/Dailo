@@ -26,6 +26,11 @@ public class MonthlyBudgetResponseDto {
     private Integer cardGoal;
     private Integer livingCarryover;
     private Integer emergencyCumulative;
+    private Double livingRate;
+    private Double isaRate;
+    private Double pensionRate;
+    private Double emergencyRate;
+    private Double discretionaryRate;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
@@ -45,6 +50,11 @@ public class MonthlyBudgetResponseDto {
                 .cardGoal(budget.getCardGoal())
                 .livingCarryover(budget.getLivingCarryover())
                 .emergencyCumulative(budget.getEmergencyCumulative())
+                .livingRate(budget.getLivingRate())
+                .isaRate(budget.getIsaRate())
+                .pensionRate(budget.getPensionRate())
+                .emergencyRate(budget.getEmergencyRate())
+                .discretionaryRate(budget.getDiscretionaryRate())
                 .createdAt(budget.getCreatedAt())
                 .updatedAt(budget.getUpdatedAt())
                 .build();

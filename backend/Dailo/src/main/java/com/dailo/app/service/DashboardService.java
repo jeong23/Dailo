@@ -38,11 +38,11 @@ public class DashboardService {
 
         // 가용금액 및 분배 실시간 계산 (실수령액 + 기타수입 - 고정비)
         Integer availableAmount = Math.max(budget.getNetSalary() + extraIncomeTotal - fixedCostTotal, 0);
-        Integer livingBudget     = (int)(availableAmount * 0.35);
-        Integer isaAmount        = (int)(availableAmount * 0.25);
-        Integer pensionAmount    = (int)(availableAmount * 0.15);
-        Integer emergencyBudget  = (int)(availableAmount * 0.15);
-        Integer discretionaryBudget = (int)(availableAmount * 0.10);
+        Integer livingBudget     = (int)(availableAmount * budget.getLivingRate());
+        Integer isaAmount        = (int)(availableAmount * budget.getIsaRate());
+        Integer pensionAmount    = (int)(availableAmount * budget.getPensionRate());
+        Integer emergencyBudget  = (int)(availableAmount * budget.getEmergencyRate());
+        Integer discretionaryBudget = (int)(availableAmount * budget.getDiscretionaryRate());
 
         // 지출 집계
         Integer livingExpenseTotal   = dailyExpenseRepository.sumLivingExpense(month);
@@ -99,7 +99,7 @@ public class DashboardService {
             Integer extraIncomeTotal = incomeRepository.sumBySettleMonth(month);
             Integer fixedCostTotal   = budget.getFixedCostTotal() != null ? budget.getFixedCostTotal() : 0;
             Integer availableAmount  = Math.max(budget.getNetSalary() + extraIncomeTotal - fixedCostTotal, 0);
-            Integer emergencyBudget  = (int)(availableAmount * 0.15);
+            Integer emergencyBudget  = (int)(availableAmount * budget.getEmergencyRate());
             Integer emergencyExpense = dailyExpenseRepository.sumEmergencyExpense(month);
             Integer emergencyNet     = emergencyBudget - emergencyExpense;
 
@@ -127,10 +127,10 @@ public class DashboardService {
             Integer fixedCostTotal   = budget.getFixedCostTotal() != null ? budget.getFixedCostTotal() : 0;
             Integer extraIncomeTotal = incomeRepository.sumBySettleMonth(month);
             Integer availableAmount  = Math.max(budget.getNetSalary() + extraIncomeTotal - fixedCostTotal, 0);
-            Integer livingBudget     = (int)(availableAmount * 0.35);
-            Integer isaAmount        = (int)(availableAmount * 0.25);
-            Integer pensionAmount    = (int)(availableAmount * 0.15);
-            Integer emergencyBudget  = (int)(availableAmount * 0.15);
+            Integer livingBudget     = (int)(availableAmount * budget.getLivingRate());
+            Integer isaAmount        = (int)(availableAmount * budget.getIsaRate());
+            Integer pensionAmount    = (int)(availableAmount * budget.getPensionRate());
+            Integer emergencyBudget  = (int)(availableAmount * budget.getEmergencyRate());
 
             Integer livingExpenseTotal   = dailyExpenseRepository.sumLivingExpense(month);
             Integer emergencyExpenseTotal = dailyExpenseRepository.sumEmergencyExpense(month);

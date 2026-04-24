@@ -38,6 +38,7 @@ com.dailo.app
 - DAILY_PLAN (일일 플래너 — 미래시각화/정체성/내적동기/감사일기/기상직후할일/피드백)
 - TODO_ITEM (할 일 — type: BIG3 | BRAIN_DUMP, isDone, sortOrder)
 - TIME_BOX_SLOT (타임박스 — hour(5~23), slot1/slot2 텍스트, slot1Done/slot2Done)
+- TIME_BOX_BLOCK (타임박스 블록 — planDate, startHour, startSlot, endHour, endSlot, content, isDone)
 
 ## API 엔드포인트 목록
 - GET/POST   /api/monthly-budgets
@@ -65,6 +66,13 @@ com.dailo.app
 - GET/POST   /api/todo-items?date=YYYY-MM-DD
 - PUT/DELETE /api/todo-items/{id}
 - GET/POST   /api/time-box?date=YYYY-MM-DD
+- GET        /api/time-box-blocks?date=YYYY-MM-DD
+- POST       /api/time-box-blocks
+- PUT/DELETE /api/time-box-blocks/{id}
+- GET        /api/running/records?memberId=1
+- GET        /api/running/records/week?start=YYYY-MM-DD
+- GET        /api/running/records/year?year=YYYY
+- GET/POST   /api/running/goal?memberId=1&month=YYYY-MM
 
 ## 비즈니스 규칙
 - 월급일: 매월 25일
@@ -110,6 +118,12 @@ com.dailo.app
 - application.yml에 r2.* 설정 없으면 앱 시작 안 됨 방지: @Value에 빈 기본값(:) 필수
 - isConfigured 플래그로 설정 여부 체크 — 미설정 시 upload() 호출 시 예외 대신 메시지 반환
 
+## Git 저장소 구조
+- `frontend/Dailo` — 별도 Git 저장소 (`.git` 독립)
+- `backend/Dailo` — 별도 Git 저장소 (`.git` 독립)
+- 프론트 소스 수정만으로는 백엔드 SourceTree에 변경 안 보임
+- 빌드 후 `src/main/resources/static/`에 복사해야 백엔드 Git에 반영됨
+
 ## 배포 (외부 접근)
 - React 빌드 후 `src/main/resources/static/`에 복사해서 Spring Boot에서 서빙
 - 외부 접근: Cloudflare Tunnel 사용 (`cloudflared tunnel --url http://localhost:8888`)
@@ -136,6 +150,18 @@ com.dailo.app
   → SpaController 추가해서 index.html로 포워딩
 - CORS 외부 저장 실패(403 invalid CORS request): setAllowedOrigins → setAllowedOriginPatterns로 변경
 - TodoItem::getIsDone filter 시 메서드 레퍼런스 사용 시 NPE 가능 → Boolean.TRUE.equals() 사용
+
+## TimeBoxBlock 규칙
+- TIME_BOX_SLOT과 TIME_BOX_BLOCK은 별개 — SLOT은 시간별 텍스트 2칸, BLOCK은 드래그 병합 블록
+- startSlot/endSlot: 0 = 정시(:00), 1 = 30분(:30)
+- slotToIndex(hour, slot) = (hour - 5) * 2 + slot — 선형 인덱스 비교에 사용
+- block.update(content, isDone) 메서드로 필드 갱신 (setter 직접 호출 금지)
+
+## RunningRecord 규칙
+- duration 입력: 프론트에서 "MM:SS" 문자열로 받아 durationSeconds(int)로 저장
+- 페이스: RecordResponse.calcPace() — durationSeconds / distanceKm → "7'05''" 형식
+- 경로: routeJson 필드에 JSON 문자열로 저장 (LatLng 배열)
+- 주간/연간 조회: findByRunDateBetweenOrderByRunDateAsc() 사용
 
 ## 다음 작업 후보
 - [ ] 로그인/인증 (JWT) - 현재 memberId: 1 하드코딩
