@@ -17,6 +17,7 @@ public class MemberResponseDto {
     private String name;
     private String role;
     private Integer salaryGross;
+    private Integer salaryDay;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
@@ -27,6 +28,7 @@ public class MemberResponseDto {
                 .name(member.getName())
                 .role(member.getRole())
                 .salaryGross(member.getSalaryGross())
+                .salaryDay(member.getSalaryDay() != null ? member.getSalaryDay() : 25)
                 .createdAt(member.getCreatedAt())
                 .updatedAt(member.getUpdatedAt())
                 .build();

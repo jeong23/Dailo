@@ -5,6 +5,7 @@ import com.dailo.app.dto.MemberResponseDto;
 import com.dailo.app.entity.Member;
 import com.dailo.app.repository.MemberRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -17,14 +18,22 @@ import java.util.stream.Collectors;
 public class MemberService {
 
     private final MemberRepository memberRepository;
+    private final PasswordEncoder passwordEncoder;
 
     @Transactional
     public MemberResponseDto create(MemberRequestDto request) {
         if (memberRepository.existsByUsername(request.getUsername())) {
             throw new IllegalArgumentException("이미 존재하는 사용자명입니다: " + request.getUsername());
         }
-        Member member = memberRepository.save(request.toEntity());
-        return MemberResponseDto.from(member);
+        Member member = Member.builder()
+                .username(request.getUsername())
+                .password(passwordEncoder.encode(request.getPassword()))
+                .name(request.getName())
+                .role(request.getRole() != null ? request.getRole() : "USER")
+                .salaryGross(request.getSalaryGross())
+                .salaryDay(request.getSalaryDay() != null ? request.getSalaryDay() : 25)
+                .build();
+        return MemberResponseDto.from(memberRepository.save(member));
     }
 
     public MemberResponseDto findById(Long id) {
@@ -50,14 +59,18 @@ public class MemberService {
         Member member = memberRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("회원을 찾을 수 없습니다: " + id));
 
-        member.update(
-                request.getUsername(),
-                request.getPassword(),
-                request.getName(),
-                request.getRole(),
-                request.getSalaryGross()
-        );
+        String encodedPassword = (request.getPassword() != null && !request.getPassword().isBlank())
+                ? passwordEncoder.encode(request.getPassword())
+                : member.getPassword();
 
+        member.update(
+                request.getUsername() != null ? request.getUsername() : member.getUsername(),
+                encodedPassword,
+                request.getName() != null ? request.getName() : member.getName(),
+                request.getRole() != null ? request.getRole() : member.getRole(),
+                request.getSalaryGross() != null ? request.getSalaryGross() : member.getSalaryGross(),
+                request.getSalaryDay() != null ? request.getSalaryDay() : member.getSalaryDay()
+        );
         return MemberResponseDto.from(member);
     }
 

@@ -17,6 +17,7 @@ public class MemberRequestDto {
     private String name;
     private String role;
     private Integer salaryGross;
+    private Integer salaryDay;
 
     public Member toEntity() {
         return Member.builder()
@@ -25,6 +26,7 @@ public class MemberRequestDto {
                 .name(name)
                 .role(role)
                 .salaryGross(salaryGross)
+                .salaryDay(salaryDay != null ? salaryDay : 25)
                 .build();
     }
 }

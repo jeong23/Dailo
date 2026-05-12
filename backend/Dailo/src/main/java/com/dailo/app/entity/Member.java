@@ -26,11 +26,15 @@ public class Member extends BaseEntity {
     @Column
     private Integer salaryGross;
 
-    public void update(String username, String password, String name, String role, Integer salaryGross) {
+    @Column(columnDefinition = "INTEGER DEFAULT 25")
+    private Integer salaryDay;
+
+    public void update(String username, String password, String name, String role, Integer salaryGross, Integer salaryDay) {
         this.username = username;
         this.password = password;
         this.name = name;
         this.role = role;
         this.salaryGross = salaryGross;
+        this.salaryDay = salaryDay;
     }
 }

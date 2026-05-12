@@ -1,10 +1,18 @@
 package com.dailo.app.config;
 
+import com.dailo.app.security.JwtAuthenticationFilter;
+import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -13,21 +21,24 @@ import java.util.Arrays;
 
 @Configuration
 @EnableWebSecurity
+@RequiredArgsConstructor
 public class SecurityConfig {
+
+    private final JwtAuthenticationFilter jwtAuthenticationFilter;
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
-                .cors(cors -> cors.configurationSource(corsConfigurationSource())) // 1. CORS 설정 연결
+                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .csrf(csrf -> csrf.disable())
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(
-                                "/api/**",
-                                "/swagger-ui/**",
-                                "/swagger-ui.html",
-                                "/v3/api-docs/**",
+                                "/api/auth/**",
+                                "/api/members",          // 회원가입 (POST)
                                 "/",
                                 "/index.html",
+                                "/login",
                                 "/expenses",
                                 "/fixed-costs",
                                 "/report",
@@ -36,6 +47,7 @@ public class SecurityConfig {
                                 "/todo",
                                 "/planner-board",
                                 "/running",
+                                "/habits",
                                 "/static/**",
                                 "/*.js",
                                 "/*.css",
@@ -43,19 +55,33 @@ public class SecurityConfig {
                                 "/*.json",
                                 "/*.png",
                                 "/*.jpg",
-                                "/*.jpeg"
+                                "/*.jpeg",
+                                "/svg/**",
+                                "/dailo_logo_nobg.png",
+                                "/dailo_logo.svg",
+                                "/dailo_symbol.ico"
                         ).permitAll()
-                        .anyRequest().authenticated()
-                );
+                        .requestMatchers("/api/**").authenticated()
+                        .anyRequest().permitAll()
+                )
+                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }
 
-    // 2. 실제 CORS 규칙 정의 (리액트 3000번 포트 허용)
+    @Bean
+    public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
+
+    @Bean
+    public AuthenticationManager authenticationManager(AuthenticationConfiguration config) throws Exception {
+        return config.getAuthenticationManager();
+    }
+
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-
         configuration.setAllowedOriginPatterns(Arrays.asList("http://localhost:3000", "https://*.trycloudflare.com"));
         configuration.setExposedHeaders(Arrays.asList("Content-Disposition"));
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
