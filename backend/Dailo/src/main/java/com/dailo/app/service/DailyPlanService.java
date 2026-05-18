@@ -45,6 +45,12 @@ public class DailyPlanService {
         return allDates.stream().sorted().map(date -> {
             List<TodoItem> big3 = big3ByDate.getOrDefault(date, Collections.emptyList());
             List<TodoItem> brain = brainByDate.getOrDefault(date, Collections.emptyList());
+            List<PlannerBoardDto.Big3Item> big3ItemInfos = big3.stream()
+                    .map(item -> PlannerBoardDto.Big3Item.builder()
+                            .content(item.getContent())
+                            .isDone(Boolean.TRUE.equals(item.getIsDone()))
+                            .build())
+                    .collect(Collectors.toList());
             return PlannerBoardDto.DayEntry.builder()
                     .planDate(date)
                     .hasPlan(planDates.contains(date))
@@ -52,6 +58,7 @@ public class DailyPlanService {
                     .big3Done((int) big3.stream().filter(i -> Boolean.TRUE.equals(i.getIsDone())).count())
                     .brainDumpTotal(brain.size())
                     .brainDumpDone((int) brain.stream().filter(i -> Boolean.TRUE.equals(i.getIsDone())).count())
+                    .big3Items(big3ItemInfos)
                     .build();
         }).collect(Collectors.toList());
     }

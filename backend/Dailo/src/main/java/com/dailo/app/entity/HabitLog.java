@@ -19,4 +19,11 @@ public class HabitLog extends BaseEntity {
 
     @Column(name = "log_date", nullable = false)
     private LocalDate logDate;
+
+    @Column(nullable = false)
+    private int count;
+
+    public void increment() { this.count++; }
+
+    public void decrement() { if (this.count > 1) this.count--; }
 }

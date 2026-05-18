@@ -28,10 +28,14 @@ public class Habit extends BaseEntity {
 
     private Integer sortOrder;
 
-    public void update(String name, String emoji, String color) {
+    @Column(length = 10)
+    private String habitType; // "GOOD" or "BAD", null treated as "GOOD"
+
+    public void update(String name, String emoji, String color, String habitType) {
         this.name = name;
         this.emoji = emoji;
         this.color = color;
+        this.habitType = habitType;
     }
 
     public void deactivate() {

@@ -33,11 +33,11 @@ public class DashboardService {
         // 고정비 실시간 조회
         Integer fixedCostTotal = fixedCostRepository.sumActiveByMemberId(budget.getMember().getId());
 
-        // 기타 수입 (이자 등) 조회
+        // 기타 수입 (표시용만 - 가용금액 계산에서 제외)
         Integer extraIncomeTotal = incomeRepository.sumBySettleMonth(month);
 
-        // 가용금액 및 분배 실시간 계산 (실수령액 + 기타수입 - 고정비)
-        Integer availableAmount = Math.max(budget.getNetSalary() + extraIncomeTotal - fixedCostTotal, 0);
+        // 가용금액 및 분배 실시간 계산 (실수령액 - 고정비)
+        Integer availableAmount = Math.max(budget.getNetSalary() - fixedCostTotal, 0);
         Integer livingBudget     = (int)(availableAmount * budget.getLivingRate());
         Integer isaAmount        = (int)(availableAmount * budget.getIsaRate());
         Integer pensionAmount    = (int)(availableAmount * budget.getPensionRate());
@@ -96,9 +96,8 @@ public class DashboardService {
         for (MonthlyBudget budget : budgets) {
             String month = budget.getSettleMonth();
 
-            Integer extraIncomeTotal = incomeRepository.sumBySettleMonth(month);
             Integer fixedCostTotal   = budget.getFixedCostTotal() != null ? budget.getFixedCostTotal() : 0;
-            Integer availableAmount  = Math.max(budget.getNetSalary() + extraIncomeTotal - fixedCostTotal, 0);
+            Integer availableAmount  = Math.max(budget.getNetSalary() - fixedCostTotal, 0);
             Integer emergencyBudget  = (int)(availableAmount * budget.getEmergencyRate());
             Integer emergencyExpense = dailyExpenseRepository.sumEmergencyExpense(month);
             Integer emergencyNet     = emergencyBudget - emergencyExpense;
@@ -126,7 +125,7 @@ public class DashboardService {
 
             Integer fixedCostTotal   = budget.getFixedCostTotal() != null ? budget.getFixedCostTotal() : 0;
             Integer extraIncomeTotal = incomeRepository.sumBySettleMonth(month);
-            Integer availableAmount  = Math.max(budget.getNetSalary() + extraIncomeTotal - fixedCostTotal, 0);
+            Integer availableAmount  = Math.max(budget.getNetSalary() - fixedCostTotal, 0);
             Integer livingBudget     = (int)(availableAmount * budget.getLivingRate());
             Integer isaAmount        = (int)(availableAmount * budget.getIsaRate());
             Integer pensionAmount    = (int)(availableAmount * budget.getPensionRate());

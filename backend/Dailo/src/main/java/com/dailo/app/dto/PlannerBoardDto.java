@@ -4,8 +4,16 @@ import lombok.Builder;
 import lombok.Getter;
 
 import java.time.LocalDate;
+import java.util.List;
 
 public class PlannerBoardDto {
+
+    @Getter
+    @Builder
+    public static class Big3Item {
+        private String content;
+        private boolean isDone;
+    }
 
     @Getter
     @Builder
@@ -16,5 +24,6 @@ public class PlannerBoardDto {
         private int big3Done;
         private int brainDumpTotal;
         private int brainDumpDone;
+        private List<Big3Item> big3Items;
     }
 }

@@ -28,7 +28,7 @@ com.dailo.app
 - 예외는 GlobalExceptionHandler에서 처리
 - 모든 응답은 ApiResponse<T> 공통 포맷 사용
 - ApiResponse 메서드명: ApiResponse.ok() 사용 (success() 아님)
-
+- 모든 앞단의 페이지는 web,mobile 화면단에 잘 나오게 설계해야 한다.
 ## 규칙
 - 컴파일/실행은 개발자가 직접 한다 (mvn, bootRun 명령 실행 금지)
 - 코드 작성 후 실행 결과는 개발자가 확인 후 피드백한다
@@ -190,6 +190,7 @@ com.dailo.app
 - 빌드/복사 순서:
   1. `cd frontend/Dailo && npm run build`
   2. `cp -r build/* backend/Dailo/src/main/resources/static/`
+  3-1. ! cd /Users/user/Desktop/workspace/Dailo/frontend/Dailo && npm run deploy
   3. Spring Boot 재시작
 
 ## 과거 실수 기록

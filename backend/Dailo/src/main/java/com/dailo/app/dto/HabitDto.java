@@ -17,6 +17,7 @@ public class HabitDto {
         private String emoji;
         private String color;
         private Integer sortOrder;
+        private String habitType; // "GOOD" or "BAD"
     }
 
     @Getter
@@ -27,6 +28,7 @@ public class HabitDto {
         private String emoji;
         private String color;
         private Integer sortOrder;
+        private String habitType;
 
         public static Response from(Habit habit) {
             return Response.builder()
@@ -35,6 +37,7 @@ public class HabitDto {
                     .emoji(habit.getEmoji())
                     .color(habit.getColor())
                     .sortOrder(habit.getSortOrder())
+                    .habitType(habit.getHabitType() != null ? habit.getHabitType() : "GOOD")
                     .build();
         }
     }
@@ -53,12 +56,14 @@ public class HabitDto {
         private Long id;
         private Long habitId;
         private LocalDate logDate;
+        private int count;
 
         public static LogResponse from(HabitLog log) {
             return LogResponse.builder()
                     .id(log.getId())
                     .habitId(log.getHabit().getId())
                     .logDate(log.getLogDate())
+                    .count(log.getCount() > 0 ? log.getCount() : 1)
                     .build();
         }
     }

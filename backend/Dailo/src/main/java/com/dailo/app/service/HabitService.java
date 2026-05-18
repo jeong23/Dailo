@@ -37,6 +37,7 @@ public class HabitService {
                 .color(request.getColor())
                 .isActive(true)
                 .sortOrder(request.getSortOrder() != null ? request.getSortOrder() : 0)
+                .habitType(request.getHabitType() != null ? request.getHabitType() : "GOOD")
                 .build();
         return HabitDto.Response.from(habitRepository.save(habit));
     }
@@ -45,7 +46,12 @@ public class HabitService {
     public HabitDto.Response update(Long id, HabitDto.Request request) {
         Habit habit = habitRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("습관을 찾을 수 없습니다: " + id));
-        habit.update(request.getName(), request.getEmoji(), request.getColor());
+        habit.update(
+                request.getName(),
+                request.getEmoji(),
+                request.getColor(),
+                request.getHabitType() != null ? request.getHabitType() : "GOOD"
+        );
         return HabitDto.Response.from(habit);
     }
 
@@ -66,6 +72,7 @@ public class HabitService {
                 .collect(Collectors.toList());
     }
 
+    // 월간 그리드용 토글 (0 → 1, 1+ → 0)
     @Transactional
     public void toggleLog(Long habitId, LocalDate logDate) {
         habitLogRepository.findByHabitIdAndLogDate(habitId, logDate)
@@ -77,8 +84,41 @@ public class HabitService {
                             habitLogRepository.save(HabitLog.builder()
                                     .habit(habit)
                                     .logDate(logDate)
+                                    .count(1)
                                     .build());
                         }
                 );
+    }
+
+    // 오늘 카운트 +1
+    @Transactional
+    public void incrementLog(Long habitId, LocalDate logDate) {
+        habitLogRepository.findByHabitIdAndLogDate(habitId, logDate)
+                .ifPresentOrElse(
+                        log -> { log.increment(); habitLogRepository.save(log); },
+                        () -> {
+                            Habit habit = habitRepository.findById(habitId)
+                                    .orElseThrow(() -> new IllegalArgumentException("습관을 찾을 수 없습니다: " + habitId));
+                            habitLogRepository.save(HabitLog.builder()
+                                    .habit(habit)
+                                    .logDate(logDate)
+                                    .count(1)
+                                    .build());
+                        }
+                );
+    }
+
+    // 오늘 카운트 -1 (0이면 삭제)
+    @Transactional
+    public void decrementLog(Long habitId, LocalDate logDate) {
+        habitLogRepository.findByHabitIdAndLogDate(habitId, logDate)
+                .ifPresent(log -> {
+                    if (log.getCount() <= 1) {
+                        habitLogRepository.delete(log);
+                    } else {
+                        log.decrement();
+                        habitLogRepository.save(log);
+                    }
+                });
     }
 }

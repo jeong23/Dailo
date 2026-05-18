@@ -9,7 +9,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
-import java.time.LocalDate;
 import java.util.List;
 
 @RestController
@@ -53,9 +52,24 @@ public class HabitController {
         ));
     }
 
+    // 월간 그리드 토글 (0↔1)
     @PostMapping("/logs")
     public ResponseEntity<ApiResponse<Void>> toggleLog(@RequestBody HabitDto.LogRequest request) {
         habitService.toggleLog(request.getHabitId(), request.getLogDate());
+        return ResponseEntity.ok(ApiResponse.ok(null));
+    }
+
+    // 카운트 +1
+    @PostMapping("/logs/increment")
+    public ResponseEntity<ApiResponse<Void>> incrementLog(@RequestBody HabitDto.LogRequest request) {
+        habitService.incrementLog(request.getHabitId(), request.getLogDate());
+        return ResponseEntity.ok(ApiResponse.ok(null));
+    }
+
+    // 카운트 -1
+    @PostMapping("/logs/decrement")
+    public ResponseEntity<ApiResponse<Void>> decrementLog(@RequestBody HabitDto.LogRequest request) {
+        habitService.decrementLog(request.getHabitId(), request.getLogDate());
         return ResponseEntity.ok(ApiResponse.ok(null));
     }
 }
