@@ -28,8 +28,18 @@ export const InvestDiaryPage = () => {
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [diaries, setDiaries] = useState<Diary[]>([]);
+  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+
+  const toggleExpand = (id: number) => {
+    setExpandedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
   const [form, setForm] = useState({
     date: todayStr, marketMood: 'NEUTRAL', myEmotion: 'CALM', title: '', body: '',
   });
@@ -42,7 +52,7 @@ export const InvestDiaryPage = () => {
     } catch { setDiaries([]); }
   };
 
-  useEffect(() => { fetchDiaries(); }, [year, month]);
+  useEffect(() => { fetchDiaries(); }, [year, month]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const moveMonth = (d: number) => {
     let m = month + d, y = year;
@@ -128,7 +138,19 @@ export const InvestDiaryPage = () => {
                 </div>
               </div>
               {d.body && (
-                <p className="text-sm text-slate-500 dark:text-slate-400 mt-2 whitespace-pre-wrap line-clamp-3">{d.body}</p>
+                <div className="mt-2">
+                  <p className={`text-sm text-slate-500 dark:text-slate-400 whitespace-pre-wrap ${expandedIds.has(d.id) ? '' : 'line-clamp-3'}`}>
+                    {d.body}
+                  </p>
+                  {d.body.split('\n').length > 3 || d.body.length > 150 ? (
+                    <button
+                      onClick={() => toggleExpand(d.id)}
+                      className="text-xs text-primary-500 hover:text-primary-600 mt-1 font-medium transition-colors"
+                    >
+                      {expandedIds.has(d.id) ? '접기 ▲' : '더 보기 ▼'}
+                    </button>
+                  ) : null}
+                </div>
               )}
             </div>
           ))}

@@ -125,6 +125,7 @@ export const BudgetSettingsPage = () => {
         setBudgetsLoaded(true);
         fetchData([]);
       });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchData = async (budgetList = allBudgets, month = selectedMonth) => {
@@ -193,6 +194,7 @@ export const BudgetSettingsPage = () => {
 
   useEffect(() => {
     if (budgetsLoaded) fetchData(allBudgets, selectedMonth);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedMonth]);
 
   useEffect(() => {

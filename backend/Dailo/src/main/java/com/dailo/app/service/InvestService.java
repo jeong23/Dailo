@@ -147,11 +147,17 @@ public class InvestService {
         int pensionLimit = setting != null ? setting.getPensionLimit() : 6_000_000;
 
         List<InvestAccount> accounts = accountRepo.findByMemberIdOrderBySortOrderAsc(memberId);
-        List<Long> allHoldingIds = new ArrayList<>();
-        for (InvestAccount acc : accounts) {
-            holdingRepo.findByAccountIdOrderBySortOrderAsc(acc.getId())
-                    .forEach(h -> allHoldingIds.add(h.getId()));
+        List<Long> accountIds = accounts.stream().map(InvestAccount::getId).collect(Collectors.toList());
+
+        // 전체 holding 한 번에 조회 후 accountId 기준으로 그룹핑 (N+1 방지)
+        Map<Long, List<InvestHolding>> holdingsByAccount = new HashMap<>();
+        if (!accountIds.isEmpty()) {
+            holdingRepo.findByAccountIdInOrderBySortOrderAsc(accountIds)
+                    .forEach(h -> holdingsByAccount.computeIfAbsent(h.getAccount().getId(), k -> new ArrayList<>()).add(h));
         }
+
+        List<Long> allHoldingIds = holdingsByAccount.values().stream()
+                .flatMap(List::stream).map(InvestHolding::getId).collect(Collectors.toList());
 
         // 해당 월 레코드 조회 (없으면 자동 생성)
         Map<Long, InvestMonthlyRecord> recordMap = new HashMap<>();
@@ -164,7 +170,7 @@ public class InvestService {
         int totalPlanned = 0, totalActual = 0;
 
         for (InvestAccount acc : accounts) {
-            List<InvestHolding> holdings = holdingRepo.findByAccountIdOrderBySortOrderAsc(acc.getId());
+            List<InvestHolding> holdings = holdingsByAccount.getOrDefault(acc.getId(), Collections.emptyList());
             int accPlanned = 0, accActual = 0;
             List<InvestDto.DashboardHolding> dashHoldings = new ArrayList<>();
 
@@ -210,19 +216,9 @@ public class InvestService {
                     .build());
         }
 
-        // 연금 연간 납입 누계 (PENSION 계좌만)
+        // 연금 연간 납입 누계 (DB에서 직접 합산)
         String yearPrefix = yearMonth.substring(0, 4);
-        List<InvestMonthlyRecord> ytdRecords = recordRepo.findByMemberIdAndYearPrefix(memberId, yearPrefix);
-        int pensionYtd = 0;
-        Set<Long> pensionAccountIds = accounts.stream()
-                .filter(a -> "PENSION".equals(a.getType()))
-                .map(InvestAccount::getId)
-                .collect(Collectors.toSet());
-        for (InvestMonthlyRecord r : ytdRecords) {
-            if (pensionAccountIds.contains(r.getHolding().getAccount().getId())) {
-                pensionYtd += r.getActualAmt() != null ? r.getActualAmt() : 0;
-            }
-        }
+        int pensionYtd = recordRepo.sumPensionYtdActual(memberId, yearPrefix);
 
         return InvestDto.DashboardResponse.builder()
                 .yearMonth(yearMonth).monthlyBudget(budget)

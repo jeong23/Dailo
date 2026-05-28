@@ -4,7 +4,7 @@ import { DailyPlan, TodoItem, TimeBoxSlot } from '../types';
 import api from '../api/axios';
 
 const HOURS = Array.from({ length: 19 }, (_, i) => i + 5);
-const SLOTS = Array.from({ length: 38 }, (_, i) => ({ hour: Math.floor(i / 2) + 5, slot: i % 2 }));
+
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 // 슬롯을 선형 인덱스로 변환 (5:00 = 0, 5:30 = 1, 6:00 = 2 ...)
@@ -252,7 +252,6 @@ export const TodoPage = () => {
     const reordered = [...currentBig3];
     const [moved] = reordered.splice(fromIdx, 1);
     reordered.splice(toIdx, 0, moved);
-    const updatedIds = reordered.map(i => i.id!);
     setTodoItems(prev => {
       const others = prev.filter(i => i.type !== 'BIG3');
       return [...others, ...reordered.map((item, idx) => ({ ...item, sortOrder: idx }))];

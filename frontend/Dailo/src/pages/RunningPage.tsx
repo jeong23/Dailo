@@ -42,11 +42,6 @@ const haversine = (a: LatLng, b: LatLng) => {
   return R * 2 * Math.atan2(Math.sqrt(sin2), Math.sqrt(1 - sin2));
 };
 
-const calcTotalDistance = (path: LatLng[]) => {
-  let total = 0;
-  for (let i = 1; i < path.length; i++) total += haversine(path[i - 1], path[i]);
-  return total;
-};
 
 const calcKmMarkers = (path: LatLng[]) => {
   const markers: { km: number; pos: LatLng }[] = [];

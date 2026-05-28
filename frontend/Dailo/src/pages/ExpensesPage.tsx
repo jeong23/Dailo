@@ -32,6 +32,7 @@ export const ExpensesPage = () => {
         }
       })
       .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 지출 상태
@@ -90,6 +91,7 @@ export const ExpensesPage = () => {
   useEffect(() => {
     fetchExpenses();
     fetchIncomes();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedMonth]);
 
   // 지출 폼

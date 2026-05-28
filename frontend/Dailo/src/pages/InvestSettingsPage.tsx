@@ -5,7 +5,6 @@ interface Holding { id?: number; ticker: string; targetPct: number; sortOrder: n
 interface Account { id?: number; name: string; type: string; targetPct: number; sortOrder: number; holdings: Holding[]; }
 interface Setting { monthlyBudget: number; rebalanceThreshold: number; pensionLimit: number; }
 
-const TYPE_LABELS: Record<string, string> = { PENSION: '연금저축', GENERAL: '일반', IRP: 'IRP' };
 const TYPE_COLORS: Record<string, string> = { PENSION: 'text-violet-500', GENERAL: 'text-blue-500', IRP: 'text-emerald-500' };
 
 const formatNum = (v: string) => v.replace(/[^0-9]/g, '').replace(/\B(?=(\d{3})+(?!\d))/g, ',');

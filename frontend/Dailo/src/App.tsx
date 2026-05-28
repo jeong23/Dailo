@@ -149,6 +149,7 @@ const DashboardHome = () => {
         }
       })
       .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 데이터 로드
@@ -178,6 +179,7 @@ const DashboardHome = () => {
 
   useEffect(() => {
     fetchData();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedMonth]);
 
   // 차트 데이터 가공
@@ -202,8 +204,6 @@ const DashboardHome = () => {
         }, {})
       ).sort((a, b) => a.date.localeCompare(b.date));
 
-  const totalExpenseAmount = expenses.reduce((sum, item) => sum + item.amount, 0);
-
   // 예산 대비 소진율
   const livingExpenses = expenses.filter(e => e.budgetType === '생활비').reduce((sum, e) => sum + e.amount, 0);
   const emergencyExpenses = expenses.filter(e => e.budgetType === '비상금').reduce((sum, e) => sum + e.amount, 0);
@@ -217,12 +217,6 @@ const DashboardHome = () => {
     if (rate <= 80) return 'bg-yellow-500';
     return 'bg-red-500';
   };
-  const getCardBorder = (rate: number) => {
-    if (rate >= 100) return 'border-red-500 dark:border-red-500';
-    if (rate >= 80) return 'border-yellow-400 dark:border-yellow-400';
-    return 'border-slate-200 dark:border-dark-border';
-  };
-
   // 경고 알림 목록
   const alerts: { type: 'danger' | 'warning'; msg: string }[] = [];
   if (summary) {
