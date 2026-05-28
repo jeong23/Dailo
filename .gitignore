@@ -1,0 +1,20 @@
+# Frontend build output
+frontend/Dailo/node_modules/
+frontend/Dailo/build/
+
+# Backend build output
+backend/Dailo/target/
+
+# Spring Boot static (React 빌드 결과물 — 배포 시 수동 복사)
+backend/Dailo/src/main/resources/static/static/
+backend/Dailo/src/main/resources/static/asset-manifest.json
+backend/Dailo/src/main/resources/static/index.html
+
+# 환경설정
+backend/Dailo/src/main/resources/application.yml
+frontend/Dailo/.env
+
+# IDE
+.idea/
+*.iml
+.DS_Store

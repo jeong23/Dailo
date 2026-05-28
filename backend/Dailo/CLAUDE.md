@@ -92,6 +92,12 @@ com.dailo.app
 - PUT/DELETE /api/habits/{id}
 - GET        /api/habits/logs?year=YYYY&month=MM
 - POST       /api/habits/logs
+- GET/POST   /api/invest/setting
+- GET/POST   /api/invest/accounts
+- GET        /api/invest/dashboard?yearMonth=YYYY-MM
+- PUT        /api/invest/records/{id}
+- GET/POST   /api/invest/diary?year=YYYY&month=M
+- DELETE     /api/invest/diary/{id}
 
 ## 인증 (JWT)
 - 방식: Stateless JWT (jjwt 0.12.6), 30일 만료
@@ -159,6 +165,17 @@ com.dailo.app
 - HABIT_LOG 유니크 제약: (habit_id, log_date) — 중복 체크 불필요 (toggle 로직으로 보장)
 - HabitLogRepository.deleteByHabitId(): 호출 메서드에 @Transactional 필요 (HabitService.delete에 있음)
 - 프론트 낙관적 업데이트: 클릭 즉시 UI 반영 후 API 호출, 실패 시 fetchLogs로 롤백
+
+## InvestService 규칙
+- 설정(InvestSetting): memberId당 1행 — 없으면 기본값(budget=0, threshold=5%, pensionLimit=600만) 반환
+- rebalanceThreshold: 종목 현재비중과 목표비중 차이가 이 값(%) 초과 시 rebalanceNeeded=true 반환
+  → 목표비중(overallTargetPct) = 계좌targetPct × 종목targetPct / 100
+  → 현재비중(currentPct)은 사용자가 PUT /api/invest/records/{id}로 직접 입력
+- getDashboard(): 해당 월 레코드가 없으면 자동 생성 (plannedAmt 자동 계산, actualAmt=0)
+  → monthlyBudget 변경 시 다음 getDashboard 호출 때 plannedAmt 자동 재계산
+- pensionYtdActual: 해당 연도 1월~현재 월까지 PENSION 타입 계좌 actualAmt 누계
+- 계좌/종목 saveAccounts(): 요청에 없는 기존 계좌·종목은 삭제 (관련 레코드도 cascade 삭제)
+- InvestDiary: 같은 날짜(memberId+date) 중복 저장 시 덮어씀 (upsert 방식)
 
 ## RunningRecord 규칙
 - duration 입력: 프론트에서 "MM:SS" 문자열로 받아 durationSeconds(int)로 저장
