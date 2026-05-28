@@ -193,10 +193,11 @@ com.dailo.app
   → getMonthOptions(count): 최근 N개월 옵션
 
 ## Git 저장소 구조
-- `frontend/Dailo` — 별도 Git 저장소 (`.git` 독립)
-- `backend/Dailo` — 별도 Git 저장소 (`.git` 독립)
-- 프론트 소스 수정만으로는 백엔드 SourceTree에 변경 안 보임
-- 빌드 후 `src/main/resources/static/`에 복사해야 백엔드 Git에 반영됨
+- 모노레포: `Dailo/` 최상위에 단일 `.git` (GitHub: jeong23/LifePlan)
+- `frontend/Dailo` — React 소스 (모노레포에서 관리)
+- `backend/Dailo` — Spring Boot 소스 (모노레포에서 관리)
+- 빌드 결과물(`static/static/`, `asset-manifest.json`, `index.html`)은 `.gitignore`로 제외
+- 커밋은 `Dailo/` 루트 기준으로 한 번만 하면 됨
 
 ## 배포 (외부 접근)
 - React 빌드 후 `src/main/resources/static/`에 복사해서 Spring Boot에서 서빙
@@ -204,10 +205,9 @@ com.dailo.app
 - CORS: setAllowedOriginPatterns 사용 — setAllowedOrigins와 allowCredentials 동시 사용 불가
   허용 패턴: http://localhost:3000, https://*.trycloudflare.com
 - SpaController: React Router 경로(/expenses, /fixed-costs 등)를 index.html로 포워딩
-- 빌드/복사 순서:
-  1. `cd frontend/Dailo && npm run build`
-  2. `cp -r build/* backend/Dailo/src/main/resources/static/`
-  3-1. ! cd /Users/user/Desktop/workspace/Dailo/frontend/Dailo && npm run deploy
+- 빌드/배포 순서 (static/ 누적 방지를 위해 기존 파일 먼저 삭제):
+  1. `rm -rf backend/Dailo/src/main/resources/static/static backend/Dailo/src/main/resources/static/index.html backend/Dailo/src/main/resources/static/asset-manifest.json`
+  2. ! cd /Users/user/Desktop/workspace/Dailo/frontend/Dailo && npm run deploy
   3. Spring Boot 재시작
 
 ## 과거 실수 기록
