@@ -64,11 +64,11 @@ export const InvestRecordsPage = () => {
     finally { setSaving(prev => ({ ...prev, [recordId]: false })); }
   };
 
-  const togglePaid = async (recordId: number, currentIsPaid: boolean, actualAmt: number) => {
+  const togglePaid = async (recordId: number, currentIsPaid: boolean, actualAmt: number, currentPct: number) => {
     setSaving(prev => ({ ...prev, [recordId]: true }));
     try {
       await api.put(`/invest/records/${recordId}`, {
-        actualAmt, isPaid: !currentIsPaid, currentPct: null,
+        actualAmt, isPaid: !currentIsPaid, currentPct,
       });
       await fetchData(ym);
     } catch { alert('저장 실패'); }
@@ -197,7 +197,7 @@ export const InvestRecordsPage = () => {
                               </button>
                               {h.actualAmt > 0 && (
                                 <button
-                                  onClick={() => togglePaid(h.recordId, h.isPaid, h.actualAmt)}
+                                  onClick={() => togglePaid(h.recordId, h.isPaid, h.actualAmt, h.currentPct)}
                                   disabled={saving[h.recordId]}
                                   className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                                     h.isPaid
