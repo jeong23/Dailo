@@ -24,6 +24,7 @@ public class TodoItemDto {
         private String content;
         private Boolean isDone;
         private String type;
+        private Integer sortOrder;
     }
 
     @Getter

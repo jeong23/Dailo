@@ -33,6 +33,10 @@ public class TodoItem extends BaseEntity {
         this.isDone = isDone;
     }
 
+    public void updateSortOrder(Integer sortOrder) {
+        this.sortOrder = sortOrder;
+    }
+
     public void updateType(String type) {
         this.type = type;
     }
