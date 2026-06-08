@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { MonthlyBudget } from '../types';
 import api, { getStoredMemberId } from '../api/axios';
 import { formatNumber, parseNumber, getCurrentSettleMonth } from '../utils/format';
 import { getAllocationLabels, setAllocationLabels, AllocationKey } from '../utils/allocationLabels';
+import { calcTaxOptimization, TAX_CALC_RESULT_KEY, TAX_CALC_INPUTS_KEY } from '../utils/taxCalc';
 
 const ALLOCATION_BASE = [
   { rateKey: 'livingRate' as const,        labelKey: 'living' as AllocationKey,       color: 'bg-blue-500',    text: 'text-blue-500' },
@@ -57,6 +58,24 @@ export const BudgetSettingsPage = () => {
     parseInt(localStorage.getItem('salaryDay') || '25', 10)
   );
   const [isSavingDay, setIsSavingDay] = useState(false);
+
+  // 세액공제 계산기 — localStorage에서 복원
+  const savedTaxInputs = (() => {
+    try { return JSON.parse(localStorage.getItem(TAX_CALC_INPUTS_KEY) || '{}'); } catch { return {}; }
+  })();
+  const [taxProbation, setTaxProbation] = useState<boolean>(savedTaxInputs.isProbation ?? false);
+  const [taxProbEndMonth, setTaxProbEndMonth] = useState<number>(savedTaxInputs.probEndMonth ?? 3);
+  const [taxJoinMonth, setTaxJoinMonth] = useState<number>(savedTaxInputs.joinMonth ?? 1);
+
+  // 입력 변경 시 localStorage 저장 + 결과 계산
+  const taxResult = useMemo(() => {
+    const inputs = { isProbation: taxProbation, probEndMonth: taxProbEndMonth, joinMonth: taxJoinMonth };
+    localStorage.setItem(TAX_CALC_INPUTS_KEY, JSON.stringify(inputs));
+    const result = calcTaxOptimization(parseNumber(netSalary), taxProbation, taxJoinMonth);
+    if (result) localStorage.setItem(TAX_CALC_RESULT_KEY, JSON.stringify(result));
+    return result;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [netSalary, taxProbation, taxJoinMonth, taxProbEndMonth]);
 
   // 미리보기 계산값
   const net = parseNumber(netSalary);
@@ -576,6 +595,133 @@ export const BudgetSettingsPage = () => {
             ))}
           </div>
         </div>
+      </div>
+
+      {/* 세액공제 최적화 계산기 */}
+      <div className="bg-white dark:bg-dark-card rounded-2xl shadow-[0_1px_8px_rgba(0,0,0,0.06)] dark:shadow-none p-6 space-y-5">
+        <div>
+          <h3 className="text-base font-semibold dark:text-dark-text">세액공제 최적화 계산기</h3>
+          <p className="text-xs text-slate-400 dark:text-dark-muted mt-0.5">
+            실수령액은 위 입력값 자동 반영 — 결과 참고해 위 비율 직접 조정하세요
+          </p>
+        </div>
+
+        {/* 추가 입력 */}
+        <div className="flex flex-wrap items-end gap-4">
+          <div>
+            <label className="block text-xs font-medium text-slate-500 dark:text-dark-muted mb-1">입사월</label>
+            <select
+              value={taxJoinMonth}
+              onChange={e => setTaxJoinMonth(Number(e.target.value))}
+              className="p-2 rounded-lg border dark:bg-dark-bg dark:border-dark-border dark:text-dark-text outline-none focus:ring-2 focus:ring-primary-500 text-sm"
+            >
+              {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
+                <option key={m} value={m}>{m}월</option>
+              ))}
+            </select>
+          </div>
+          <label className="flex items-center gap-2 cursor-pointer select-none pb-2">
+            <input
+              type="checkbox"
+              checked={taxProbation}
+              onChange={e => setTaxProbation(e.target.checked)}
+              className="w-4 h-4 rounded accent-primary-600"
+            />
+            <span className="text-sm text-slate-600 dark:text-dark-text">수습 중</span>
+          </label>
+          {taxProbation && (
+            <div>
+              <label className="block text-xs font-medium text-slate-500 dark:text-dark-muted mb-1">수습 종료 예정월</label>
+              <select
+                value={taxProbEndMonth}
+                onChange={e => setTaxProbEndMonth(Number(e.target.value))}
+                className="p-2 rounded-lg border dark:bg-dark-bg dark:border-dark-border dark:text-dark-text outline-none focus:ring-2 focus:ring-primary-500 text-sm"
+              >
+                {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
+                  <option key={m} value={m}>{m}월</option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
+
+        {/* 결과 */}
+        {taxResult ? (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {/* 기본 정보 */}
+            <div className="sm:col-span-3 rounded-xl bg-slate-50/60 dark:bg-slate-800/20 px-4 py-3 flex flex-wrap gap-x-8 gap-y-1.5 text-sm">
+              <div className="flex items-center gap-2">
+                <span className="text-slate-400 dark:text-dark-muted">예상 연봉</span>
+                <span className="font-semibold tabular-nums dark:text-dark-text">
+                  {Math.round(taxResult.annualSalary / 10_000).toLocaleString()}만원
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-slate-400 dark:text-dark-muted">세액공제율</span>
+                <span className={`font-semibold ${taxResult.creditRate === 0.165 ? 'text-violet-500' : 'text-blue-500'}`}>
+                  {(taxResult.creditRate * 100).toFixed(1)}%
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-slate-400 dark:text-dark-muted">연간 소득세</span>
+                <span className="font-semibold text-rose-500 tabular-nums">
+                  {Math.round(taxResult.annualTax / 10_000).toLocaleString()}만원
+                </span>
+              </div>
+            </div>
+
+            {/* 연금저축 */}
+            <div className="rounded-xl border border-violet-100 dark:border-violet-900/30 bg-violet-50/40 dark:bg-violet-900/10 p-4 space-y-1.5">
+              <p className="text-xs font-semibold text-violet-500 uppercase tracking-wide">연금저축</p>
+              {taxResult.pensionAnnual > 0 ? (
+                <>
+                  <p className="text-sm font-bold tabular-nums dark:text-dark-text">
+                    연 {Math.round(taxResult.pensionAnnual / 10_000).toLocaleString()}만원
+                  </p>
+                  <p className="text-xs text-slate-400">
+                    월 {Math.round(taxResult.pensionMonthly / 10_000 * 10) / 10}만원
+                  </p>
+                  <p className="text-xs text-emerald-500 font-medium">
+                    환급 {Math.round(taxResult.pensionRefund / 10_000).toLocaleString()}만원
+                  </p>
+                </>
+              ) : (
+                <p className="text-xs text-slate-400">소득세 없음</p>
+              )}
+            </div>
+
+            {/* IRP */}
+            <div className="rounded-xl border border-emerald-100 dark:border-emerald-900/30 bg-emerald-50/40 dark:bg-emerald-900/10 p-4 space-y-1.5">
+              <p className="text-xs font-semibold text-emerald-500 uppercase tracking-wide">IRP</p>
+              {taxResult.irpNeeded ? (
+                <>
+                  <p className="text-sm font-bold tabular-nums dark:text-dark-text">
+                    연 {Math.round(taxResult.irpAnnual / 10_000).toLocaleString()}만원
+                  </p>
+                  <p className="text-xs text-slate-400">
+                    월 {Math.round(taxResult.irpMonthly / 10_000 * 10) / 10}만원
+                  </p>
+                  <p className="text-xs text-emerald-500 font-medium">
+                    환급 {Math.round(taxResult.irpRefund / 10_000).toLocaleString()}만원
+                  </p>
+                </>
+              ) : (
+                <p className="text-xs text-slate-400">연금저축으로 전액 상계</p>
+              )}
+            </div>
+
+            {/* ISA */}
+            <div className="rounded-xl border border-slate-100 dark:border-dark-border bg-slate-50/40 dark:bg-slate-800/10 p-4 space-y-1.5">
+              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">ISA</p>
+              <p className="text-xs text-slate-400 leading-relaxed">세액공제 없음</p>
+              <p className="text-xs text-slate-400">여유자금에서 납입 권장</p>
+            </div>
+          </div>
+        ) : (
+          <div className="rounded-xl border border-dashed border-slate-200 dark:border-dark-border py-6 text-center">
+            <p className="text-sm text-slate-400 dark:text-dark-muted">실수령액을 입력하면 결과가 표시됩니다</p>
+          </div>
+        )}
       </div>
 
       {/* 메모 */}
