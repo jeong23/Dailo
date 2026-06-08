@@ -148,6 +148,8 @@ com.dailo.app
 - TodoItem.isDone: Boolean 박싱 타입 → filter 시 Boolean.TRUE.equals() 사용 (NPE 방지)
 - /api/daily-plans/board: month 파라미터 1~12 범위 검증 필수 (DateTimeException 방지)
 - SpaController + SecurityConfig에 새 SPA 라우트 추가 시 둘 다 수정해야 함
+- TodoItem.sortOrder: PUT /api/todo-items/{id}에서 sortOrder 업데이트 지원 (Big3 드래그 재정렬용)
+  → UpdateRequest에 sortOrder 필드 포함, item.updateSortOrder() 메서드로 갱신
 
 ## R2 업로드 규칙
 - application.yml에 r2.* 설정 없으면 앱 시작 안 됨 방지: @Value에 빈 기본값(:) 필수
@@ -173,9 +175,11 @@ com.dailo.app
   → 현재비중(currentPct)은 사용자가 PUT /api/invest/records/{id}로 직접 입력
 - getDashboard(): 해당 월 레코드가 없으면 자동 생성 (plannedAmt 자동 계산, actualAmt=0)
   → monthlyBudget 변경 시 다음 getDashboard 호출 때 plannedAmt 자동 재계산
-- pensionYtdActual: 해당 연도 1월~현재 월까지 PENSION 타입 계좌 actualAmt 누계
+  → N+1 방지: holding 전체를 findByAccountIdInOrderBySortOrderAsc()로 한 번에 조회 후 Map 그룹핑
+- pensionYtdActual: sumPensionYtdActual() 집계 쿼리로 DB에서 직접 합산 (PENSION 타입 계좌만)
 - 계좌/종목 saveAccounts(): 요청에 없는 기존 계좌·종목은 삭제 (관련 레코드도 cascade 삭제)
 - InvestDiary: 같은 날짜(memberId+date) 중복 저장 시 덮어씀 (upsert 방식)
+- updateRecord(): isPaid 토글 시 currentPct를 null로 보내면 안 됨 → 기존 값 유지해서 전송
 
 ## RunningRecord 규칙
 - duration 입력: 프론트에서 "MM:SS" 문자열로 받아 durationSeconds(int)로 저장
@@ -191,6 +195,27 @@ com.dailo.app
   → getCurrentSettleMonth(): 오늘 날짜 기준 정산월
   → getSettleMonthForDate(dateStr): 특정 날짜 기준 정산월 (지출/수입 저장 시 사용)
   → getMonthOptions(count): 최근 N개월 옵션
+- allocationLabels.ts: 예산 분배 항목명(생활비/ISA/연금저축/비상금/자유재량) localStorage 관리
+  → getAllocationLabels() / setAllocationLabels() 사용 — BudgetSettingsPage에서 편집 가능
+
+## 사이드바 규칙
+- Layout.tsx: 상단 «/» 버튼으로 전체 slim 모드(w-14, 아이콘만) ↔ 전체(w-56) 토글
+- Money / Daily 그룹 헤더 클릭으로 섹션 접기/펼치기 가능
+- 설정(Config) 메뉴는 하단 버튼 영역에 위치 (nav 그룹에서 제거)
+- 사이드바/그룹 접힘 상태 localStorage 저장 ('sidebarCollapsed', 'collapsedGroups')
+
+## TodoPage 규칙
+- Big3 항목: 드래그로 내부 순서 변경 가능 (1/2/3 우선순위 재정렬)
+  → 드롭 시 reorderBig3() 호출 → 각 항목 sortOrder PUT 요청
+  → BrainDump ↔ Big3 이동과 Big3 내부 재정렬은 fromItem.type으로 구분
+- BrainDump: 최대 30개, 영역 내부 스크롤 (overflow-y-auto + min-h-0)
+
+## BudgetSettingsPage 규칙
+- 분배 입력 모드: '비율' ↔ '금액' 토글 (localStorage 미저장, 세션 내 유지)
+  → 비율 모드: % 입력 → 금액 자동 표시
+  → 금액 모드: 금액 입력 → % 자동 계산, 합계가 가용금액과 일치해야 저장 가능
+  → 저장 시 항상 비율로 변환해서 백엔드 전송 (API 변경 없음)
+- 항목명 편집: '편집' 버튼 클릭 → 인라인 수정 → '저장' → allocationLabels.ts에 반영
 
 ## Git 저장소 구조
 - 모노레포: `Dailo/` 최상위에 단일 `.git` (GitHub: jeong23/LifePlan)
@@ -205,10 +230,14 @@ com.dailo.app
 - CORS: setAllowedOriginPatterns 사용 — setAllowedOrigins와 allowCredentials 동시 사용 불가
   허용 패턴: http://localhost:3000, https://*.trycloudflare.com
 - SpaController: React Router 경로(/expenses, /fixed-costs 등)를 index.html로 포워딩
-- 빌드/배포 순서 (static/ 누적 방지를 위해 기존 파일 먼저 삭제):
-  1. `rm -rf backend/Dailo/src/main/resources/static/static backend/Dailo/src/main/resources/static/index.html backend/Dailo/src/main/resources/static/asset-manifest.json`
-  2. ! cd /Users/user/Desktop/workspace/Dailo/frontend/Dailo && npm run deploy
-  3. Spring Boot 재시작
+- 빌드/배포/커밋 단축 명령 (Makefile + ~/.zshrc alias 등록됨):
+  ```
+  ship m="feat: 기능 추가"   # 빌드 + static 복사 + git 커밋 한 번에
+  ddeploy                    # 빌드 + static 복사만
+  dcommit m="fix: 버그 수정" # git add -A + commit만
+  dailo                      # /Users/user/Desktop/workspace/Dailo 로 이동
+  ```
+- Spring Boot 재시작은 수동으로 별도 진행
 
 ## 과거 실수 기록
 - sumCardExpense 쿼리 오타 → sumEmergncyExpense로 적었다 수정함
@@ -228,6 +257,8 @@ com.dailo.app
 - MariaDB에서 `password` 컬럼명이 예약어 → SQL에서 반드시 백틱으로 감싸야 함
 - MemberService.update()에서 null 필드를 그대로 쓰면 부분 업데이트 시 기존 값 덮어씀
   → null이면 기존 member 값 유지하도록 수정
+- InvestRecordsPage togglePaid: isPaid 토글 시 currentPct: null 전송하면 기존 비중 초기화됨
+  → togglePaid에 currentPct 파라미터 추가해서 기존 값 그대로 전송해야 함
 
 ## 다음 작업 후보
 - [ ] N+1 쿼리 개선 (getMonthlyReport/getEmergencyHistory — 월 수 × 2 쿼리 발생)
