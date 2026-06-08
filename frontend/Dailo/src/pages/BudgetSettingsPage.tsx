@@ -59,13 +59,16 @@ export const BudgetSettingsPage = () => {
   );
   const [isSavingDay, setIsSavingDay] = useState(false);
 
-  // 세액공제 계산기 — localStorage에서 복원
-  const savedTaxInputs = (() => {
-    try { return JSON.parse(localStorage.getItem(TAX_CALC_INPUTS_KEY) || '{}'); } catch { return {}; }
-  })();
-  const [taxProbation, setTaxProbation] = useState<boolean>(savedTaxInputs.isProbation ?? false);
-  const [taxProbEndMonth, setTaxProbEndMonth] = useState<number>(savedTaxInputs.probEndMonth ?? 3);
-  const [taxJoinMonth, setTaxJoinMonth] = useState<number>(savedTaxInputs.joinMonth ?? 1);
+  // 세액공제 계산기 — lazy initializer로 초기 1회만 localStorage 읽기
+  const [taxProbation, setTaxProbation] = useState<boolean>(() => {
+    try { return JSON.parse(localStorage.getItem(TAX_CALC_INPUTS_KEY) || '{}').isProbation ?? false; } catch { return false; }
+  });
+  const [taxProbEndMonth, setTaxProbEndMonth] = useState<number>(() => {
+    try { return JSON.parse(localStorage.getItem(TAX_CALC_INPUTS_KEY) || '{}').probEndMonth ?? 3; } catch { return 3; }
+  });
+  const [taxJoinMonth, setTaxJoinMonth] = useState<number>(() => {
+    try { return JSON.parse(localStorage.getItem(TAX_CALC_INPUTS_KEY) || '{}').joinMonth ?? 1; } catch { return 1; }
+  });
 
   // 입력 변경 시 localStorage 저장 + 결과 계산
   const taxResult = useMemo(() => {
