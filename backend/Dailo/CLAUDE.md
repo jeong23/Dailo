@@ -279,7 +279,9 @@ com.dailo.app
   → SpaController 추가해서 index.html로 포워딩
 - CORS 외부 저장 실패(403 invalid CORS request): setAllowedOrigins → setAllowedOriginPatterns로 변경
 - TodoItem::getIsDone filter 시 메서드 레퍼런스 사용 시 NPE 가능 → Boolean.TRUE.equals() 사용
-- MariaDB에서 `password` 컬럼명이 예약어 → SQL에서 반드시 백틱으로 감싸야 함
+- MariaDB에서 `password`, `year_month`(YEAR 포함) 등 예약어 컬럼명 → Hibernate 엔티티에서 @Column(name = "`year_month`") 백틱 처리 필수
+  → SQL DDL 직접 작성 시에도 백틱 필수
+  → invest_monthly_record 테이블은 ddl-auto가 자동 생성 안 함 → 수동 CREATE TABLE 실행 필요했음
 - MemberService.update()에서 null 필드를 그대로 쓰면 부분 업데이트 시 기존 값 덮어씀
   → null이면 기존 member 값 유지하도록 수정
 - InvestRecordsPage togglePaid: isPaid 토글 시 currentPct: null 전송하면 기존 비중 초기화됨

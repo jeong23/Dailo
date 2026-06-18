@@ -16,7 +16,7 @@ public class InvestMonthlyRecord extends BaseEntity {
     @JoinColumn(name = "holding_id", nullable = false)
     private InvestHolding holding;
 
-    @Column(name = "year_month", nullable = false, length = 7)
+    @Column(name = "`year_month`", nullable = false, length = 7)
     private String yearMonth; // "2026-05"
 
     private Integer plannedAmt;
