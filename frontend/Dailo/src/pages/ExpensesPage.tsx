@@ -49,6 +49,13 @@ export const ExpensesPage = () => {
   const [categoryId, setCategoryId] = useState<number>(0);
   const [expenseMemo, setExpenseMemo] = useState('');
 
+  // 필터 · 정렬 상태
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterCategoryId, setFilterCategoryId] = useState<number | null>(null);
+  const [filterBudgetType, setFilterBudgetType] = useState<BudgetType | null>(null);
+  const [sortKey, setSortKey] = useState<'expenseDate' | 'itemName' | 'categoryName' | 'amount' | 'paymentMethod' | 'budgetType' | null>(null);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+
   // 수입 상태
   const [incomes, setIncomes] = useState<Income[]>([]);
   const [isIncomeModalOpen, setIsIncomeModalOpen] = useState(false);
@@ -91,6 +98,11 @@ export const ExpensesPage = () => {
   useEffect(() => {
     fetchExpenses();
     fetchIncomes();
+    setSearchQuery('');
+    setFilterCategoryId(null);
+    setFilterBudgetType(null);
+    setSortKey(null);
+    setSortDir('desc');
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedMonth]);
 
@@ -231,6 +243,59 @@ export const ExpensesPage = () => {
   const totalExpense = expenses.reduce((sum, e) => sum + e.amount, 0);
   const totalIncome = incomes.reduce((sum, i) => sum + i.amount, 0);
 
+  const isFiltered = searchQuery.trim() !== '' || filterCategoryId !== null || filterBudgetType !== null;
+  const filteredExpenses = (() => {
+    let list = isFiltered ? expenses.filter(e => {
+      if (filterBudgetType !== null && e.budgetType !== filterBudgetType) return false;
+      if (filterCategoryId !== null && e.categoryId !== filterCategoryId) return false;
+      if (searchQuery.trim()) {
+        const q = searchQuery.trim().toLowerCase();
+        const inName = (e.itemName || '').toLowerCase().includes(q);
+        const inCategory = (e.categoryName || e.category?.name || '').toLowerCase().includes(q);
+        const inMemo = (e.memo || '').toLowerCase().includes(q);
+        if (!inName && !inCategory && !inMemo) return false;
+      }
+      return true;
+    }) : [...expenses];
+
+    if (sortKey) {
+      list.sort((a, b) => {
+        let va: string | number = '';
+        let vb: string | number = '';
+        if (sortKey === 'amount') { va = a.amount; vb = b.amount; }
+        else if (sortKey === 'expenseDate') { va = a.expenseDate || ''; vb = b.expenseDate || ''; }
+        else if (sortKey === 'itemName') { va = a.itemName || ''; vb = b.itemName || ''; }
+        else if (sortKey === 'categoryName') { va = (a.categoryName || a.category?.name || ''); vb = (b.categoryName || b.category?.name || ''); }
+        else if (sortKey === 'paymentMethod') { va = a.paymentMethod || ''; vb = b.paymentMethod || ''; }
+        else if (sortKey === 'budgetType') { va = a.budgetType || ''; vb = b.budgetType || ''; }
+        if (va < vb) return sortDir === 'asc' ? -1 : 1;
+        if (va > vb) return sortDir === 'asc' ? 1 : -1;
+        return 0;
+      });
+    }
+    return list;
+  })();
+
+  const handleSort = (key: typeof sortKey) => {
+    if (sortKey === key) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortKey(key);
+      setSortDir('desc');
+    }
+  };
+
+  const SortIcon = ({ col }: { col: typeof sortKey }) => {
+    if (sortKey !== col) return <span className="ml-1 text-slate-300">↕</span>;
+    return <span className="ml-1 text-primary-500">{sortDir === 'desc' ? '↓' : '↑'}</span>;
+  };
+
+  const resetFilters = () => {
+    setSearchQuery('');
+    setFilterCategoryId(null);
+    setFilterBudgetType(null);
+  };
+
   const EditIcon = () => (
     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
@@ -303,16 +368,89 @@ export const ExpensesPage = () => {
         </button>
       </div>
 
+      {/* 지출 필터 바 */}
+      {activeTab === 'expense' && (
+        <div className="space-y-2.5">
+          {/* 통합 검색 */}
+          <div className="relative">
+            <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="항목명, 카테고리, 메모 검색..."
+              className="w-full pl-9 pr-8 py-2.5 rounded-xl border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-card text-sm dark:text-dark-text focus:outline-none focus:ring-2 focus:ring-primary-500"
+            />
+            {searchQuery && (
+              <button onClick={() => setSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-lg leading-none">×</button>
+            )}
+          </div>
+
+          {/* 칩 필터 */}
+          <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+            {(['전체', '생활비', '비상금', '투자'] as const).map(type => (
+              <button
+                key={type}
+                onClick={() => setFilterBudgetType(type === '전체' ? null : type)}
+                className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
+                  (type === '전체' ? filterBudgetType === null : filterBudgetType === type)
+                    ? 'bg-primary-600 text-white'
+                    : 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
+                }`}
+              >
+                {type}
+              </button>
+            ))}
+            <span className="w-px bg-slate-200 dark:bg-slate-700 mx-0.5 self-stretch shrink-0" />
+            <button
+              onClick={() => setFilterCategoryId(null)}
+              className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
+                filterCategoryId === null
+                  ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900'
+                  : 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
+              }`}
+            >
+              전체 카테고리
+            </button>
+            {categories.map(cat => (
+              <button
+                key={cat.id}
+                onClick={() => setFilterCategoryId(cat.id)}
+                className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
+                  filterCategoryId === cat.id
+                    ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900'
+                    : 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
+                }`}
+              >
+                {cat.icon} {cat.name}
+              </button>
+            ))}
+          </div>
+
+          {/* 결과 카운트 · 초기화 */}
+          {isFiltered && (
+            <div className="flex items-center justify-between text-xs px-0.5">
+              <span className="text-slate-400">{filteredExpenses.length}건 검색됨</span>
+              <button onClick={resetFilters} className="text-primary-600 dark:text-primary-400 font-medium hover:underline">필터 초기화</button>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* 지출 목록 */}
       {activeTab === 'expense' && (
         <div className="bg-white dark:bg-dark-card rounded-2xl shadow-[0_1px_8px_rgba(0,0,0,0.06)] dark:shadow-none overflow-hidden">
           {expenses.length === 0 ? (
             <p className="px-6 py-12 text-center text-sm text-slate-400">등록된 지출 내역이 없습니다.</p>
+          ) : filteredExpenses.length === 0 ? (
+            <p className="px-6 py-12 text-center text-sm text-slate-400">검색 결과가 없습니다.</p>
           ) : (
             <>
               {/* 모바일 카드 */}
               <div className="divide-y divide-slate-50 dark:divide-dark-border/50 md:hidden">
-                {expenses.map(item => (
+                {filteredExpenses.map(item => (
                   <div key={item.id} className="px-4 py-3">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
@@ -349,17 +487,17 @@ export const ExpensesPage = () => {
                 <table className="w-full text-left">
                   <thead>
                     <tr className="bg-slate-50/80 dark:bg-slate-800/30 text-xs font-medium text-slate-400 dark:text-slate-500">
-                      <th className="px-6 py-3">날짜</th>
-                      <th className="px-6 py-3">항목명</th>
-                      <th className="px-6 py-3">카테고리</th>
-                      <th className="px-6 py-3 text-right">금액</th>
-                      <th className="px-6 py-3 text-center">결제</th>
-                      <th className="px-6 py-3 text-center">구분</th>
+                      <th className="px-6 py-3 cursor-pointer select-none hover:text-slate-600 dark:hover:text-slate-300" onClick={() => handleSort('expenseDate')}>날짜<SortIcon col="expenseDate" /></th>
+                      <th className="px-6 py-3 cursor-pointer select-none hover:text-slate-600 dark:hover:text-slate-300" onClick={() => handleSort('itemName')}>항목명<SortIcon col="itemName" /></th>
+                      <th className="px-6 py-3 cursor-pointer select-none hover:text-slate-600 dark:hover:text-slate-300" onClick={() => handleSort('categoryName')}>카테고리<SortIcon col="categoryName" /></th>
+                      <th className="px-6 py-3 text-right cursor-pointer select-none hover:text-slate-600 dark:hover:text-slate-300" onClick={() => handleSort('amount')}>금액<SortIcon col="amount" /></th>
+                      <th className="px-6 py-3 text-center cursor-pointer select-none hover:text-slate-600 dark:hover:text-slate-300" onClick={() => handleSort('paymentMethod')}>결제<SortIcon col="paymentMethod" /></th>
+                      <th className="px-6 py-3 text-center cursor-pointer select-none hover:text-slate-600 dark:hover:text-slate-300" onClick={() => handleSort('budgetType')}>구분<SortIcon col="budgetType" /></th>
                       <th className="px-6 py-3 text-center">관리</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50 dark:divide-dark-border/50">
-                    {expenses.map((item) => (
+                    {filteredExpenses.map((item) => (
                       <tr key={item.id} className="hover:bg-primary-50/30 dark:hover:bg-slate-800/30 transition-colors">
                         <td className="px-6 py-3.5 text-sm text-slate-400 tabular-nums">{item.expenseDate?.substring(5)}</td>
                         <td className="px-6 py-3.5">
