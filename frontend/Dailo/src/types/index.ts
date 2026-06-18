@@ -1,7 +1,7 @@
 // src/types/index.ts
 
 export type PaymentMethod = '카드' | '현금' | '이체';
-export type BudgetType = '생활비' | '비상금';
+export type BudgetType = '생활비' | '비상금' | '투자';
 
 export interface Category {
   id: number;
@@ -29,6 +29,12 @@ export interface MonthlyBudget {
   pensionRate: number;
   emergencyRate: number;
   discretionaryRate: number;
+  extra1Rate?: number;
+  extra2Rate?: number;
+  extra3Rate?: number;
+  extra1Budget?: number;
+  extra2Budget?: number;
+  extra3Budget?: number;
 }
 
 export interface DailyExpense {
@@ -55,6 +61,9 @@ export interface DashboardSummary {
   pensionAmount: number;
   emergencyBudget: number;
   discretionaryBudget: number;
+  extra1Amount?: number;
+  extra2Amount?: number;
+  extra3Amount?: number;
   livingExpenseTotal: number;
   livingBalance: number;
   cardExpenseTotal: number;

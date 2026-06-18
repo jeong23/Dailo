@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { MonthlyBudget } from '../types';
 import api, { getStoredMemberId } from '../api/axios';
 import { formatNumber, parseNumber, getCurrentSettleMonth } from '../utils/format';
-import { getAllocationLabels, setAllocationLabels, AllocationKey } from '../utils/allocationLabels';
+import { getAllocationLabels, setAllocationLabels, AllocationKey, EXTRA_ALLOCATION_KEYS, ExtraAllocationKey } from '../utils/allocationLabels';
 import { calcTaxOptimization, TAX_CALC_RESULT_KEY, TAX_CALC_INPUTS_KEY } from '../utils/taxCalc';
 
 const ALLOCATION_BASE = [
@@ -13,14 +13,19 @@ const ALLOCATION_BASE = [
   { rateKey: 'discretionaryRate' as const, labelKey: 'discretionary' as AllocationKey, color: 'bg-rose-500',  text: 'text-rose-500' },
 ];
 
-type RateKey = typeof ALLOCATION_BASE[number]['rateKey'];
+const EXTRA_BASE = [
+  { rateKey: 'extra1Rate' as const, labelKey: 'extra1' as AllocationKey, color: 'bg-sky-500',  text: 'text-sky-500' },
+  { rateKey: 'extra2Rate' as const, labelKey: 'extra2' as AllocationKey, color: 'bg-pink-500', text: 'text-pink-500' },
+  { rateKey: 'extra3Rate' as const, labelKey: 'extra3' as AllocationKey, color: 'bg-teal-500', text: 'text-teal-500' },
+];
+
+const ALL_ALLOCATION_BASE = [...ALLOCATION_BASE, ...EXTRA_BASE];
+
+type RateKey = typeof ALL_ALLOCATION_BASE[number]['rateKey'];
 
 const DEFAULT_RATES: Record<RateKey, number> = {
-  livingRate: 35,
-  isaRate: 25,
-  pensionRate: 15,
-  emergencyRate: 15,
-  discretionaryRate: 10,
+  livingRate: 35, isaRate: 25, pensionRate: 15, emergencyRate: 15, discretionaryRate: 10,
+  extra1Rate: 0, extra2Rate: 0, extra3Rate: 0,
 };
 
 export const BudgetSettingsPage = () => {
@@ -34,7 +39,12 @@ export const BudgetSettingsPage = () => {
   const [labelEditMode, setLabelEditMode] = useState(false);
   const [labelDraft, setLabelDraft] = useState(getAllocationLabels());
 
-  const allocationMeta = ALLOCATION_BASE.map(a => ({ ...a, label: labels[a.labelKey] }));
+  // Active allocation items = 5 fixed + extra items that have a label set
+  const activeBase = [
+    ...ALLOCATION_BASE,
+    ...EXTRA_BASE.filter(a => labels[a.labelKey].trim() !== ''),
+  ];
+  const allocationMeta = activeBase.map(a => ({ ...a, label: labels[a.labelKey] }));
 
   // 폼 상태
   const [netSalary, setNetSalary] = useState('');
@@ -46,6 +56,7 @@ export const BudgetSettingsPage = () => {
   const [inputMode, setInputMode] = useState<'rate' | 'amount'>('rate');
   const [amountInputs, setAmountInputs] = useState<Record<RateKey, string>>({
     livingRate: '', isaRate: '', pensionRate: '', emergencyRate: '', discretionaryRate: '',
+    extra1Rate: '', extra2Rate: '', extra3Rate: '',
   });
 
   // 고정비 합계 (서버에서 조회)
@@ -86,14 +97,22 @@ export const BudgetSettingsPage = () => {
   const rateTotal = Object.values(rates).reduce((s, v) => s + v, 0);
 
   // 금액 모드: 입력 금액에서 비율 계산
-  const parsedAmounts = ALLOCATION_BASE.map(a => parseNumber(amountInputs[a.rateKey]));
+  const parsedAmounts = allocationMeta.map(a => parseNumber(amountInputs[a.rateKey]));
   const amountTotal = parsedAmounts.reduce((s, v) => s + v, 0);
-  const amountDiff = available - amountTotal; // 남은 금액 (0이면 정확히 맞음)
-  const computedRates: Record<RateKey, number> = available > 0
-    ? Object.fromEntries(
-        ALLOCATION_BASE.map((a, i) => [a.rateKey, Math.round(parsedAmounts[i] / available * 100)])
-      ) as Record<RateKey, number>
-    : { livingRate: 0, isaRate: 0, pensionRate: 0, emergencyRate: 0, discretionaryRate: 0 };
+  const amountDiff = available - amountTotal;
+
+  const computedRates: Record<RateKey, number> = (() => {
+    const r: Record<RateKey, number> = {
+      livingRate: 0, isaRate: 0, pensionRate: 0, emergencyRate: 0, discretionaryRate: 0,
+      extra1Rate: 0, extra2Rate: 0, extra3Rate: 0,
+    };
+    if (available > 0) {
+      allocationMeta.forEach((a, i) => {
+        r[a.rateKey] = Math.round(parsedAmounts[i] / available * 100);
+      });
+    }
+    return r;
+  })();
 
   const activeRates = inputMode === 'rate' ? rates : computedRates;
   const preview = allocationMeta.map((a, i) => ({
@@ -105,21 +124,25 @@ export const BudgetSettingsPage = () => {
   }));
 
   const switchToAmount = () => {
-    // 비율 → 금액: 현재 비율로 금액 계산, 마지막 항목은 나머지로
     if (available > 0) {
-      const keys = ALLOCATION_BASE.map(a => a.rateKey);
+      const keys = allocationMeta.map(a => a.rateKey);
       const amounts = keys.map(k => Math.floor(available * rates[k] / 100));
       const remainder = available - amounts.slice(0, -1).reduce((s, v) => s + v, 0);
       amounts[amounts.length - 1] = remainder;
-      setAmountInputs(Object.fromEntries(keys.map((k, i) => [k, formatNumber(amounts[i])])) as Record<RateKey, string>);
+      setAmountInputs(prev => ({
+        ...prev,
+        ...Object.fromEntries(keys.map((k, i) => [k, formatNumber(amounts[i])])),
+      }));
     } else {
-      setAmountInputs({ livingRate: '', isaRate: '', pensionRate: '', emergencyRate: '', discretionaryRate: '' });
+      setAmountInputs(prev => ({
+        ...prev,
+        ...Object.fromEntries(allocationMeta.map(a => [a.rateKey, ''])),
+      }));
     }
     setInputMode('amount');
   };
 
   const switchToRate = () => {
-    // 금액 → 비율: 입력 금액으로 비율 계산
     if (available > 0 && amountTotal > 0) {
       setRates(computedRates);
     }
@@ -171,13 +194,15 @@ export const BudgetSettingsPage = () => {
           pensionRate:       Math.round(budget.pensionRate * 100),
           emergencyRate:     Math.round(budget.emergencyRate * 100),
           discretionaryRate: Math.round(budget.discretionaryRate * 100),
+          extra1Rate:        Math.round((budget.extra1Rate ?? 0) * 100),
+          extra2Rate:        Math.round((budget.extra2Rate ?? 0) * 100),
+          extra3Rate:        Math.round((budget.extra3Rate ?? 0) * 100),
         });
       }
     } else {
       setExistingBudget(null);
       setLivingCarryover('');
 
-      // 이전 달 예산을 찾아 월급·비율 기본값으로 사용
       const prev = budgetList
         .filter(b => b.settleMonth < selectedMonth)
         .sort((a, b) => b.settleMonth.localeCompare(a.settleMonth))[0];
@@ -191,6 +216,9 @@ export const BudgetSettingsPage = () => {
           pensionRate:       prev.pensionRate       ? Math.round(prev.pensionRate * 100)       : DEFAULT_RATES.pensionRate,
           emergencyRate:     prev.emergencyRate     ? Math.round(prev.emergencyRate * 100)     : DEFAULT_RATES.emergencyRate,
           discretionaryRate: prev.discretionaryRate ? Math.round(prev.discretionaryRate * 100) : DEFAULT_RATES.discretionaryRate,
+          extra1Rate:        prev.extra1Rate        ? Math.round(prev.extra1Rate * 100)        : 0,
+          extra2Rate:        prev.extra2Rate        ? Math.round(prev.extra2Rate * 100)        : 0,
+          extra3Rate:        prev.extra3Rate        ? Math.round(prev.extra3Rate * 100)        : 0,
         });
       } else {
         setNetSalary('');
@@ -242,13 +270,16 @@ export const BudgetSettingsPage = () => {
       memberId: getStoredMemberId(),
       settleMonth: selectedMonth,
       netSalary: net,
-      cardGoal:        parseNumber(cardGoal),
-      livingCarryover: parseNumber(livingCarryover),
+      cardGoal:          parseNumber(cardGoal),
+      livingCarryover:   parseNumber(livingCarryover),
       livingRate:        finalRates.livingRate / 100,
       isaRate:           finalRates.isaRate / 100,
       pensionRate:       finalRates.pensionRate / 100,
       emergencyRate:     finalRates.emergencyRate / 100,
       discretionaryRate: finalRates.discretionaryRate / 100,
+      extra1Rate:        finalRates.extra1Rate / 100,
+      extra2Rate:        finalRates.extra2Rate / 100,
+      extra3Rate:        finalRates.extra3Rate / 100,
     };
 
     try {
@@ -267,7 +298,6 @@ export const BudgetSettingsPage = () => {
     }
   };
 
-
   const handleSaveSalaryDay = async () => {
     const memberId = getStoredMemberId();
     const day = Math.min(28, Math.max(1, salaryDay));
@@ -283,6 +313,42 @@ export const BudgetSettingsPage = () => {
       setIsSavingDay(false);
     }
   };
+
+  const handleSaveLabels = () => {
+    const trimmed = Object.fromEntries(
+      Object.entries(labelDraft).map(([k, v]) => {
+        const isFixed = ALLOCATION_BASE.some(b => b.labelKey === k);
+        // Fixed items: keep current label if blank; extra items: allow empty (= remove)
+        const val = (v as string).trim();
+        return [k, isFixed ? (val || labels[k as AllocationKey]) : val];
+      })
+    ) as Record<AllocationKey, string>;
+    setAllocationLabels(trimmed);
+    setLabels(trimmed);
+    // Zero out rates for extra items that were removed
+    const clearedExtras = EXTRA_ALLOCATION_KEYS.filter(
+      k => labels[k] !== '' && trimmed[k] === ''
+    );
+    if (clearedExtras.length > 0) {
+      setRates(prev => ({
+        ...prev,
+        ...Object.fromEntries(clearedExtras.map(k => [`${k}Rate`, 0])),
+      }));
+    }
+    setLabelEditMode(false);
+  };
+
+  const addExtraItem = () => {
+    const nextKey = EXTRA_ALLOCATION_KEYS.find(k => labelDraft[k].trim() === '');
+    if (!nextKey) return;
+    setLabelDraft(prev => ({ ...prev, [nextKey]: '새 항목' }));
+  };
+
+  const removeExtraItem = (key: ExtraAllocationKey) => {
+    setLabelDraft(prev => ({ ...prev, [key]: '' }));
+  };
+
+  const hasInactiveExtra = EXTRA_ALLOCATION_KEYS.some(k => labelDraft[k].trim() === '');
 
   return (
     <div className="space-y-8">
@@ -416,14 +482,7 @@ export const BudgetSettingsPage = () => {
                   <div className="flex gap-2">
                     <button
                       type="button"
-                      onClick={() => {
-                        const trimmed = Object.fromEntries(
-                          Object.entries(labelDraft).map(([k, v]) => [k, v.trim() || labels[k as AllocationKey]])
-                        ) as typeof labelDraft;
-                        setAllocationLabels(trimmed);
-                        setLabels(trimmed);
-                        setLabelEditMode(false);
-                      }}
+                      onClick={handleSaveLabels}
                       className="text-xs text-emerald-500 hover:text-emerald-600 font-medium"
                     >
                       저장
@@ -440,6 +499,7 @@ export const BudgetSettingsPage = () => {
               </div>
               {labelEditMode ? (
                 <div className="space-y-2">
+                  {/* 고정 5개 항목 */}
                   {ALLOCATION_BASE.map(a => (
                     <div key={a.labelKey} className="flex items-center gap-2">
                       <span className={`w-2 h-2 rounded-full flex-shrink-0 ${a.color}`} />
@@ -452,6 +512,37 @@ export const BudgetSettingsPage = () => {
                       />
                     </div>
                   ))}
+                  {/* 활성 추가 항목 */}
+                  {EXTRA_BASE.filter(a => labelDraft[a.labelKey].trim() !== '').map(a => (
+                    <div key={a.labelKey} className="flex items-center gap-2">
+                      <span className={`w-2 h-2 rounded-full flex-shrink-0 ${a.color}`} />
+                      <input
+                        type="text"
+                        value={labelDraft[a.labelKey]}
+                        onChange={e => setLabelDraft(prev => ({ ...prev, [a.labelKey]: e.target.value }))}
+                        maxLength={10}
+                        className="flex-1 p-1.5 rounded-lg border text-sm dark:bg-dark-bg dark:border-dark-border dark:text-dark-text outline-none focus:ring-2 focus:ring-primary-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeExtraItem(a.labelKey as ExtraAllocationKey)}
+                        className="text-slate-300 hover:text-red-400 transition-colors text-lg leading-none"
+                        title="항목 삭제"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                  {/* 항목 추가 버튼 */}
+                  {hasInactiveExtra && (
+                    <button
+                      type="button"
+                      onClick={addExtraItem}
+                      className="w-full py-1.5 text-xs text-primary-500 hover:text-primary-600 border border-dashed border-primary-300 dark:border-primary-700 rounded-lg transition-colors"
+                    >
+                      + 항목 추가
+                    </button>
+                  )}
                 </div>
               ) : (
                 <div className="flex flex-wrap gap-2">

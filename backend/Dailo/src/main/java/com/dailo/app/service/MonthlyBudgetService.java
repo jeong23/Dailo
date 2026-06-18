@@ -23,17 +23,22 @@ public class MonthlyBudgetService {
     private final MemberRepository memberRepository;
     private final FixedCostRepository fixedCostRepository;
 
+    private static double safe(Double v) { return v != null ? v : 0.0; }
+
     private int[] calcDistribution(Long memberId, Integer netSalary, MonthlyBudgetRequestDto req) {
         int fixedCostTotal = fixedCostRepository.sumActiveByMemberId(memberId);
         int available = Math.max(netSalary - fixedCostTotal, 0);
         return new int[]{
             fixedCostTotal,
             available,
-            (int)(available * req.getLivingRate()),
-            (int)(available * req.getIsaRate()),
-            (int)(available * req.getPensionRate()),
-            (int)(available * req.getEmergencyRate()),
-            (int)(available * req.getDiscretionaryRate())
+            (int)(available * safe(req.getLivingRate())),
+            (int)(available * safe(req.getIsaRate())),
+            (int)(available * safe(req.getPensionRate())),
+            (int)(available * safe(req.getEmergencyRate())),
+            (int)(available * safe(req.getDiscretionaryRate())),
+            (int)(available * safe(req.getExtra1Rate())),
+            (int)(available * safe(req.getExtra2Rate())),
+            (int)(available * safe(req.getExtra3Rate()))
         };
     }
 
@@ -60,6 +65,9 @@ public class MonthlyBudgetService {
                 .pensionAmount(dist[4])
                 .emergencyBudget(dist[5])
                 .discretionaryBudget(dist[6])
+                .extra1Budget(dist[7])
+                .extra2Budget(dist[8])
+                .extra3Budget(dist[9])
                 .cardGoal(request.getCardGoal())
                 .livingCarryover(request.getLivingCarryover())
                 .emergencyCumulative(request.getEmergencyCumulative())
@@ -68,6 +76,9 @@ public class MonthlyBudgetService {
                 .pensionRate(request.getPensionRate())
                 .emergencyRate(request.getEmergencyRate())
                 .discretionaryRate(request.getDiscretionaryRate())
+                .extra1Rate(safe(request.getExtra1Rate()))
+                .extra2Rate(safe(request.getExtra2Rate()))
+                .extra3Rate(safe(request.getExtra3Rate()))
                 .build();
 
         return MonthlyBudgetResponseDto.from(monthlyBudgetRepository.save(budget));
@@ -107,6 +118,9 @@ public class MonthlyBudgetService {
                 dist[4],
                 dist[5],
                 dist[6],
+                dist[7],
+                dist[8],
+                dist[9],
                 request.getCardGoal(),
                 request.getLivingCarryover(),
                 request.getEmergencyCumulative(),
@@ -114,7 +128,10 @@ public class MonthlyBudgetService {
                 request.getIsaRate(),
                 request.getPensionRate(),
                 request.getEmergencyRate(),
-                request.getDiscretionaryRate()
+                request.getDiscretionaryRate(),
+                safe(request.getExtra1Rate()),
+                safe(request.getExtra2Rate()),
+                safe(request.getExtra3Rate())
         );
 
         return MonthlyBudgetResponseDto.from(budget);

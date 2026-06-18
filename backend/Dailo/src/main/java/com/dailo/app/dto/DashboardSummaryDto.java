@@ -18,6 +18,9 @@ public class DashboardSummaryDto {
     private Integer pensionAmount;
     private Integer emergencyBudget;
     private Integer discretionaryBudget;
+    private Integer extra1Amount;
+    private Integer extra2Amount;
+    private Integer extra3Amount;
     private Integer cardGoal;
     private Integer livingCarryover;
     private Integer emergencyCumulative;

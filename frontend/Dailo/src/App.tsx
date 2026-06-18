@@ -23,6 +23,7 @@ import { isAuthenticated, getStoredMemberId } from './api/axios';
 import { BudgetType, DailyExpense, Category, DashboardSummary, DailyStats, CategoryStats } from './types';
 import api from './api/axios';
 import { formatNumber, parseNumber, getCurrentSettleMonth } from './utils/format';
+import { getAllocationLabels } from './utils/allocationLabels';
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4'];
 
@@ -135,8 +136,21 @@ const DashboardHome = () => {
   const [monthlyBudgetId, setMonthlyBudgetId] = useState<number>(0);
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [dailyStats, setDailyStats] = useState<DailyStats[]>([]);
+  const [allocationLabels, setAllocationLabelsState] = useState(getAllocationLabels());
   const [categoryStats, setCategoryStats] = useState<CategoryStats[]>([]);
   const [monthOptions, setMonthOptions] = useState<string[]>([]);
+  const [detailModalType, setDetailModalType] = useState<'생활비' | '비상금' | '카드' | '투자' | null>(null);
+
+  // 항목명 변경 동기화 (같은 탭 내 storage 이벤트는 발생 안 하므로 커스텀 이벤트 사용)
+  useEffect(() => {
+    const onStorage = () => setAllocationLabelsState(getAllocationLabels());
+    window.addEventListener('storage', onStorage);
+    window.addEventListener('allocationLabelsUpdated', onStorage);
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener('allocationLabelsUpdated', onStorage);
+    };
+  }, []);
 
   // 저장된 정산월 목록 로드
   useEffect(() => {
@@ -207,6 +221,15 @@ const DashboardHome = () => {
   // 예산 대비 소진율
   const livingExpenses = expenses.filter(e => e.budgetType === '생활비').reduce((sum, e) => sum + e.amount, 0);
   const emergencyExpenses = expenses.filter(e => e.budgetType === '비상금').reduce((sum, e) => sum + e.amount, 0);
+  const investExpenses = expenses.filter(e => e.budgetType === '투자').reduce((sum, e) => sum + e.amount, 0);
+
+  // 상세 모달 데이터
+  const detailModalItems = detailModalType === null ? [] :
+    detailModalType === '카드'
+      ? expenses.filter(e => e.paymentMethod === '카드')
+      : expenses.filter(e => e.budgetType === detailModalType);
+  const detailModalTotal = detailModalItems.reduce((sum, e) => sum + e.amount, 0);
+  const detailModalTitle = detailModalType === '카드' ? '카드 지출 내역' : `${detailModalType} 지출 내역`;
   const livingBudget = summary?.livingBudget || 0;
   const emergencyBudget = summary?.emergencyBudget || 0;
   const discretionaryBudget = summary?.discretionaryBudget || 0;
@@ -319,7 +342,7 @@ const DashboardHome = () => {
       )}
 
       {/* 상단 요약 카드 */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
         {/* 가용금액 */}
         <div className="p-6 bg-white dark:bg-dark-card rounded-2xl shadow-[0_1px_8px_rgba(0,0,0,0.06)] dark:shadow-none">
           <p className="text-xs font-medium text-slate-400 dark:text-slate-500">이번 달 가용 금액</p>
@@ -333,7 +356,7 @@ const DashboardHome = () => {
         </div>
 
         {/* 생활비 소진율 */}
-        <div className="p-6 bg-white dark:bg-dark-card rounded-2xl shadow-[0_1px_8px_rgba(0,0,0,0.06)] dark:shadow-none">
+        <div className="p-6 bg-white dark:bg-dark-card rounded-2xl shadow-[0_1px_8px_rgba(0,0,0,0.06)] dark:shadow-none cursor-pointer hover:shadow-md transition-shadow" onClick={() => setDetailModalType('생활비')}>
           <div className="flex justify-between items-start">
             <p className="text-xs font-medium text-slate-400 dark:text-slate-500">생활비 소진율</p>
             {livingRate >= 100 && (
@@ -359,7 +382,7 @@ const DashboardHome = () => {
         </div>
 
         {/* 비상금 소진율 */}
-        <div className="p-6 bg-white dark:bg-dark-card rounded-2xl shadow-[0_1px_8px_rgba(0,0,0,0.06)] dark:shadow-none">
+        <div className="p-6 bg-white dark:bg-dark-card rounded-2xl shadow-[0_1px_8px_rgba(0,0,0,0.06)] dark:shadow-none cursor-pointer hover:shadow-md transition-shadow" onClick={() => setDetailModalType('비상금')}>
           <div className="flex justify-between items-start">
             <p className="text-xs font-medium text-slate-400 dark:text-slate-500">비상금 소진율</p>
             {emergencyRate >= 100 && (
@@ -386,7 +409,7 @@ const DashboardHome = () => {
         </div>
 
         {/* 카드 실적 */}
-        <div className="p-6 bg-white dark:bg-dark-card rounded-2xl shadow-[0_1px_8px_rgba(0,0,0,0.06)] dark:shadow-none">
+        <div className="p-6 bg-white dark:bg-dark-card rounded-2xl shadow-[0_1px_8px_rgba(0,0,0,0.06)] dark:shadow-none cursor-pointer hover:shadow-md transition-shadow" onClick={() => setDetailModalType('카드')}>
           <p className="text-xs font-medium text-slate-400 dark:text-slate-500">카드 실적</p>
           <div className="mt-2 flex items-end gap-2">
             <span className={`text-3xl font-bold tabular-nums ${cardRate >= 100 ? 'text-emerald-500' : 'text-blue-500'}`}>{cardRate}%</span>
@@ -399,6 +422,16 @@ const DashboardHome = () => {
             <div className={`h-full rounded-full transition-all duration-500 ${cardRate >= 100 ? 'bg-emerald-500' : 'bg-blue-500'}`} style={{ width: `${Math.min(cardRate, 100)}%` }} />
           </div>
         </div>
+
+        {/* 주식 투자 */}
+        <div className="p-6 bg-white dark:bg-dark-card rounded-2xl shadow-[0_1px_8px_rgba(0,0,0,0.06)] dark:shadow-none cursor-pointer hover:shadow-md transition-shadow" onClick={() => setDetailModalType('투자')}>
+          <p className="text-xs font-medium text-slate-400 dark:text-slate-500">주식 투자</p>
+          <p className="text-3xl font-bold mt-2 tabular-nums text-violet-500">
+            {investExpenses.toLocaleString()}
+            <span className="text-lg font-medium ml-0.5">원</span>
+          </p>
+          <p className="text-xs text-slate-400 mt-2">이번 달 투자 지출</p>
+        </div>
       </div>
 
       {/* 예산 분배 현황 */}
@@ -410,13 +443,16 @@ const DashboardHome = () => {
               실수령 {summary.netSalary.toLocaleString()}원 − 고정비 {summary.fixedCostTotal.toLocaleString()}원
             </span>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
             {[
-              { label: '생활비',   value: summary.livingBudget,       color: 'text-blue-500',    bg: 'bg-blue-50 dark:bg-blue-900/20' },
-              { label: 'ISA',      value: summary.isaAmount,           color: 'text-emerald-500', bg: 'bg-emerald-50 dark:bg-emerald-900/20' },
-              { label: '연금저축', value: summary.pensionAmount,       color: 'text-violet-500',  bg: 'bg-violet-50 dark:bg-violet-900/20' },
-              { label: '비상금',   value: summary.emergencyBudget,     color: 'text-amber-500',   bg: 'bg-amber-50 dark:bg-amber-900/20' },
-              { label: '자유재량', value: summary.discretionaryBudget, color: 'text-rose-500',    bg: 'bg-rose-50 dark:bg-rose-900/20' },
+              { label: allocationLabels.living,       value: summary.livingBudget,       color: 'text-blue-500',    bg: 'bg-blue-50 dark:bg-blue-900/20' },
+              { label: allocationLabels.isa,           value: summary.isaAmount,           color: 'text-emerald-500', bg: 'bg-emerald-50 dark:bg-emerald-900/20' },
+              { label: allocationLabels.pension,       value: summary.pensionAmount,       color: 'text-violet-500',  bg: 'bg-violet-50 dark:bg-violet-900/20' },
+              { label: allocationLabels.emergency,     value: summary.emergencyBudget,     color: 'text-amber-500',   bg: 'bg-amber-50 dark:bg-amber-900/20' },
+              { label: allocationLabels.discretionary, value: summary.discretionaryBudget, color: 'text-rose-500',    bg: 'bg-rose-50 dark:bg-rose-900/20' },
+              ...(allocationLabels.extra1 && summary.extra1Amount ? [{ label: allocationLabels.extra1, value: summary.extra1Amount, color: 'text-sky-500',  bg: 'bg-sky-50 dark:bg-sky-900/20' }] : []),
+              ...(allocationLabels.extra2 && summary.extra2Amount ? [{ label: allocationLabels.extra2, value: summary.extra2Amount, color: 'text-pink-500', bg: 'bg-pink-50 dark:bg-pink-900/20' }] : []),
+              ...(allocationLabels.extra3 && summary.extra3Amount ? [{ label: allocationLabels.extra3, value: summary.extra3Amount, color: 'text-teal-500', bg: 'bg-teal-50 dark:bg-teal-900/20' }] : []),
             ].map((item) => (
               <div key={item.label} className={`text-center p-4 ${item.bg} rounded-xl`}>
                 <p className="text-xs text-slate-500 dark:text-slate-400">{item.label}</p>
@@ -569,6 +605,60 @@ const DashboardHome = () => {
         <span>지출 추가</span>
       </button>
 
+      {/* 지출 상세 모달 */}
+      {detailModalType && (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm"
+          onClick={() => setDetailModalType(null)}
+        >
+          <div
+            className="bg-white dark:bg-dark-card w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl shadow-2xl flex flex-col max-h-[80vh]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-start px-6 pt-6 pb-4">
+              <div>
+                <h3 className="text-lg font-bold dark:text-dark-text">{detailModalTitle}</h3>
+                <p className="text-sm text-slate-400 mt-0.5 tabular-nums">
+                  총 {detailModalTotal.toLocaleString()}원 · {detailModalItems.length}건
+                </p>
+              </div>
+              <button onClick={() => setDetailModalType(null)} className="text-slate-400 hover:text-slate-600 text-2xl leading-none p-1">×</button>
+            </div>
+
+            <div className="overflow-y-auto flex-1 px-4 pb-2 divide-y divide-slate-50 dark:divide-dark-border/50">
+              {detailModalItems.length > 0 ? detailModalItems.map(item => (
+                <div key={item.id} className="py-3 flex justify-between items-center gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-slate-800 dark:text-dark-text truncate">{item.itemName}</p>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      {item.expenseDate?.substring(5)}
+                      {item.categoryName ? ` · ${item.categoryName}` : ''}
+                      {item.memo ? ` · ${item.memo}` : ''}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                      item.paymentMethod === '카드'
+                        ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400'
+                        : 'bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-400'
+                    }`}>{item.paymentMethod}</span>
+                    <span className="text-sm font-semibold text-rose-500 tabular-nums">-{item.amount.toLocaleString()}원</span>
+                  </div>
+                </div>
+              )) : (
+                <div className="py-12 text-center text-sm text-slate-400">내역이 없습니다.</div>
+              )}
+            </div>
+
+            <div className="px-6 py-4 border-t border-slate-100 dark:border-dark-border">
+              <a href="/expenses" className="text-sm text-primary-600 font-medium hover:underline">
+                지출 페이지에서 보기 →
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 지출 등록 모달 */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
@@ -659,6 +749,7 @@ const DashboardHome = () => {
                   >
                     <option value="생활비">생활비</option>
                     <option value="비상금">비상금</option>
+                    <option value="투자">투자</option>
                   </select>
                 </div>
               </div>

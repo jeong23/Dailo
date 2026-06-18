@@ -55,12 +55,27 @@ public class MonthlyBudget extends BaseEntity {
     @Column(nullable = false, columnDefinition = "DECIMAL(5,4) DEFAULT 0.1000")
     private Double discretionaryRate;
 
+    @Column(columnDefinition = "DECIMAL(5,4) DEFAULT 0.0000")
+    private Double extra1Rate;
+
+    @Column(columnDefinition = "DECIMAL(5,4) DEFAULT 0.0000")
+    private Double extra2Rate;
+
+    @Column(columnDefinition = "DECIMAL(5,4) DEFAULT 0.0000")
+    private Double extra3Rate;
+
+    private Integer extra1Budget;
+    private Integer extra2Budget;
+    private Integer extra3Budget;
+
     public void update(Integer netSalary, Integer fixedCostTotal, Integer availableAmount,
                        Integer livingBudget, Integer isaAmount, Integer pensionAmount,
-                       Integer emergencyBudget, Integer discretionaryBudget, Integer cardGoal,
-                       Integer livingCarryover, Integer emergencyCumulative,
+                       Integer emergencyBudget, Integer discretionaryBudget,
+                       Integer extra1Budget, Integer extra2Budget, Integer extra3Budget,
+                       Integer cardGoal, Integer livingCarryover, Integer emergencyCumulative,
                        Double livingRate, Double isaRate, Double pensionRate,
-                       Double emergencyRate, Double discretionaryRate) {
+                       Double emergencyRate, Double discretionaryRate,
+                       Double extra1Rate, Double extra2Rate, Double extra3Rate) {
         this.netSalary = netSalary;
         this.fixedCostTotal = fixedCostTotal;
         this.availableAmount = availableAmount;
@@ -69,6 +84,9 @@ public class MonthlyBudget extends BaseEntity {
         this.pensionAmount = pensionAmount;
         this.emergencyBudget = emergencyBudget;
         this.discretionaryBudget = discretionaryBudget;
+        this.extra1Budget = extra1Budget;
+        this.extra2Budget = extra2Budget;
+        this.extra3Budget = extra3Budget;
         this.cardGoal = cardGoal;
         this.livingCarryover = livingCarryover;
         this.emergencyCumulative = emergencyCumulative;
@@ -77,5 +95,8 @@ public class MonthlyBudget extends BaseEntity {
         this.pensionRate = pensionRate;
         this.emergencyRate = emergencyRate;
         this.discretionaryRate = discretionaryRate;
+        this.extra1Rate = extra1Rate;
+        this.extra2Rate = extra2Rate;
+        this.extra3Rate = extra3Rate;
     }
 }

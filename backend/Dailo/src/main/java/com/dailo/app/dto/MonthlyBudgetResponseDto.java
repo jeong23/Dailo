@@ -31,6 +31,12 @@ public class MonthlyBudgetResponseDto {
     private Double pensionRate;
     private Double emergencyRate;
     private Double discretionaryRate;
+    private Double extra1Rate;
+    private Double extra2Rate;
+    private Double extra3Rate;
+    private Integer extra1Budget;
+    private Integer extra2Budget;
+    private Integer extra3Budget;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
@@ -47,6 +53,9 @@ public class MonthlyBudgetResponseDto {
                 .pensionAmount(budget.getPensionAmount())
                 .emergencyBudget(budget.getEmergencyBudget())
                 .discretionaryBudget(budget.getDiscretionaryBudget())
+                .extra1Budget(budget.getExtra1Budget())
+                .extra2Budget(budget.getExtra2Budget())
+                .extra3Budget(budget.getExtra3Budget())
                 .cardGoal(budget.getCardGoal())
                 .livingCarryover(budget.getLivingCarryover())
                 .emergencyCumulative(budget.getEmergencyCumulative())
@@ -55,6 +64,9 @@ public class MonthlyBudgetResponseDto {
                 .pensionRate(budget.getPensionRate())
                 .emergencyRate(budget.getEmergencyRate())
                 .discretionaryRate(budget.getDiscretionaryRate())
+                .extra1Rate(budget.getExtra1Rate())
+                .extra2Rate(budget.getExtra2Rate())
+                .extra3Rate(budget.getExtra3Rate())
                 .createdAt(budget.getCreatedAt())
                 .updatedAt(budget.getUpdatedAt())
                 .build();

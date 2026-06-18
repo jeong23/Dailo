@@ -43,6 +43,9 @@ public class DashboardService {
         Integer pensionAmount    = (int)(availableAmount * budget.getPensionRate());
         Integer emergencyBudget  = (int)(availableAmount * budget.getEmergencyRate());
         Integer discretionaryBudget = (int)(availableAmount * budget.getDiscretionaryRate());
+        Integer extra1Amount = (int)(availableAmount * (budget.getExtra1Rate() != null ? budget.getExtra1Rate() : 0.0));
+        Integer extra2Amount = (int)(availableAmount * (budget.getExtra2Rate() != null ? budget.getExtra2Rate() : 0.0));
+        Integer extra3Amount = (int)(availableAmount * (budget.getExtra3Rate() != null ? budget.getExtra3Rate() : 0.0));
 
         // 지출 집계
         Integer livingExpenseTotal   = dailyExpenseRepository.sumLivingExpense(month);
@@ -64,6 +67,9 @@ public class DashboardService {
                 .pensionAmount(pensionAmount)
                 .emergencyBudget(emergencyBudget)
                 .discretionaryBudget(discretionaryBudget)
+                .extra1Amount(extra1Amount)
+                .extra2Amount(extra2Amount)
+                .extra3Amount(extra3Amount)
                 .cardGoal(budget.getCardGoal())
                 .livingCarryover(budget.getLivingCarryover())
                 .emergencyCumulative(budget.getEmergencyCumulative())

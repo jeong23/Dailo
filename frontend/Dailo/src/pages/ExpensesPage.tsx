@@ -326,6 +326,8 @@ export const ExpensesPage = () => {
                           <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
                             item.budgetType === '생활비'
                               ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400'
+                              : item.budgetType === '투자'
+                              ? 'bg-violet-50 text-violet-600 dark:bg-violet-900/30 dark:text-violet-400'
                               : 'bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400'
                           }`}>{item.budgetType}</span>
                         </div>
@@ -381,6 +383,8 @@ export const ExpensesPage = () => {
                           <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${
                             item.budgetType === '생활비'
                               ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400'
+                              : item.budgetType === '투자'
+                              ? 'bg-violet-50 text-violet-600 dark:bg-violet-900/30 dark:text-violet-400'
                               : 'bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400'
                           }`}>{item.budgetType}</span>
                         </td>
@@ -520,6 +524,7 @@ export const ExpensesPage = () => {
                     className="w-full p-2.5 rounded-lg border dark:bg-dark-bg dark:border-dark-border dark:text-dark-text outline-none focus:ring-2 focus:ring-primary-500">
                     <option value="생활비">생활비</option>
                     <option value="비상금">비상금</option>
+                    <option value="투자">투자</option>
                   </select>
                 </div>
               </div>

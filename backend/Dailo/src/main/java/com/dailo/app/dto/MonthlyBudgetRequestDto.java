@@ -29,4 +29,7 @@ public class MonthlyBudgetRequestDto {
     private Double pensionRate;
     private Double emergencyRate;
     private Double discretionaryRate;
+    private Double extra1Rate;
+    private Double extra2Rate;
+    private Double extra3Rate;
 }
