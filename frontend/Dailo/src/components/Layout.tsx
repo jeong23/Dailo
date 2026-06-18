@@ -16,7 +16,6 @@ const NAV_GROUPS = [
       { path: '/report',         label: '리포트',      icon: '📈' },
       { path: '/emergency',      label: '비상금',      icon: '🛡️' },
       { path: '/invest',         label: '투자 현황',   icon: '💹' },
-      { path: '/invest/records', label: '납입 기록',   icon: '📋' },
       { path: '/invest/diary',   label: '투자일기',    icon: '📖' },
       { path: '/invest/settings',label: '투자 설정',   icon: '⚙️' },
     ],

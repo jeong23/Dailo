@@ -23,14 +23,16 @@ public class InvestMonthlyRecord extends BaseEntity {
     private Integer actualAmt;
     private Boolean isPaid;
     private Float currentPct;
+    private Integer evalAmt;
 
     public void updatePlanned(Integer plannedAmt) {
         this.plannedAmt = plannedAmt;
     }
 
-    public void updateActual(Integer actualAmt, Boolean isPaid, Float currentPct) {
+    public void updateActual(Integer actualAmt, Boolean isPaid, Float currentPct, Integer evalAmt) {
         this.actualAmt = actualAmt;
         this.isPaid = isPaid;
         this.currentPct = currentPct;
+        this.evalAmt = evalAmt;
     }
 }

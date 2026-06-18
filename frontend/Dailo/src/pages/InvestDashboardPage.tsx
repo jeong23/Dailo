@@ -6,7 +6,7 @@ interface DashHolding {
   recordId: number; holdingId: number; ticker: string;
   holdingTargetPct: number; overallTargetPct: number;
   plannedAmt: number; actualAmt: number; isPaid: boolean;
-  currentPct: number; rebalanceNeeded: boolean;
+  currentPct: number; rebalanceNeeded: boolean; evalAmt: number | null;
 }
 interface DashAccount {
   id: number; name: string; type: string; targetPct: number;
@@ -28,6 +28,7 @@ const TYPE_LABEL: Record<string, string> = { PENSION: '연금저축', GENERAL: '
 
 const now = new Date();
 const currentYm = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+const formatNum = (v: string) => v.replace(/[^0-9]/g, '').replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 
 export const InvestDashboardPage = () => {
   const navigate = useNavigate();
@@ -35,7 +36,13 @@ export const InvestDashboardPage = () => {
   const [data, setData] = useState<Dashboard | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const fetch = async (yearMonth: string) => {
+  // recordId → 입력값
+  const [editing, setEditing] = useState<Record<number, { actualAmt: string; currentPct: string; evalAmt: string }>>({});
+  const [bulkAccounts, setBulkAccounts] = useState<Set<number>>(new Set());
+  const [savingAcc, setSavingAcc] = useState<Record<number, boolean>>({});
+  const [savingRecord, setSavingRecord] = useState<Record<number, boolean>>({});
+
+  const fetchData = async (yearMonth: string) => {
     setLoading(true);
     try {
       const r = await api.get(`/invest/dashboard?yearMonth=${yearMonth}`);
@@ -44,7 +51,7 @@ export const InvestDashboardPage = () => {
     finally { setLoading(false); }
   };
 
-  useEffect(() => { fetch(ym); }, [ym]);
+  useEffect(() => { fetchData(ym); }, [ym]);
 
   const moveMonth = (d: number) => {
     const [y, m] = ym.split('-').map(Number);
@@ -54,10 +61,64 @@ export const InvestDashboardPage = () => {
     setYm(`${ny}-${String(nm).padStart(2, '0')}`);
   };
 
-  const rebalanceHoldings = data?.accounts.flatMap(a => a.holdings.filter(h => h.rebalanceNeeded)) || [];
-  const pensionRemaining = data ? Math.max(data.pensionLimit - data.pensionYtdActual, 0) : 0;
-  const pensionRate = data && data.pensionLimit > 0 ? Math.min((data.pensionYtdActual / data.pensionLimit) * 100, 100) : 0;
-  const overallRate = data && data.totalPlanned > 0 ? Math.min((data.totalActual / data.totalPlanned) * 100, 100) : 0;
+  const enterBulk = (acc: DashAccount) => {
+    const init: Record<number, { actualAmt: string; currentPct: string; evalAmt: string }> = {};
+    acc.holdings.forEach(h => {
+      init[h.recordId] = {
+        actualAmt: h.actualAmt > 0 ? h.actualAmt.toLocaleString() : '',
+        currentPct: h.currentPct > 0 ? h.currentPct.toFixed(2) : '',
+        evalAmt: h.evalAmt != null ? h.evalAmt.toLocaleString() : '',
+      };
+    });
+    setEditing(prev => ({ ...prev, ...init }));
+    setBulkAccounts(prev => new Set(prev).add(acc.id));
+  };
+
+  const cancelBulk = (acc: DashAccount) => {
+    setBulkAccounts(prev => { const n = new Set(prev); n.delete(acc.id); return n; });
+    setEditing(prev => {
+      const n = { ...prev };
+      acc.holdings.forEach(h => delete n[h.recordId]);
+      return n;
+    });
+  };
+
+  const saveBulk = async (acc: DashAccount, isPaid: boolean) => {
+    setSavingAcc(prev => ({ ...prev, [acc.id]: true }));
+    try {
+      await Promise.all(
+        acc.holdings.map(h => {
+          const e = editing[h.recordId];
+          const evalRaw = (e?.evalAmt || '').replace(/,/g, '');
+          return api.put(`/invest/records/${h.recordId}`, {
+            actualAmt: parseInt((e?.actualAmt || '0').replace(/,/g, ''), 10) || 0,
+            isPaid,
+            currentPct: parseFloat(e?.currentPct || '0') || null,
+            evalAmt: evalRaw ? parseInt(evalRaw, 10) : null,
+          });
+        })
+      );
+      setBulkAccounts(prev => { const n = new Set(prev); n.delete(acc.id); return n; });
+      setEditing(prev => {
+        const n = { ...prev };
+        acc.holdings.forEach(h => delete n[h.recordId]);
+        return n;
+      });
+      await fetchData(ym);
+    } catch { alert('저장 실패'); }
+    finally { setSavingAcc(prev => ({ ...prev, [acc.id]: false })); }
+  };
+
+  const togglePaid = async (h: DashHolding) => {
+    setSavingRecord(prev => ({ ...prev, [h.recordId]: true }));
+    try {
+      await api.put(`/invest/records/${h.recordId}`, {
+        actualAmt: h.actualAmt, isPaid: !h.isPaid, currentPct: h.currentPct, evalAmt: h.evalAmt,
+      });
+      await fetchData(ym);
+    } catch { alert('저장 실패'); }
+    finally { setSavingRecord(prev => ({ ...prev, [h.recordId]: false })); }
+  };
 
   if (!data && !loading) {
     return (
@@ -74,6 +135,15 @@ export const InvestDashboardPage = () => {
     );
   }
 
+  const rebalanceHoldings = data?.accounts.flatMap(a => a.holdings.filter(h => h.rebalanceNeeded)) || [];
+  const pensionRemaining = data ? Math.max(data.pensionLimit - data.pensionYtdActual, 0) : 0;
+  const pensionRate = data && data.pensionLimit > 0 ? Math.min((data.pensionYtdActual / data.pensionLimit) * 100, 100) : 0;
+  const overallRate = data && data.totalPlanned > 0 ? Math.min((data.totalActual / data.totalPlanned) * 100, 100) : 0;
+
+  // 전체 평가금액 합산
+  const totalEval = data?.accounts.flatMap(a => a.holdings).reduce((sum, h) => sum + (h.evalAmt ?? 0), 0) ?? 0;
+  const totalProfit = totalEval > 0 ? totalEval - (data?.totalActual ?? 0) : null;
+
   return (
     <div className="space-y-6">
       {/* 헤더 */}
@@ -86,9 +156,6 @@ export const InvestDashboardPage = () => {
           <button onClick={() => moveMonth(-1)} className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 text-lg">‹</button>
           <span className="text-sm font-semibold dark:text-dark-text min-w-[80px] text-center">{ym}</span>
           <button onClick={() => moveMonth(1)} className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 text-lg">›</button>
-          <button onClick={() => navigate('/invest/records')} className="ml-2 px-3 py-1.5 text-sm border border-slate-200 dark:border-dark-border rounded-lg dark:text-dark-text hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
-            납입 기록
-          </button>
         </div>
       </div>
 
@@ -111,91 +178,240 @@ export const InvestDashboardPage = () => {
           )}
 
           {/* 요약 카드 */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="bg-white dark:bg-dark-card rounded-2xl shadow-[0_1px_8px_rgba(0,0,0,0.06)] dark:shadow-none p-5">
-              <p className="text-xs text-slate-400 dark:text-slate-500">이번 달 납입 현황</p>
-              <p className="text-2xl font-bold mt-1 text-primary-600 tabular-nums">
-                {data.totalActual.toLocaleString()}<span className="text-base font-medium ml-0.5">원</span>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="bg-white dark:bg-dark-card rounded-2xl shadow-[0_1px_8px_rgba(0,0,0,0.06)] dark:shadow-none p-4">
+              <p className="text-xs text-slate-400 dark:text-slate-500">이번 달 납입</p>
+              <p className="text-xl font-bold mt-1 text-primary-600 tabular-nums">
+                {data.totalActual.toLocaleString()}<span className="text-xs font-medium ml-0.5">원</span>
               </p>
-              <p className="text-xs text-slate-400 mt-1">목표 {data.totalPlanned.toLocaleString()}원</p>
+              <p className="text-xs text-slate-400 mt-0.5">목표 {data.totalPlanned.toLocaleString()}원</p>
               <div className="mt-2 w-full h-1.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
                 <div className="h-full bg-primary-500 rounded-full transition-all" style={{ width: `${overallRate}%` }} />
               </div>
               <p className="text-xs text-right text-slate-400 mt-1">{Math.round(overallRate)}%</p>
             </div>
 
-            <div className="bg-white dark:bg-dark-card rounded-2xl shadow-[0_1px_8px_rgba(0,0,0,0.06)] dark:shadow-none p-5">
-              <p className="text-xs text-slate-400 dark:text-slate-500">월 투자금</p>
-              <p className="text-2xl font-bold mt-1 dark:text-dark-text tabular-nums">
-                {data.monthlyBudget.toLocaleString()}<span className="text-base font-medium ml-0.5">원</span>
+            <div className="bg-white dark:bg-dark-card rounded-2xl shadow-[0_1px_8px_rgba(0,0,0,0.06)] dark:shadow-none p-4">
+              <p className="text-xs text-slate-400 dark:text-slate-500">총 평가금액</p>
+              <p className="text-xl font-bold mt-1 dark:text-dark-text tabular-nums">
+                {totalEval > 0 ? `${totalEval.toLocaleString()}` : '—'}<span className="text-xs font-medium ml-0.5">{totalEval > 0 ? '원' : ''}</span>
               </p>
-              <p className="text-xs text-slate-400 mt-1">리밸런싱 트리거 ±{data.rebalanceThreshold}%</p>
+              {totalProfit !== null && (
+                <p className={`text-xs mt-0.5 font-medium tabular-nums ${totalProfit >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                  {totalProfit >= 0 ? '+' : ''}{totalProfit.toLocaleString()}원
+                </p>
+              )}
+              {totalEval === 0 && <p className="text-xs text-slate-400 mt-0.5">평가금액 입력 후 표시</p>}
             </div>
 
-            <div className="bg-white dark:bg-dark-card rounded-2xl shadow-[0_1px_8px_rgba(0,0,0,0.06)] dark:shadow-none p-5">
-              <p className="text-xs text-slate-400 dark:text-slate-500">연금 세액공제 잔여</p>
-              <p className={`text-2xl font-bold mt-1 tabular-nums ${pensionRemaining === 0 ? 'text-emerald-500' : 'text-violet-500'}`}>
-                {pensionRemaining.toLocaleString()}<span className="text-base font-medium ml-0.5">원</span>
+            <div className="bg-white dark:bg-dark-card rounded-2xl shadow-[0_1px_8px_rgba(0,0,0,0.06)] dark:shadow-none p-4">
+              <p className="text-xs text-slate-400 dark:text-slate-500">월 투자금</p>
+              <p className="text-xl font-bold mt-1 dark:text-dark-text tabular-nums">
+                {data.monthlyBudget.toLocaleString()}<span className="text-xs font-medium ml-0.5">원</span>
               </p>
-              <p className="text-xs text-slate-400 mt-1">YTD {data.pensionYtdActual.toLocaleString()}원 / 한도 {data.pensionLimit.toLocaleString()}원</p>
+              <p className="text-xs text-slate-400 mt-0.5">리밸런싱 ±{data.rebalanceThreshold}%</p>
+            </div>
+
+            <div className="bg-white dark:bg-dark-card rounded-2xl shadow-[0_1px_8px_rgba(0,0,0,0.06)] dark:shadow-none p-4">
+              <p className="text-xs text-slate-400 dark:text-slate-500">연금 세액공제 잔여</p>
+              <p className={`text-xl font-bold mt-1 tabular-nums ${pensionRemaining === 0 ? 'text-emerald-500' : 'text-violet-500'}`}>
+                {pensionRemaining.toLocaleString()}<span className="text-xs font-medium ml-0.5">원</span>
+              </p>
+              <p className="text-xs text-slate-400 mt-0.5">YTD {data.pensionYtdActual.toLocaleString()}원</p>
               <div className="mt-2 w-full h-1.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
                 <div className="h-full bg-violet-500 rounded-full transition-all" style={{ width: `${pensionRate}%` }} />
               </div>
             </div>
           </div>
 
-          {/* 계좌별 종목 현황 */}
-          {data.accounts.map(acc => (
-            <div key={acc.id} className="bg-white dark:bg-dark-card rounded-2xl shadow-[0_1px_8px_rgba(0,0,0,0.06)] dark:shadow-none overflow-hidden">
-              <div className="px-5 py-4 flex items-center justify-between border-b border-slate-100 dark:border-dark-border">
-                <div className="flex items-center gap-2">
-                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${TYPE_BADGE[acc.type]}`}>
-                    {TYPE_LABEL[acc.type]}
-                  </span>
-                  <span className="font-semibold dark:text-dark-text">{acc.name}</span>
-                  <span className="text-xs text-slate-400">{acc.targetPct}%</span>
-                </div>
-                <div className="text-right">
-                  <p className="text-sm font-bold tabular-nums dark:text-dark-text">{acc.accountActualAmt.toLocaleString()}원</p>
-                  <p className="text-xs text-slate-400">/ {acc.accountPlannedAmt.toLocaleString()}원</p>
-                </div>
-              </div>
-              <div className="divide-y divide-slate-50 dark:divide-dark-border/50">
-                {acc.holdings.map(h => {
-                  const rate = h.plannedAmt > 0 ? Math.min((h.actualAmt / h.plannedAmt) * 100, 100) : 0;
-                  return (
-                    <div key={h.holdingId} className="px-5 py-3 flex items-center gap-4">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="text-sm font-semibold dark:text-dark-text truncate">{h.ticker}</p>
-                          {h.rebalanceNeeded && (
-                            <span className="text-xs px-1.5 py-0.5 bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 rounded font-medium shrink-0">리밸런싱</span>
-                          )}
-                          {h.isPaid && (
-                            <span className="text-xs px-1.5 py-0.5 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 rounded font-medium shrink-0">완료</span>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2 mt-1.5">
-                          <div className="flex-1 h-1.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
-                            <div className={`h-full rounded-full transition-all ${h.isPaid ? 'bg-emerald-500' : 'bg-primary-500'}`} style={{ width: `${rate}%` }} />
-                          </div>
-                          <span className="text-xs text-slate-400 tabular-nums shrink-0">{Math.round(rate)}%</span>
-                        </div>
-                      </div>
-                      <div className="text-right shrink-0">
-                        <p className="text-sm font-bold tabular-nums dark:text-dark-text">{h.actualAmt.toLocaleString()}원</p>
-                        <p className="text-xs text-slate-400">{h.plannedAmt.toLocaleString()}원 목표</p>
-                      </div>
-                      <div className="text-right shrink-0 text-xs text-slate-400">
-                        <p>{h.holdingTargetPct.toFixed(0)}%</p>
-                        <p className="text-[10px]">(전체 {h.overallTargetPct.toFixed(1)}%)</p>
-                      </div>
+          {/* 계좌별 */}
+          {data.accounts.map(acc => {
+            const isBulk = bulkAccounts.has(acc.id);
+            const isSaving = !!savingAcc[acc.id];
+            const allPaid = acc.holdings.every(h => h.isPaid);
+            const accEval = acc.holdings.reduce((sum, h) => sum + (h.evalAmt ?? 0), 0);
+            const accProfit = accEval > 0 ? accEval - acc.accountActualAmt : null;
+
+            return (
+              <div key={acc.id} className="bg-white dark:bg-dark-card rounded-2xl shadow-[0_1px_8px_rgba(0,0,0,0.06)] dark:shadow-none overflow-hidden">
+                {/* 계좌 헤더 */}
+                <div className="px-5 py-3 border-b border-slate-100 dark:border-dark-border flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full shrink-0 ${TYPE_BADGE[acc.type]}`}>
+                      {TYPE_LABEL[acc.type]}
+                    </span>
+                    <span className="font-semibold dark:text-dark-text truncate">{acc.name}</span>
+                    <span className="text-xs text-slate-400 shrink-0">{acc.targetPct}%</span>
+                    {allPaid && <span className="text-xs text-emerald-500 font-medium shrink-0">✓ 완료</span>}
+                  </div>
+                  <div className="flex items-center gap-3">
+                    {accProfit !== null && (
+                      <span className={`text-xs font-bold tabular-nums ${accProfit >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                        {accProfit >= 0 ? '+' : ''}{accProfit.toLocaleString()}원
+                      </span>
+                    )}
+                    <div className="text-right">
+                      <p className="text-sm font-bold tabular-nums dark:text-dark-text">{acc.accountActualAmt.toLocaleString()}원</p>
+                      <p className="text-xs text-slate-400">/ {acc.accountPlannedAmt.toLocaleString()}원</p>
                     </div>
-                  );
-                })}
+                    {!isBulk ? (
+                      <button
+                        onClick={() => enterBulk(acc)}
+                        className="text-xs px-3 py-1.5 border border-slate-200 dark:border-dark-border rounded-lg dark:text-dark-text hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors shrink-0"
+                      >
+                        입력
+                      </button>
+                    ) : (
+                      <button onClick={() => cancelBulk(acc)} className="text-xs text-slate-400 hover:text-slate-600 transition-colors shrink-0">취소</button>
+                    )}
+                  </div>
+                </div>
+
+                {/* 종목 목록 */}
+                <div className="divide-y divide-slate-50 dark:divide-dark-border/50">
+                  {acc.holdings.map(h => {
+                    const e = editing[h.recordId];
+                    const rate = h.plannedAmt > 0 ? Math.min((h.actualAmt / h.plannedAmt) * 100, 100) : 0;
+                    const profit = h.evalAmt != null ? h.evalAmt - h.actualAmt : null;
+
+                    return (
+                      <div key={h.recordId} className="px-5 py-3">
+                        {isBulk ? (
+                          /* 입력 모드 */
+                          <div className="flex flex-col gap-2">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <p className="text-sm font-semibold dark:text-dark-text">{h.ticker}</p>
+                                <p className="text-xs text-slate-400">목표 {h.plannedAmt.toLocaleString()}원 · {h.overallTargetPct.toFixed(1)}%</p>
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                              <div>
+                                <p className="text-xs text-slate-400 mb-1">납입금액</p>
+                                <div className="flex items-center gap-1">
+                                  <input
+                                    type="text"
+                                    value={e?.actualAmt ?? ''}
+                                    onChange={ev => setEditing(prev => ({ ...prev, [h.recordId]: { ...prev[h.recordId], actualAmt: formatNum(ev.target.value) } }))}
+                                    placeholder="0"
+                                    className="flex-1 p-1.5 rounded-lg border text-sm dark:bg-dark-bg dark:border-dark-border dark:text-dark-text outline-none focus:ring-2 focus:ring-primary-500 text-right"
+                                  />
+                                  <span className="text-xs text-slate-400">원</span>
+                                </div>
+                              </div>
+                              <div>
+                                <p className="text-xs text-slate-400 mb-1">평가금액</p>
+                                <div className="flex items-center gap-1">
+                                  <input
+                                    type="text"
+                                    value={e?.evalAmt ?? ''}
+                                    onChange={ev => setEditing(prev => ({ ...prev, [h.recordId]: { ...prev[h.recordId], evalAmt: formatNum(ev.target.value) } }))}
+                                    placeholder="0"
+                                    className="flex-1 p-1.5 rounded-lg border text-sm dark:bg-dark-bg dark:border-dark-border dark:text-dark-text outline-none focus:ring-2 focus:ring-primary-500 text-right"
+                                  />
+                                  <span className="text-xs text-slate-400">원</span>
+                                </div>
+                              </div>
+                              <div>
+                                <p className="text-xs text-slate-400 mb-1">현재비중</p>
+                                <div className="flex items-center gap-1">
+                                  <input
+                                    type="number"
+                                    value={e?.currentPct ?? ''}
+                                    onChange={ev => setEditing(prev => ({ ...prev, [h.recordId]: { ...prev[h.recordId], currentPct: ev.target.value } }))}
+                                    placeholder="0"
+                                    className="flex-1 p-1.5 rounded-lg border text-sm dark:bg-dark-bg dark:border-dark-border dark:text-dark-text outline-none focus:ring-2 focus:ring-primary-500 text-right"
+                                    step={0.01}
+                                  />
+                                  <span className="text-xs text-slate-400">%</span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          /* 보기 모드 */
+                          <div className="flex items-center gap-3 flex-wrap">
+                            <div className="flex-1 min-w-[120px]">
+                              <div className="flex items-center gap-2">
+                                <p className="text-sm font-semibold dark:text-dark-text">{h.ticker}</p>
+                                {h.rebalanceNeeded && (
+                                  <span className="text-xs px-1.5 py-0.5 bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 rounded font-medium">리밸런싱</span>
+                                )}
+                                {h.isPaid && (
+                                  <span className="text-xs px-1.5 py-0.5 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 rounded font-medium">완료</span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2 mt-1.5">
+                                <div className="flex-1 h-1.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
+                                  <div className={`h-full rounded-full transition-all ${h.isPaid ? 'bg-emerald-500' : 'bg-primary-500'}`} style={{ width: `${rate}%` }} />
+                                </div>
+                                <span className="text-xs text-slate-400 tabular-nums shrink-0">{Math.round(rate)}%</span>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-4 shrink-0">
+                              {/* 납입 */}
+                              <div className="text-right">
+                                <p className="text-xs text-slate-400">납입</p>
+                                <p className={`text-sm font-bold tabular-nums ${h.isPaid ? 'text-emerald-500' : h.actualAmt > 0 ? 'text-primary-500' : 'text-slate-300 dark:text-slate-600'}`}>
+                                  {h.actualAmt > 0 ? `${h.actualAmt.toLocaleString()}원` : '—'}
+                                </p>
+                              </div>
+                              {/* 평가/손익 */}
+                              {h.evalAmt != null && (
+                                <div className="text-right">
+                                  <p className="text-xs text-slate-400">평가</p>
+                                  <p className="text-sm font-bold tabular-nums dark:text-dark-text">{h.evalAmt.toLocaleString()}원</p>
+                                  {profit !== null && (
+                                    <p className={`text-xs font-medium tabular-nums ${profit >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                                      {profit >= 0 ? '+' : ''}{profit.toLocaleString()}원
+                                    </p>
+                                  )}
+                                </div>
+                              )}
+                              {/* 완료 토글 */}
+                              {h.actualAmt > 0 && (
+                                <button
+                                  onClick={() => togglePaid(h)}
+                                  disabled={!!savingRecord[h.recordId]}
+                                  className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 ${
+                                    h.isPaid
+                                      ? 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400'
+                                      : 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400'
+                                  }`}
+                                >
+                                  {h.isPaid ? '완료 취소' : '완료'}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* 일괄 저장 버튼 */}
+                {isBulk && (
+                  <div className="px-5 py-3 border-t border-slate-100 dark:border-dark-border flex gap-2">
+                    <button
+                      onClick={() => saveBulk(acc, true)}
+                      disabled={isSaving}
+                      className="flex-1 py-2.5 bg-emerald-500 text-white rounded-xl text-sm font-bold hover:bg-emerald-600 disabled:opacity-50 transition-colors"
+                    >
+                      {isSaving ? '저장 중...' : '납입 완료'}
+                    </button>
+                    <button
+                      onClick={() => saveBulk(acc, false)}
+                      disabled={isSaving}
+                      className="flex-1 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-bold hover:bg-primary-700 disabled:opacity-50 transition-colors"
+                    >
+                      {isSaving ? '저장 중...' : '임시 저장'}
+                    </button>
+                  </div>
+                )}
               </div>
-            </div>
-          ))}
+            );
+          })}
         </>
       )}
     </div>

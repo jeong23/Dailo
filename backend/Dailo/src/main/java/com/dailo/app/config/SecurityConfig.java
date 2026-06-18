@@ -50,7 +50,6 @@ public class SecurityConfig {
                                 "/habits",
                                 "/invest",
                                 "/invest/settings",
-                                "/invest/records",
                                 "/invest/diary",
                                 "/invest/analytics",
                                 "/static/**",

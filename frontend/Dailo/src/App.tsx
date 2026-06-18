@@ -16,7 +16,6 @@ import { RunningPage } from './pages/RunningPage';
 import { HabitPage } from './pages/HabitPage';
 import { InvestDashboardPage } from './pages/InvestDashboardPage';
 import { InvestSettingsPage } from './pages/InvestSettingsPage';
-import { InvestRecordsPage } from './pages/InvestRecordsPage';
 import { InvestDiaryPage } from './pages/InvestDiaryPage';
 import { LoginPage } from './pages/LoginPage';
 import { isAuthenticated, getStoredMemberId } from './api/axios';
@@ -804,7 +803,6 @@ function App() {
                 <Route path="/habits" element={<HabitPage />} />
                 <Route path="/invest" element={<InvestDashboardPage />} />
                 <Route path="/invest/settings" element={<InvestSettingsPage />} />
-                <Route path="/invest/records" element={<InvestRecordsPage />} />
                 <Route path="/invest/diary" element={<InvestDiaryPage />} />
               </Routes>
             </Layout>

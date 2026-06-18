@@ -84,6 +84,7 @@ public class InvestDto {
         private Boolean isPaid;
         private Float currentPct;
         private boolean rebalanceNeeded;
+        private Integer evalAmt;
     }
 
     @Getter @Builder
@@ -115,6 +116,7 @@ public class InvestDto {
         private Integer actualAmt;
         private Boolean isPaid;
         private Float currentPct;
+        private Integer evalAmt;
     }
 
     // ─── Diary ─────────────────────────────────────────────────

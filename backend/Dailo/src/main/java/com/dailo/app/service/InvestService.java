@@ -199,6 +199,7 @@ public class InvestService {
                         .plannedAmt(planned).actualAmt(actual)
                         .isPaid(rec.getIsPaid() != null ? rec.getIsPaid() : false)
                         .currentPct(curPct).rebalanceNeeded(rebalanceNeeded)
+                        .evalAmt(rec.getEvalAmt())
                         .build());
 
                 accPlanned += planned;
@@ -233,7 +234,7 @@ public class InvestService {
     public void updateRecord(Long recordId, InvestDto.RecordUpdateRequest req) {
         InvestMonthlyRecord record = recordRepo.findById(recordId)
                 .orElseThrow(() -> new IllegalArgumentException("레코드를 찾을 수 없습니다: " + recordId));
-        record.updateActual(req.getActualAmt(), req.getIsPaid(), req.getCurrentPct());
+        record.updateActual(req.getActualAmt(), req.getIsPaid(), req.getCurrentPct(), req.getEvalAmt());
     }
 
     // ─── Diary ─────────────────────────────────────────────────
