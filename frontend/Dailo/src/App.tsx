@@ -802,6 +802,7 @@ function App() {
                 <Route path="/running" element={<RunningPage />} />
                 <Route path="/habits" element={<HabitPage />} />
                 <Route path="/invest" element={<InvestDashboardPage />} />
+                <Route path="/invest/records" element={<Navigate to="/invest" replace />} />
                 <Route path="/invest/settings" element={<InvestSettingsPage />} />
                 <Route path="/invest/diary" element={<InvestDiaryPage />} />
               </Routes>
