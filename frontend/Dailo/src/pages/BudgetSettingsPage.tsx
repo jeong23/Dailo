@@ -350,10 +350,18 @@ export const BudgetSettingsPage = () => {
 
   const hasInactiveExtra = EXTRA_ALLOCATION_KEYS.some(k => labelDraft[k].trim() === '');
 
+  const [activeTab, setActiveTab] = useState<'budget' | 'tax' | 'memo'>('budget');
+
+  const TABS = [
+    { key: 'budget' as const, label: '예산 설정' },
+    { key: 'tax'    as const, label: '세액공제 계산기' },
+    { key: 'memo'   as const, label: '메모' },
+  ];
+
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       {/* 헤더 */}
-      <div className="flex justify-between items-end">
+      <div className="flex justify-between items-end flex-wrap gap-2">
         <div>
           <p className="text-xs font-medium text-slate-400 dark:text-slate-500 mb-1">급여 · 분배 비율 설정</p>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-dark-text">월별 예산 설정</h1>
@@ -368,6 +376,26 @@ export const BudgetSettingsPage = () => {
           ))}
         </select>
       </div>
+
+      {/* 탭 */}
+      <div className="flex gap-1 bg-slate-100 dark:bg-slate-800 rounded-xl p-1">
+        {TABS.map(t => (
+          <button
+            key={t.key}
+            onClick={() => setActiveTab(t.key)}
+            className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${
+              activeTab === t.key
+                ? 'bg-white dark:bg-dark-card text-slate-900 dark:text-dark-text shadow-sm'
+                : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── 예산 설정 탭 ── */}
+      {activeTab === 'budget' && <div className="space-y-8">
 
       {/* 월급날 설정 */}
       <div className="bg-white dark:bg-dark-card rounded-2xl shadow-[0_1px_8px_rgba(0,0,0,0.06)] dark:shadow-none p-6">
@@ -691,7 +719,10 @@ export const BudgetSettingsPage = () => {
         </div>
       </div>
 
-      {/* 세액공제 최적화 계산기 */}
+      </div>} {/* 예산 설정 탭 끝 */}
+
+      {/* ── 세액공제 계산기 탭 ── */}
+      {activeTab === 'tax' &&
       <div className="bg-white dark:bg-dark-card rounded-2xl shadow-[0_1px_8px_rgba(0,0,0,0.06)] dark:shadow-none p-6 space-y-5">
         <div>
           <h3 className="text-base font-semibold dark:text-dark-text">세액공제 최적화 계산기</h3>
@@ -818,7 +849,10 @@ export const BudgetSettingsPage = () => {
         )}
       </div>
 
-      {/* 메모 */}
+      } {/* 세액공제 탭 끝 */}
+
+      {/* ── 메모 탭 ── */}
+      {activeTab === 'memo' &&
       <div className="bg-white dark:bg-dark-card rounded-2xl shadow-[0_1px_8px_rgba(0,0,0,0.06)] dark:shadow-none p-6">
         <div className="flex justify-between items-center mb-3">
           <h3 className="text-base font-semibold dark:text-dark-text">{selectedMonth} 메모</h3>
@@ -834,6 +868,8 @@ export const BudgetSettingsPage = () => {
           className="w-full p-3 rounded-lg border border-slate-200 dark:border-dark-border bg-slate-50 dark:bg-dark-bg text-sm text-slate-800 dark:text-dark-text placeholder-slate-400 dark:placeholder-slate-600 resize-none outline-none focus:ring-2 focus:ring-primary-500 transition-all"
         />
       </div>
+      } {/* 메모 탭 끝 */}
+
     </div>
   );
 };
