@@ -431,44 +431,49 @@ export const ExpensesPage = () => {
           </div>
 
           {/* 칩 필터 */}
-          <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-            {(['전체', '생활비', '비상금', '투자'] as const).map(type => (
+          <div className="flex flex-col gap-2">
+            {/* 예산구분 칩 */}
+            <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+              {(['전체', '생활비', '비상금', '투자'] as const).map(type => (
+                <button
+                  key={type}
+                  onClick={() => setFilterBudgetType(type === '전체' ? null : type)}
+                  className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
+                    (type === '전체' ? filterBudgetType === null : filterBudgetType === type)
+                      ? 'bg-primary-600 text-white'
+                      : 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
+                  }`}
+                >
+                  {type}
+                </button>
+              ))}
+            </div>
+            {/* 카테고리 칩 */}
+            <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
               <button
-                key={type}
-                onClick={() => setFilterBudgetType(type === '전체' ? null : type)}
+                onClick={() => setFilterCategoryId(null)}
                 className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
-                  (type === '전체' ? filterBudgetType === null : filterBudgetType === type)
-                    ? 'bg-primary-600 text-white'
-                    : 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
-                }`}
-              >
-                {type}
-              </button>
-            ))}
-            <span className="w-px bg-slate-200 dark:bg-slate-700 mx-0.5 self-stretch shrink-0" />
-            <button
-              onClick={() => setFilterCategoryId(null)}
-              className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
-                filterCategoryId === null
-                  ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900'
-                  : 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
-              }`}
-            >
-              전체 카테고리
-            </button>
-            {categories.map(cat => (
-              <button
-                key={cat.id}
-                onClick={() => setFilterCategoryId(cat.id)}
-                className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
-                  filterCategoryId === cat.id
+                  filterCategoryId === null
                     ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900'
                     : 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
                 }`}
               >
-                {cat.icon} {cat.name}
+                전체 카테고리
               </button>
-            ))}
+              {categories.map(cat => (
+                <button
+                  key={cat.id}
+                  onClick={() => setFilterCategoryId(cat.id)}
+                  className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
+                    filterCategoryId === cat.id
+                      ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900'
+                      : 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
+                  }`}
+                >
+                  {cat.icon} {cat.name}
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* 결과 카운트 · 초기화 */}

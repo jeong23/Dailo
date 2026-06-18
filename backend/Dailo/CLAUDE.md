@@ -34,6 +34,10 @@ com.dailo.app
 - 코드 작성 후 실행 결과는 개발자가 확인 후 피드백한다
 - 프론트엔드 코드 수정 완료 후 `ship m="..."` 으로 빌드 + static 복사 + git 커밋 자동 실행
   → 백엔드만 변경 시에는 `dcommit m="..."` 으로 커밋만 수행
+- 모든 UI는 모바일 웹 화면을 반드시 고려해야 함
+  → 터치 타깃 최소 44px, 텍스트 잘림 방지(min-w-0 + truncate), 가로 스크롤 없는 레이아웃
+  → 모달은 모바일 바텀시트(items-end, rounded-t-3xl) + 데스크탑 중앙 팝업(sm:items-center, sm:rounded-3xl)
+  → 테이블은 모바일 카드 리스트(md:hidden) + 데스크탑 테이블(hidden md:block) 이중 구현
 
 ## 빌드/실행
 - mvn spring-boot:run
@@ -211,6 +215,25 @@ com.dailo.app
   → 드롭 시 reorderBig3() 호출 → 각 항목 sortOrder PUT 요청
   → BrainDump ↔ Big3 이동과 Big3 내부 재정렬은 fromItem.type으로 구분
 - BrainDump: 최대 30개, 영역 내부 스크롤 (overflow-y-auto + min-h-0)
+
+## DashboardHome 규칙
+- 상단 요약 카드 5개: 가용금액 / 생활비 소진율 / 비상금 소진율 / 카드 실적 / 주식 투자
+  → 생활비·비상금·카드실적·주식투자 카드 클릭 시 지출 상세 모달(detailModalType 상태)
+  → detailModalItems: '카드'는 paymentMethod 필터, 나머지는 budgetType 필터
+  → investExpenses: expenses.filter(e => e.budgetType === '투자') 클라이언트 집계
+- 지출 상세 모달: 모바일 바텀시트 + 데스크탑 중앙, 하단 "지출 페이지에서 보기 →" 링크
+
+## ExpensesPage 규칙
+- BudgetType: '생활비' | '비상금' | '투자' — 백엔드 String 컬럼이라 추가 마이그레이션 불필요
+- 투자 배지 색상: violet (생활비=emerald, 비상금=amber, 투자=violet)
+- 지출 탭 필터: searchQuery(통합검색) + filterCategoryId + filterBudgetType → filteredExpenses
+  → 예산구분 칩(전체/생활비/비상금/투자)과 카테고리 칩은 별도 줄로 분리
+  → 월 변경 시 모든 필터·정렬 상태 초기화
+- 수입 탭 필터: incomeSearchQuery(출처·메모) → filteredIncomes
+- 컬럼 정렬: sortKey + sortDir(asc/desc) — 지출 6개 컬럼, 수입 3개 컬럼
+  → 같은 컬럼 재클릭 시 방향 토글, 다른 컬럼 클릭 시 desc로 초기화
+  → SortIcon(지출, primary색) / IncomeSortIcon(수입, blue색)
+- 빈 결과: expenses.length===0 → "등록 없음", filteredExpenses.length===0 → "검색 결과 없음"
 
 ## BudgetSettingsPage 규칙
 - 분배 입력 모드: '비율' ↔ '금액' 토글 (localStorage 미저장, 세션 내 유지)
