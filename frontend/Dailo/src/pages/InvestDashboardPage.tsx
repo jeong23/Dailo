@@ -34,7 +34,8 @@ export const InvestDashboardPage = () => {
   const navigate = useNavigate();
   const [ym, setYm] = useState(currentYm);
   const [data, setData] = useState<Dashboard | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState(false);
 
   // recordId → 입력값
   const [editing, setEditing] = useState<Record<number, { actualAmt: string; currentPct: string; evalAmt: string }>>({});
@@ -44,10 +45,15 @@ export const InvestDashboardPage = () => {
 
   const fetchData = async (yearMonth: string) => {
     setLoading(true);
+    setFetchError(false);
     try {
       const r = await api.get(`/invest/dashboard?yearMonth=${yearMonth}`);
       setData(r.data.data);
-    } catch { setData(null); }
+    } catch (e) {
+      console.error('[InvestDashboard] API 오류:', e);
+      setFetchError(true);
+      setData(null);
+    }
     finally { setLoading(false); }
   };
 
@@ -120,7 +126,32 @@ export const InvestDashboardPage = () => {
     finally { setSavingRecord(prev => ({ ...prev, [h.recordId]: false })); }
   };
 
-  if (!data && !loading) {
+  if (loading) {
+    return (
+      <div className="space-y-4">
+        <h1 className="text-2xl font-bold dark:text-dark-text">투자 현황</h1>
+        <div className="text-center py-20 text-slate-400">불러오는 중...</div>
+      </div>
+    );
+  }
+
+  if (fetchError) {
+    return (
+      <div className="space-y-4">
+        <h1 className="text-2xl font-bold dark:text-dark-text">투자 현황</h1>
+        <div className="bg-white dark:bg-dark-card rounded-2xl p-12 text-center shadow-[0_1px_8px_rgba(0,0,0,0.06)] dark:shadow-none">
+          <p className="text-4xl mb-3">⚠️</p>
+          <p className="text-slate-600 dark:text-slate-300 font-semibold">데이터를 불러오지 못했습니다</p>
+          <p className="text-xs text-slate-400 mt-1">브라우저 콘솔(F12)에서 오류 내용을 확인해 주세요</p>
+          <button onClick={() => fetchData(ym)} className="mt-4 px-4 py-2 bg-primary-600 text-white rounded-lg text-sm font-medium hover:bg-primary-700 transition-colors">
+            다시 시도
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!data) {
     return (
       <div className="space-y-4">
         <h1 className="text-2xl font-bold dark:text-dark-text">투자 현황</h1>
@@ -141,8 +172,8 @@ export const InvestDashboardPage = () => {
   const overallRate = data && data.totalPlanned > 0 ? Math.min((data.totalActual / data.totalPlanned) * 100, 100) : 0;
 
   // 전체 평가금액 합산
-  const totalEval = data?.accounts.flatMap(a => a.holdings).reduce((sum, h) => sum + (h.evalAmt ?? 0), 0) ?? 0;
-  const totalProfit = totalEval > 0 ? totalEval - (data?.totalActual ?? 0) : null;
+  const totalEval = data.accounts.flatMap(a => a.holdings).reduce((sum, h) => sum + (h.evalAmt ?? 0), 0);
+  const totalProfit = totalEval > 0 ? totalEval - data.totalActual : null;
 
   return (
     <div className="space-y-6">
@@ -159,10 +190,8 @@ export const InvestDashboardPage = () => {
         </div>
       </div>
 
-      {loading && <div className="text-center py-12 text-slate-400">불러오는 중...</div>}
+      <>
 
-      {data && !loading && (
-        <>
           {/* 리밸런싱 알림 */}
           {rebalanceHoldings.length > 0 && (
             <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40 rounded-2xl p-4">
@@ -412,8 +441,7 @@ export const InvestDashboardPage = () => {
               </div>
             );
           })}
-        </>
-      )}
+      </>
     </div>
   );
 };
