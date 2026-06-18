@@ -58,6 +58,9 @@ export const ExpensesPage = () => {
 
   // 수입 상태
   const [incomes, setIncomes] = useState<Income[]>([]);
+  const [incomeSearchQuery, setIncomeSearchQuery] = useState('');
+  const [incomeSortKey, setIncomeSortKey] = useState<'incomeDate' | 'source' | 'amount' | null>(null);
+  const [incomeSortDir, setIncomeSortDir] = useState<'asc' | 'desc'>('desc');
   const [isIncomeModalOpen, setIsIncomeModalOpen] = useState(false);
   const [editingIncome, setEditingIncome] = useState<Income | null>(null);
   const [incomeAmount, setIncomeAmount] = useState('');
@@ -103,6 +106,9 @@ export const ExpensesPage = () => {
     setFilterBudgetType(null);
     setSortKey(null);
     setSortDir('desc');
+    setIncomeSearchQuery('');
+    setIncomeSortKey(null);
+    setIncomeSortDir('desc');
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedMonth]);
 
@@ -294,6 +300,42 @@ export const ExpensesPage = () => {
     setSearchQuery('');
     setFilterCategoryId(null);
     setFilterBudgetType(null);
+  };
+
+  const filteredIncomes = (() => {
+    let list = incomeSearchQuery.trim()
+      ? incomes.filter(i => {
+          const q = incomeSearchQuery.trim().toLowerCase();
+          return (i.source || '').toLowerCase().includes(q) || (i.memo || '').toLowerCase().includes(q);
+        })
+      : [...incomes];
+    if (incomeSortKey) {
+      list.sort((a, b) => {
+        let va: string | number = '';
+        let vb: string | number = '';
+        if (incomeSortKey === 'amount') { va = a.amount; vb = b.amount; }
+        else if (incomeSortKey === 'incomeDate') { va = a.incomeDate || ''; vb = b.incomeDate || ''; }
+        else if (incomeSortKey === 'source') { va = a.source || ''; vb = b.source || ''; }
+        if (va < vb) return incomeSortDir === 'asc' ? -1 : 1;
+        if (va > vb) return incomeSortDir === 'asc' ? 1 : -1;
+        return 0;
+      });
+    }
+    return list;
+  })();
+
+  const handleIncomeSort = (key: typeof incomeSortKey) => {
+    if (incomeSortKey === key) {
+      setIncomeSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    } else {
+      setIncomeSortKey(key);
+      setIncomeSortDir('desc');
+    }
+  };
+
+  const IncomeSortIcon = ({ col }: { col: typeof incomeSortKey }) => {
+    if (incomeSortKey !== col) return <span className="ml-1 text-slate-300">↕</span>;
+    return <span className="ml-1 text-blue-500">{incomeSortDir === 'desc' ? '↓' : '↑'}</span>;
   };
 
   const EditIcon = () => (
@@ -542,16 +584,37 @@ export const ExpensesPage = () => {
         </div>
       )}
 
+      {/* 수입 필터 바 */}
+      {activeTab === 'income' && (
+        <div className="relative">
+          <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+          <input
+            type="text"
+            value={incomeSearchQuery}
+            onChange={e => setIncomeSearchQuery(e.target.value)}
+            placeholder="출처, 메모 검색..."
+            className="w-full pl-9 pr-8 py-2.5 rounded-xl border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-card text-sm dark:text-dark-text focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+          {incomeSearchQuery && (
+            <button onClick={() => setIncomeSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-lg leading-none">×</button>
+          )}
+        </div>
+      )}
+
       {/* 수입 목록 */}
       {activeTab === 'income' && (
         <div className="bg-white dark:bg-dark-card rounded-2xl shadow-[0_1px_8px_rgba(0,0,0,0.06)] dark:shadow-none overflow-hidden">
           {incomes.length === 0 ? (
             <p className="px-6 py-12 text-center text-sm text-slate-400">등록된 수입 내역이 없습니다.</p>
+          ) : filteredIncomes.length === 0 ? (
+            <p className="px-6 py-12 text-center text-sm text-slate-400">검색 결과가 없습니다.</p>
           ) : (
             <>
               {/* 모바일 카드 */}
               <div className="divide-y divide-slate-50 dark:divide-dark-border/50 md:hidden">
-                {incomes.map(item => (
+                {filteredIncomes.map(item => (
                   <div key={item.id} className="px-4 py-3 flex items-center gap-2">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
@@ -574,15 +637,15 @@ export const ExpensesPage = () => {
                 <table className="w-full text-left">
                   <thead>
                     <tr className="bg-slate-50/80 dark:bg-slate-800/30 text-xs font-medium text-slate-400 dark:text-slate-500">
-                      <th className="px-6 py-3">날짜</th>
-                      <th className="px-6 py-3">출처</th>
-                      <th className="px-6 py-3 text-right">금액</th>
+                      <th className="px-6 py-3 cursor-pointer select-none hover:text-slate-600 dark:hover:text-slate-300" onClick={() => handleIncomeSort('incomeDate')}>날짜<IncomeSortIcon col="incomeDate" /></th>
+                      <th className="px-6 py-3 cursor-pointer select-none hover:text-slate-600 dark:hover:text-slate-300" onClick={() => handleIncomeSort('source')}>출처<IncomeSortIcon col="source" /></th>
+                      <th className="px-6 py-3 text-right cursor-pointer select-none hover:text-slate-600 dark:hover:text-slate-300" onClick={() => handleIncomeSort('amount')}>금액<IncomeSortIcon col="amount" /></th>
                       <th className="px-6 py-3">메모</th>
                       <th className="px-6 py-3 text-center">관리</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50 dark:divide-dark-border/50">
-                    {incomes.map((item) => (
+                    {filteredIncomes.map((item) => (
                       <tr key={item.id} className="hover:bg-primary-50/30 dark:hover:bg-slate-800/30 transition-colors">
                         <td className="px-6 py-3.5 text-sm text-slate-400 tabular-nums">{item.incomeDate?.substring(5)}</td>
                         <td className="px-6 py-3.5 text-sm font-medium text-slate-800 dark:text-dark-text">{item.source || '-'}</td>
