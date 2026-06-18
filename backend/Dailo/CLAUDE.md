@@ -186,6 +186,12 @@ com.dailo.app
 - 계좌/종목 saveAccounts(): 요청에 없는 기존 계좌·종목은 삭제 (관련 레코드도 cascade 삭제)
 - InvestDiary: 같은 날짜(memberId+date) 중복 저장 시 덮어씀 (upsert 방식)
 - updateRecord(): isPaid 토글 시 currentPct를 null로 보내면 안 됨 → 기존 값 유지해서 전송
+- InvestMonthlyRecord.evalAmt: 종목별 평가금액 (nullable) — updateActual()에 4번째 파라미터로 포함
+  → 프론트에서 evalAmt - actualAmt = 이번 달 손익 표시
+  → InvestMonthlyRecord.yearMonth 컬럼: @Column(name = "`year_month`") 백틱 필수 (MariaDB 예약어)
+  → invest_monthly_record 테이블은 ddl-auto:update가 자동 생성 안 함 → 최초 실행 시 수동 CREATE TABLE 필요
+- 투자 탭 구조: 투자 현황(납입입력+평가금액 통합) / 투자일기 / 투자 설정 — 납입기록 탭 제거됨
+  → /invest/records 접근 시 /invest로 리다이렉트 (SpaController·SecurityConfig에 경로 유지 필요)
 
 ## RunningRecord 규칙
 - duration 입력: 프론트에서 "MM:SS" 문자열로 받아 durationSeconds(int)로 저장
@@ -234,6 +240,12 @@ com.dailo.app
   → 같은 컬럼 재클릭 시 방향 토글, 다른 컬럼 클릭 시 desc로 초기화
   → SortIcon(지출, primary색) / IncomeSortIcon(수입, blue색)
 - 빈 결과: expenses.length===0 → "등록 없음", filteredExpenses.length===0 → "검색 결과 없음"
+
+## InvestSettingsPage 규칙
+- 탭 구조: '기본 설정' / '계좌 & 종목' — activeTab state로 전환
+  → 기본 설정 탭: 세액공제 추천 카드 + 월 투자금/리밸런싱 트리거/연금 세액공제 한도 + 저장
+  → 계좌 & 종목 탭: 계좌 추가·편집, 종목 비중 설정 + 저장
+- 저장하기 버튼은 setting과 accounts를 모두 한 번에 POST (탭별 분리 저장 아님)
 
 ## BudgetSettingsPage 규칙
 - 분배 입력 모드: '비율' ↔ '금액' 토글 (localStorage 미저장, 세션 내 유지)
@@ -285,7 +297,11 @@ com.dailo.app
 - MemberService.update()에서 null 필드를 그대로 쓰면 부분 업데이트 시 기존 값 덮어씀
   → null이면 기존 member 값 유지하도록 수정
 - InvestRecordsPage togglePaid: isPaid 토글 시 currentPct: null 전송하면 기존 비중 초기화됨
-  → togglePaid에 currentPct 파라미터 추가해서 기존 값 그대로 전송해야 함
+  → togglePaid에 currentPct 파라미터 추가해서 기존 값 그대로 전송해야 함 (현재는 InvestDashboardPage에 통합)
+- InvestDashboardPage 로딩 상태: useState(false) 초기값이면 데이터 로드 전 빈 화면 flash 발생
+  → loading 초기값은 true로 설정해야 함
+- invest_monthly_record 테이블 미생성: ddl-auto:update가 이 테이블만 자동 생성 안 했음
+  → 수동 CREATE TABLE 실행으로 해결 (year_month 등 컬럼 모두 백틱 처리 필수)
 
 ## 다음 작업 후보
 - [ ] N+1 쿼리 개선 (getMonthlyReport/getEmergencyHistory — 월 수 × 2 쿼리 발생)
