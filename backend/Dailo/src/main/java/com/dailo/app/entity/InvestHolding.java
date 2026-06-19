@@ -22,10 +22,14 @@ public class InvestHolding extends BaseEntity {
     private Float targetPct; // 계좌 내 비중, 0-100
 
     private Integer sortOrder;
+    private Integer avgPurchasePrice; // 매입 평균단가
+    private Float shares;             // 보유 수량
 
-    public void update(String ticker, Float targetPct, Integer sortOrder) {
+    public void update(String ticker, Float targetPct, Integer sortOrder, Integer avgPurchasePrice, Float shares) {
         this.ticker = ticker;
         this.targetPct = targetPct;
         this.sortOrder = sortOrder;
+        this.avgPurchasePrice = avgPurchasePrice;
+        this.shares = shares;
     }
 }

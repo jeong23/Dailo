@@ -41,6 +41,8 @@ public class InvestDto {
         private String ticker;
         private Float targetPct;
         private Integer sortOrder;
+        private Integer avgPurchasePrice; // 매입 평균단가
+        private Float shares;             // 보유 수량
     }
 
     @Getter @NoArgsConstructor @AllArgsConstructor
@@ -59,6 +61,8 @@ public class InvestDto {
         private String ticker;
         private Float targetPct;
         private Integer sortOrder;
+        private Integer avgPurchasePrice;
+        private Float shares;
     }
 
     @Getter @Builder
@@ -77,14 +81,20 @@ public class InvestDto {
         private Long recordId;
         private Long holdingId;
         private String ticker;
-        private Float holdingTargetPct;  // 계좌 내 비중
-        private Float overallTargetPct;  // 전체 대비 비중 (계좌% × 종목%)
+        private Integer avgPurchasePrice; // 매입 평균단가
+        private Float shares;             // 보유 수량
+        private Float holdingTargetPct;   // 계좌 내 목표비중
+        private Float overallTargetPct;   // 전체 포트폴리오 목표비중
         private Integer plannedAmt;
         private Integer actualAmt;
         private Boolean isPaid;
-        private Float currentPct;
+        private Integer currentPrice;     // 현재가
+        private Integer evalAmt;          // 평가금액 = currentPrice × shares
+        private Integer purchaseAmt;      // 매입금액 = avgPurchasePrice × shares
+        private Integer profitAmt;        // 평가손익 = evalAmt - purchaseAmt
+        private Float profitPct;          // 수익률(%)
+        private Float currentPct;         // 현재 포트폴리오 비중 (자동계산)
         private boolean rebalanceNeeded;
-        private Integer evalAmt;
     }
 
     @Getter @Builder
@@ -115,8 +125,7 @@ public class InvestDto {
     public static class RecordUpdateRequest {
         private Integer actualAmt;
         private Boolean isPaid;
-        private Float currentPct;
-        private Integer evalAmt;
+        private Integer currentPrice; // 현재가 (null이면 기존 값 유지)
     }
 
     // ─── Diary ─────────────────────────────────────────────────

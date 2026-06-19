@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import api from '../api/axios';
 import { TAX_CALC_RESULT_KEY, TaxCalcResult } from '../utils/taxCalc';
 
-interface Holding { id?: number; ticker: string; targetPct: number; sortOrder: number; }
+interface Holding { id?: number; ticker: string; targetPct: number; sortOrder: number; avgPurchasePrice?: number; shares?: number; }
 interface Account { id?: number; name: string; type: string; targetPct: number; sortOrder: number; holdings: Holding[]; }
 interface Setting { monthlyBudget: number; rebalanceThreshold: number; pensionLimit: number; }
 
@@ -308,26 +308,60 @@ export const InvestSettingsPage = () => {
                   {acc.holdings.map((h, hi) => {
                     const holdingAmount = accAmount * (h.targetPct / 100);
                     return (
-                      <div key={hi} className="flex items-center gap-2 flex-wrap">
-                        <input
-                          type="text" value={h.ticker}
-                          onChange={e => updateHolding(ai, hi, 'ticker', e.target.value)}
-                          placeholder="종목명 (예: TIGER 미국S&P500)"
-                          className="flex-1 min-w-[160px] p-1.5 rounded-lg border text-sm dark:bg-dark-bg dark:border-dark-border dark:text-dark-text outline-none focus:ring-2 focus:ring-primary-500"
-                        />
-                        <div className="flex items-center gap-1.5">
+                      <div key={hi} className="border border-slate-100 dark:border-dark-border/50 rounded-lg p-3 space-y-2">
+                        {/* 1행: 종목명 + 비중 + 삭제 */}
+                        <div className="flex items-center gap-2 flex-wrap">
                           <input
-                            type="number" value={h.targetPct}
-                            onChange={e => updateHolding(ai, hi, 'targetPct', parseFloat(e.target.value) || 0)}
-                            className="w-14 p-1.5 rounded-lg border text-sm text-center dark:bg-dark-bg dark:border-dark-border dark:text-dark-text outline-none focus:ring-2 focus:ring-primary-500"
-                            min={0} max={100} step={1}
+                            type="text" value={h.ticker}
+                            onChange={e => updateHolding(ai, hi, 'ticker', e.target.value)}
+                            placeholder="종목명 (예: TIGER 미국S&P500)"
+                            className="flex-1 min-w-[140px] p-1.5 rounded-lg border text-sm dark:bg-dark-bg dark:border-dark-border dark:text-dark-text outline-none focus:ring-2 focus:ring-primary-500"
                           />
-                          <span className="text-sm text-slate-400">%</span>
+                          <div className="flex items-center gap-1.5">
+                            <input
+                              type="number" value={h.targetPct}
+                              onChange={e => updateHolding(ai, hi, 'targetPct', parseFloat(e.target.value) || 0)}
+                              className="w-14 p-1.5 rounded-lg border text-sm text-center dark:bg-dark-bg dark:border-dark-border dark:text-dark-text outline-none focus:ring-2 focus:ring-primary-500"
+                              min={0} max={100} step={1}
+                            />
+                            <span className="text-sm text-slate-400">%</span>
+                          </div>
+                          {budget > 0 && (
+                            <span className="text-xs text-slate-400 tabular-nums">{Math.round(holdingAmount).toLocaleString()}원</span>
+                          )}
+                          <button onClick={() => removeHolding(ai, hi)} className="text-slate-300 hover:text-rose-500 text-base transition-colors ml-auto">×</button>
                         </div>
-                        {budget > 0 && (
-                          <span className="text-xs text-slate-400 tabular-nums">{Math.round(holdingAmount).toLocaleString()}원</span>
-                        )}
-                        <button onClick={() => removeHolding(ai, hi)} className="text-slate-300 hover:text-rose-500 text-base transition-colors">×</button>
+                        {/* 2행: 매입단가 + 보유수량 */}
+                        <div className="flex gap-2 flex-wrap">
+                          <div className="flex items-center gap-1.5 flex-1 min-w-[130px]">
+                            <label className="text-xs text-slate-400 whitespace-nowrap">매입단가</label>
+                            <input
+                              type="text"
+                              value={h.avgPurchasePrice ? h.avgPurchasePrice.toLocaleString() : ''}
+                              onChange={e => updateHolding(ai, hi, 'avgPurchasePrice', parseInt(e.target.value.replace(/,/g,''), 10) || undefined)}
+                              placeholder="0"
+                              className="flex-1 p-1.5 rounded-lg border text-sm text-right dark:bg-dark-bg dark:border-dark-border dark:text-dark-text outline-none focus:ring-2 focus:ring-primary-500"
+                            />
+                            <span className="text-xs text-slate-400">원</span>
+                          </div>
+                          <div className="flex items-center gap-1.5 flex-1 min-w-[100px]">
+                            <label className="text-xs text-slate-400 whitespace-nowrap">보유수량</label>
+                            <input
+                              type="number"
+                              value={h.shares ?? ''}
+                              onChange={e => updateHolding(ai, hi, 'shares', parseFloat(e.target.value) || undefined)}
+                              placeholder="0"
+                              step={0.01}
+                              className="flex-1 p-1.5 rounded-lg border text-sm text-right dark:bg-dark-bg dark:border-dark-border dark:text-dark-text outline-none focus:ring-2 focus:ring-primary-500"
+                            />
+                            <span className="text-xs text-slate-400">주</span>
+                          </div>
+                          {h.avgPurchasePrice && h.shares && (
+                            <span className="text-xs text-slate-400 self-center tabular-nums">
+                              매입금액 {Math.round(h.avgPurchasePrice * h.shares).toLocaleString()}원
+                            </span>
+                          )}
+                        </div>
                       </div>
                     );
                   })}

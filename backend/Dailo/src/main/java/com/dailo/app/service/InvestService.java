@@ -64,6 +64,7 @@ public class InvestService {
                             .map(h -> InvestDto.HoldingResponse.builder()
                                     .id(h.getId()).ticker(h.getTicker())
                                     .targetPct(h.getTargetPct()).sortOrder(h.getSortOrder())
+                                    .avgPurchasePrice(h.getAvgPurchasePrice()).shares(h.getShares())
                                     .build())
                             .collect(Collectors.toList());
                     return InvestDto.AccountResponse.builder()
@@ -100,11 +101,13 @@ public class InvestService {
                     if (hr.getId() != null) {
                         holding = holdingRepo.findById(hr.getId())
                                 .orElseThrow(() -> new IllegalArgumentException("종목을 찾을 수 없습니다: " + hr.getId()));
-                        holding.update(hr.getTicker(), hr.getTargetPct(), hr.getSortOrder());
+                        holding.update(hr.getTicker(), hr.getTargetPct(), hr.getSortOrder(),
+                                hr.getAvgPurchasePrice(), hr.getShares());
                     } else {
                         holding = holdingRepo.save(InvestHolding.builder()
                                 .account(account).ticker(hr.getTicker())
                                 .targetPct(hr.getTargetPct()).sortOrder(hr.getSortOrder())
+                                .avgPurchasePrice(hr.getAvgPurchasePrice()).shares(hr.getShares())
                                 .build());
                     }
                     keptHoldingIds.add(holding.getId());
@@ -166,9 +169,33 @@ public class InvestService {
                     .forEach(r -> recordMap.put(r.getHolding().getId(), r));
         }
 
-        List<InvestDto.DashboardAccount> dashAccounts = new ArrayList<>();
+        // Phase 1: ensure all records exist
         int totalPlanned = 0, totalActual = 0;
+        for (InvestAccount acc : accounts) {
+            for (InvestHolding h : holdingsByAccount.getOrDefault(acc.getId(), Collections.emptyList())) {
+                int planned = (int) Math.round(budget * (acc.getTargetPct() / 100.0) * (h.getTargetPct() / 100.0));
+                float overallPct = acc.getTargetPct() * h.getTargetPct() / 100f;
+                InvestMonthlyRecord rec = recordMap.get(h.getId());
+                if (rec == null) {
+                    rec = recordRepo.save(InvestMonthlyRecord.builder()
+                            .holding(h).yearMonth(yearMonth)
+                            .plannedAmt(planned).actualAmt(0).isPaid(false)
+                            .build());
+                    recordMap.put(h.getId(), rec);
+                } else if (!Objects.equals(rec.getPlannedAmt(), planned)) {
+                    rec.updatePlanned(planned);
+                }
+                totalPlanned += planned;
+                totalActual += rec.getActualAmt() != null ? rec.getActualAmt() : 0;
+            }
+        }
 
+        // Phase 2: compute totalEvalAmt for portfolio weight calculation
+        int totalEvalAmt = recordMap.values().stream()
+                .mapToInt(r -> r.getEvalAmt() != null ? r.getEvalAmt() : 0).sum();
+
+        // Phase 3: build DTO
+        List<InvestDto.DashboardAccount> dashAccounts = new ArrayList<>();
         for (InvestAccount acc : accounts) {
             List<InvestHolding> holdings = holdingsByAccount.getOrDefault(acc.getId(), Collections.emptyList());
             int accPlanned = 0, accActual = 0;
@@ -177,37 +204,41 @@ public class InvestService {
             for (InvestHolding h : holdings) {
                 int planned = (int) Math.round(budget * (acc.getTargetPct() / 100.0) * (h.getTargetPct() / 100.0));
                 float overallPct = acc.getTargetPct() * h.getTargetPct() / 100f;
-
                 InvestMonthlyRecord rec = recordMap.get(h.getId());
-                if (rec == null) {
-                    rec = recordRepo.save(InvestMonthlyRecord.builder()
-                            .holding(h).yearMonth(yearMonth)
-                            .plannedAmt(planned).actualAmt(0).isPaid(false).currentPct(overallPct)
-                            .build());
-                    recordMap.put(h.getId(), rec);
-                } else if (!Objects.equals(rec.getPlannedAmt(), planned)) {
-                    rec.updatePlanned(planned);
-                }
-
                 int actual = rec.getActualAmt() != null ? rec.getActualAmt() : 0;
-                float curPct = rec.getCurrentPct() != null ? rec.getCurrentPct() : overallPct;
+                Integer evalAmt = rec.getEvalAmt();
+
+                // 현재 포트폴리오 비중 자동계산
+                float curPct = (totalEvalAmt > 0 && evalAmt != null)
+                        ? evalAmt * 100f / totalEvalAmt
+                        : overallPct;
                 boolean rebalanceNeeded = Math.abs(curPct - overallPct) > threshold;
+
+                // 손익 계산
+                Integer purchaseAmt = null, profitAmt = null;
+                Float profitPct = null;
+                if (h.getAvgPurchasePrice() != null && h.getShares() != null) {
+                    purchaseAmt = Math.round(h.getAvgPurchasePrice() * h.getShares());
+                    if (evalAmt != null) {
+                        profitAmt = evalAmt - purchaseAmt;
+                        profitPct = purchaseAmt > 0 ? profitAmt * 100f / purchaseAmt : null;
+                    }
+                }
 
                 dashHoldings.add(InvestDto.DashboardHolding.builder()
                         .recordId(rec.getId()).holdingId(h.getId()).ticker(h.getTicker())
+                        .avgPurchasePrice(h.getAvgPurchasePrice()).shares(h.getShares())
                         .holdingTargetPct(h.getTargetPct()).overallTargetPct(overallPct)
                         .plannedAmt(planned).actualAmt(actual)
                         .isPaid(rec.getIsPaid() != null ? rec.getIsPaid() : false)
+                        .currentPrice(rec.getCurrentPrice()).evalAmt(evalAmt)
+                        .purchaseAmt(purchaseAmt).profitAmt(profitAmt).profitPct(profitPct)
                         .currentPct(curPct).rebalanceNeeded(rebalanceNeeded)
-                        .evalAmt(rec.getEvalAmt())
                         .build());
 
                 accPlanned += planned;
                 accActual += actual;
             }
-
-            totalPlanned += accPlanned;
-            totalActual += accActual;
 
             dashAccounts.add(InvestDto.DashboardAccount.builder()
                     .id(acc.getId()).name(acc.getName()).type(acc.getType())
@@ -234,7 +265,14 @@ public class InvestService {
     public void updateRecord(Long recordId, InvestDto.RecordUpdateRequest req) {
         InvestMonthlyRecord record = recordRepo.findById(recordId)
                 .orElseThrow(() -> new IllegalArgumentException("레코드를 찾을 수 없습니다: " + recordId));
-        record.updateActual(req.getActualAmt(), req.getIsPaid(), req.getCurrentPct(), req.getEvalAmt());
+        Integer evalAmt = null;
+        if (req.getCurrentPrice() != null) {
+            Float shares = record.getHolding().getShares();
+            if (shares != null) {
+                evalAmt = Math.round(req.getCurrentPrice() * shares);
+            }
+        }
+        record.updateActual(req.getActualAmt(), req.getIsPaid(), req.getCurrentPrice(), evalAmt);
     }
 
     // ─── Diary ─────────────────────────────────────────────────
