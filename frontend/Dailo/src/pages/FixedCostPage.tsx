@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import api, { getStoredMemberId } from '../api/axios';
 import { formatNumber, parseNumber } from '../utils/format';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 interface FixedCost {
   id: number;
@@ -14,6 +15,7 @@ export const FixedCostPage = () => {
   const [fixedCosts, setFixedCosts] = useState<FixedCost[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<FixedCost | null>(null);
+  useEscapeKey(isModalOpen, () => setIsModalOpen(false));
 
   const [name, setName] = useState('');
   const [amount, setAmount] = useState('');

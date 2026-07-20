@@ -23,6 +23,7 @@ import { BudgetType, DailyExpense, Category, DashboardSummary, DailyStats, Categ
 import api from './api/axios';
 import { formatNumber, parseNumber, getCurrentSettleMonth } from './utils/format';
 import { getAllocationLabels } from './utils/allocationLabels';
+import { useEscapeKey } from './hooks/useEscapeKey';
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4'];
 
@@ -221,6 +222,9 @@ const DashboardHome = () => {
   const livingExpenses = expenses.filter(e => e.budgetType === '생활비').reduce((sum, e) => sum + e.amount, 0);
   const emergencyExpenses = expenses.filter(e => e.budgetType === '비상금').reduce((sum, e) => sum + e.amount, 0);
   const investExpenses = expenses.filter(e => e.budgetType === '투자').reduce((sum, e) => sum + e.amount, 0);
+
+  useEscapeKey(isModalOpen, () => setIsModalOpen(false));
+  useEscapeKey(detailModalType !== null, () => setDetailModalType(null));
 
   // 상세 모달 데이터
   const detailModalItems = detailModalType === null ? [] :

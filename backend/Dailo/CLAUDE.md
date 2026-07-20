@@ -263,7 +263,8 @@ com.dailo.app
 
 ## 배포 (외부 접근)
 - React 빌드 후 `src/main/resources/static/`에 복사해서 Spring Boot에서 서빙
-- 외부 접근: Cloudflare Tunnel 사용 (`cloudflared tunnel --url http://localhost:8888`)
+- 외부 접근: Cloudflare Tunnel 사용 (`cloudflared tunnel --url http://localhost:8888
+- `)
 - CORS: setAllowedOriginPatterns 사용 — setAllowedOrigins와 allowCredentials 동시 사용 불가
   허용 패턴: http://localhost:3000, https://*.trycloudflare.com
 - SpaController: React Router 경로(/expenses, /fixed-costs 등)를 index.html로 포워딩

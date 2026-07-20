@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from '../api/axios';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 interface Diary {
   id: number; date: string; marketMood: string; myEmotion: string;
@@ -31,6 +32,7 @@ export const InvestDiaryPage = () => {
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+  useEscapeKey(showForm, () => setShowForm(false));
 
   const toggleExpand = (id: number) => {
     setExpandedIds(prev => {

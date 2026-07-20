@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 import api from '../api/axios';
 
 // ── 타입 ──────────────────────────────────────────────
@@ -124,6 +125,9 @@ export const RunningPage = () => {
 
   // 상세 모달
   const [detailRecord, setDetailRecord] = useState<RunningRecord | null>(null);
+  useEscapeKey(showGoalModal, () => setShowGoalModal(false));
+  useEscapeKey(selectedDate !== null, () => setSelectedDate(null));
+  useEscapeKey(detailRecord !== null, () => setDetailRecord(null));
 
   // 카카오맵 refs
   const mapContainerRef = useRef<HTMLDivElement>(null);

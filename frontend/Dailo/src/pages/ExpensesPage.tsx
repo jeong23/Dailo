@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { DailyExpense, Category, BudgetType } from '../types';
 import api, { getStoredMemberId } from '../api/axios';
 import { formatNumber, parseNumber, getCurrentSettleMonth, getSettleMonthForDate } from '../utils/format';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 interface Income {
   id: number;
@@ -67,6 +68,8 @@ export const ExpensesPage = () => {
   const [incomeDate, setIncomeDate] = useState(new Date().toISOString().split('T')[0]);
   const [source, setSource] = useState('');
   const [incomeMemo, setIncomeMemo] = useState('');
+  useEscapeKey(isExpenseModalOpen, () => setIsExpenseModalOpen(false));
+  useEscapeKey(isIncomeModalOpen, () => setIsIncomeModalOpen(false));
 
   const fetchExpenses = async () => {
     try {

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import api, { getStoredMemberId } from '../api/axios';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 interface Habit {
   id: number;
@@ -49,6 +50,7 @@ export const HabitPage = () => {
   const [showModal, setShowModal] = useState(false);
   const [editingHabit, setEditingHabit] = useState<Habit | null>(null);
   const [form, setForm] = useState({ name: '', emoji: '💪', color: '#22c55e', habitType: 'GOOD' });
+  useEscapeKey(showModal, () => setShowModal(false));
 
   const fetchHabits = useCallback(async () => {
     const res = await api.get('/habits').catch(() => null);

@@ -1,6 +1,7 @@
 import React, { ReactNode, useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { logout } from '../api/axios';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 interface LayoutProps {
   children: ReactNode;
@@ -34,6 +35,7 @@ const NAV_GROUPS = [
 export const Layout = ({ children }: LayoutProps) => {
   const [isDark, setIsDark] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  useEscapeKey(sidebarOpen, () => setSidebarOpen(false));
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() =>
     localStorage.getItem('sidebarCollapsed') === 'true'
   );
