@@ -141,8 +141,13 @@ export const BudgetSettingsPage = () => {
 
   const rateTotal = combinedRows.reduce((s, r) => s + r.rate, 0);
 
-  // 금액 모드: 입력 금액에서 비율 계산
-  const parsedAmounts = combinedRows.map(r => parseNumber(r.amountInput));
+  // 금액 모드: 생활비는 직접 입력받지 않고 "가용금액 - 나머지 항목 합계"로 자동 계산 — 나머지가 전부 생활비로 흡수되어
+  // ISA/연금저축처럼 딱 떨어지는 금액만 맞추면 되고, 합계를 100%로 수동 조정할 필요가 없어진다.
+  const livingRowIndex = combinedRows.findIndex(r => r.kind === 'fixed' && r.fixedKey === 'livingRate');
+  const rawAmounts = combinedRows.map(r => parseNumber(r.amountInput));
+  const otherAmountsTotal = rawAmounts.reduce((s, v, i) => (i === livingRowIndex ? s : s + v), 0);
+  const livingRemainder = Math.max(available - otherAmountsTotal, 0);
+  const parsedAmounts = rawAmounts.map((v, i) => (i === livingRowIndex ? livingRemainder : v));
   const amountTotal = parsedAmounts.reduce((s, v) => s + v, 0);
   const amountDiff = available - amountTotal;
 
@@ -347,12 +352,15 @@ export const BudgetSettingsPage = () => {
     setIsSaving(true);
 
     // 현재 입력 모드(비율/금액)와 무관하게 최종 비율(%)로 정규화해서 전송
+    // 금액 모드는 정수 %로 반올림하면 500,000원 → 27% → 저장 후 509,113원처럼 오차가 생기므로
+    // DB 컬럼(DECIMAL(5,4), 소수 4자리)에 맞춰 소수점 넷째 자리까지 정밀하게 변환한다.
+    // 비율 모드는 사용자가 애초에 정수 %로만 입력하므로(step=1) 그대로 사용해도 오차가 없다.
     const finalRates: Record<RateKey, number> = { ...rates };
     const finalItems = allocationItems.map(it => ({ ...it }));
     combinedRows.forEach((row, i) => {
       const pct = inputMode === 'rate'
         ? row.rate
-        : (available > 0 ? Math.round(parsedAmounts[i] / available * 100) : 0);
+        : (available > 0 ? Math.round((parsedAmounts[i] / available) * 1000000) / 10000 : 0);
       if (row.kind === 'fixed') finalRates[row.fixedKey] = pct;
       else finalItems[row.index].rate = pct;
     });
@@ -761,24 +769,40 @@ export const BudgetSettingsPage = () => {
               ) : (
                 <>
                   <div className="space-y-2">
-                    {activeAllocationBase.map(a => (
-                      <div key={a.rateKey} className="flex items-center gap-2">
-                        <span className={`text-xs font-medium w-16 truncate ${a.text}`}>{labels[a.labelKey]}</span>
-                        <input
-                          type="text"
-                          value={amountInputs[a.rateKey]}
-                          onChange={e => setAmountInputs(prev => ({ ...prev, [a.rateKey]: formatNumber(e.target.value) }))}
-                          placeholder="0"
-                          className="flex-1 p-1.5 rounded-lg border text-sm dark:bg-dark-bg dark:border-dark-border dark:text-dark-text outline-none focus:ring-2 focus:ring-primary-500 text-right"
-                        />
-                        <span className="text-xs text-slate-400">원</span>
-                        {available > 0 && parseNumber(amountInputs[a.rateKey]) > 0 && (
-                          <span className="text-xs text-slate-400 tabular-nums w-8 text-right">
-                            {Math.round(parseNumber(amountInputs[a.rateKey]) / available * 100)}%
-                          </span>
-                        )}
-                      </div>
-                    ))}
+                    {activeAllocationBase.map(a => {
+                      const isLivingAuto = a.rateKey === 'livingRate';
+                      return (
+                        <div key={a.rateKey} className="flex items-center gap-2">
+                          <span className={`text-xs font-medium w-16 truncate ${a.text}`}>{labels[a.labelKey]}</span>
+                          {isLivingAuto ? (
+                            <div
+                              className="flex-1 p-1.5 rounded-lg border border-dashed dark:border-dark-border text-sm text-right tabular-nums bg-slate-50 dark:bg-slate-800/50 text-slate-500 dark:text-dark-muted"
+                              title="나머지 항목을 다 채우고 남은 금액이 자동으로 들어갑니다"
+                            >
+                              {livingRemainder.toLocaleString()}
+                            </div>
+                          ) : (
+                            <input
+                              type="text"
+                              value={amountInputs[a.rateKey]}
+                              onChange={e => setAmountInputs(prev => ({ ...prev, [a.rateKey]: formatNumber(e.target.value) }))}
+                              placeholder="0"
+                              className="flex-1 p-1.5 rounded-lg border text-sm dark:bg-dark-bg dark:border-dark-border dark:text-dark-text outline-none focus:ring-2 focus:ring-primary-500 text-right"
+                            />
+                          )}
+                          <span className="text-xs text-slate-400">원</span>
+                          {isLivingAuto ? (
+                            <span className="text-[10px] text-slate-400 w-14 text-right shrink-0">나머지 자동</span>
+                          ) : (
+                            available > 0 && parseNumber(amountInputs[a.rateKey]) > 0 && (
+                              <span className="text-xs text-slate-400 tabular-nums w-8 text-right">
+                                {Math.round(parseNumber(amountInputs[a.rateKey]) / available * 100)}%
+                              </span>
+                            )
+                          )}
+                        </div>
+                      );
+                    })}
                     {allocationItems.map((item, i) => (
                       <div key={`item-${i}`} className="flex items-center gap-2">
                         <input

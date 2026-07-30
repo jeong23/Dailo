@@ -3,6 +3,7 @@ import { DailyExpense, Category, BudgetType } from '../types';
 import api, { getStoredMemberId } from '../api/axios';
 import { formatNumber, parseNumber, getCurrentSettleMonth, getSettleMonthForDate } from '../utils/format';
 import { useEscapeKey } from '../hooks/useEscapeKey';
+import { getAllocationLabels } from '../utils/allocationLabels';
 
 interface Income {
   id: number;
@@ -13,8 +14,15 @@ interface Income {
   memo: string;
 }
 
-// 예산구분(BudgetType) 고정 기본값 — 여기에 이번 달 MonthlyBudget.allocationItems의 label이 동적으로 추가된다
+// 예산구분(BudgetType) 초기 렌더용 기본값 — 실제 목록은 fetchExpenses에서 allocationLabels(생활비/ISA/연금저축/비상금/자유재량)
+// + 이번 달 MonthlyBudget.allocationItems 라벨을 합쳐 동적으로 구성한다
 const BASE_BUDGET_TYPES = ['생활비', '비상금', '투자'];
+
+// 고정 5항목(생활비/ISA/연금저축/비상금/자유재량) 라벨 + 투자 — allocationLabels는 사용자가 설정에서 바꾼 이름을 그대로 반영
+const getFixedBudgetTypes = (): string[] => {
+  const labels = getAllocationLabels();
+  return [labels.living, labels.isa, labels.pension, labels.emergency, labels.discretionary, '투자'];
+};
 
 export const ExpensesPage = () => {
   const [activeTab, setActiveTab] = useState<'expense' | 'income'>('expense');
@@ -89,18 +97,19 @@ export const ExpensesPage = () => {
         setCategories(cats);
         if (cats.length > 0) setCategoryId(cats[0].id);
       }
+      const fixedLabels = getFixedBudgetTypes();
       if (budgetRes.status === 'fulfilled' && budgetRes.value.data.data?.id) {
         const budget = budgetRes.value.data.data;
         setMonthlyBudgetId(budget.id);
         const extraLabels: string[] = (budget.allocationItems || [])
           .map((item: any) => (item.label || '').trim())
           .filter((label: string) => label !== '');
-        const merged = [...BASE_BUDGET_TYPES, ...extraLabels].filter(
-          (label, idx, arr) => arr.indexOf(label) === idx
+        const merged = [...fixedLabels, ...extraLabels].filter(
+          (label, idx, arr) => label !== '' && arr.indexOf(label) === idx
         );
         setBudgetTypeOptions(merged);
       } else {
-        setBudgetTypeOptions(BASE_BUDGET_TYPES);
+        setBudgetTypeOptions(fixedLabels.filter((label, idx, arr) => arr.indexOf(label) === idx));
       }
     } catch (error) {
       console.error('지출 데이터 로드 실패:', error);
