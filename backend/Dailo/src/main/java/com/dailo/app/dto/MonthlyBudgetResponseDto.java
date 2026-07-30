@@ -1,11 +1,15 @@
 package com.dailo.app.dto;
 
+import com.dailo.app.entity.BudgetAllocationItem;
 import com.dailo.app.entity.MonthlyBudget;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 
 import java.time.LocalDateTime;
+import java.util.Collections;
+import java.util.List;
+import java.util.stream.Collectors;
 
 @Getter
 @AllArgsConstructor
@@ -31,16 +35,15 @@ public class MonthlyBudgetResponseDto {
     private Double pensionRate;
     private Double emergencyRate;
     private Double discretionaryRate;
-    private Double extra1Rate;
-    private Double extra2Rate;
-    private Double extra3Rate;
-    private Integer extra1Budget;
-    private Integer extra2Budget;
-    private Integer extra3Budget;
+    private List<AllocationItemResponseDto> allocationItems;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
     public static MonthlyBudgetResponseDto from(MonthlyBudget budget) {
+        return from(budget, Collections.emptyList());
+    }
+
+    public static MonthlyBudgetResponseDto from(MonthlyBudget budget, List<BudgetAllocationItem> items) {
         return MonthlyBudgetResponseDto.builder()
                 .id(budget.getId())
                 .memberId(budget.getMember().getId())
@@ -53,9 +56,6 @@ public class MonthlyBudgetResponseDto {
                 .pensionAmount(budget.getPensionAmount())
                 .emergencyBudget(budget.getEmergencyBudget())
                 .discretionaryBudget(budget.getDiscretionaryBudget())
-                .extra1Budget(budget.getExtra1Budget())
-                .extra2Budget(budget.getExtra2Budget())
-                .extra3Budget(budget.getExtra3Budget())
                 .cardGoal(budget.getCardGoal())
                 .livingCarryover(budget.getLivingCarryover())
                 .emergencyCumulative(budget.getEmergencyCumulative())
@@ -64,9 +64,9 @@ public class MonthlyBudgetResponseDto {
                 .pensionRate(budget.getPensionRate())
                 .emergencyRate(budget.getEmergencyRate())
                 .discretionaryRate(budget.getDiscretionaryRate())
-                .extra1Rate(budget.getExtra1Rate())
-                .extra2Rate(budget.getExtra2Rate())
-                .extra3Rate(budget.getExtra3Rate())
+                .allocationItems(items.stream()
+                        .map(AllocationItemResponseDto::from)
+                        .collect(Collectors.toList()))
                 .createdAt(budget.getCreatedAt())
                 .updatedAt(budget.getUpdatedAt())
                 .build();

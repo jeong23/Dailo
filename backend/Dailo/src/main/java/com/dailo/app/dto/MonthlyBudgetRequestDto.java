@@ -1,9 +1,12 @@
 package com.dailo.app.dto;
 
+import jakarta.validation.Valid;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+
+import java.util.List;
 
 @Getter
 @NoArgsConstructor
@@ -11,7 +14,7 @@ import lombok.NoArgsConstructor;
 @Builder
 public class MonthlyBudgetRequestDto {
 
-    private Long memberId;
+    // memberId는 클라이언트 입력을 신뢰하지 않는다 — 인증된 사용자(@AuthenticationPrincipal)의 memberId만 사용한다.
     private String settleMonth;
     private Integer netSalary;
     private Integer fixedCostTotal;
@@ -29,7 +32,7 @@ public class MonthlyBudgetRequestDto {
     private Double pensionRate;
     private Double emergencyRate;
     private Double discretionaryRate;
-    private Double extra1Rate;
-    private Double extra2Rate;
-    private Double extra3Rate;
+    // 가변 개수 예산 분배 항목(생활비/ISA/연금저축/자유재량 외 사용자 정의 항목) — 전체 교체(replace-all) 방식으로 저장
+    @Valid
+    private List<AllocationItemRequestDto> allocationItems;
 }

@@ -1,8 +1,10 @@
-# Dailo API
+# Dailo Backend (backend/Dailo)
 
-## 프로젝트 개요
-- Spring Boot 3.4.x + Java 17 + JPA + MariaDB
-- 빌드: Maven
+> 공통 규칙은 루트 `CLAUDE.md` 참고. API 엔드포인트 전체 목록은 `docs/api-reference.md`.
+
+## 개요
+- Spring Boot 3.5.x + Java 17 + JPA + MariaDB
+- 빌드: Maven — **`mvn`이 PATH에 없으므로 반드시 `./mvnw` 사용** (`./mvnw compile`, `./mvnw spring-boot:run`, `./mvnw test`)
 - 패키지: com.dailo.app
 - 포트: 8888
 - DB: localhost:3333 / budget_dashboard
@@ -28,20 +30,6 @@ com.dailo.app
 - 예외는 GlobalExceptionHandler에서 처리
 - 모든 응답은 ApiResponse<T> 공통 포맷 사용
 - ApiResponse 메서드명: ApiResponse.ok() 사용 (success() 아님)
-- 모든 앞단의 페이지는 web,mobile 화면단에 잘 나오게 설계해야 한다.
-## 규칙
-- 컴파일/실행은 개발자가 직접 한다 (mvn, bootRun 명령 실행 금지)
-- 코드 작성 후 실행 결과는 개발자가 확인 후 피드백한다
-- 프론트엔드 코드 수정 완료 후 `ship m="..."` 으로 빌드 + static 복사 + git 커밋 자동 실행
-  → 백엔드만 변경 시에는 `dcommit m="..."` 으로 커밋만 수행
-- 모든 UI는 모바일 웹 화면을 반드시 고려해야 함
-  → 터치 타깃 최소 44px, 텍스트 잘림 방지(min-w-0 + truncate), 가로 스크롤 없는 레이아웃
-  → 모달은 모바일 바텀시트(items-end, rounded-t-3xl) + 데스크탑 중앙 팝업(sm:items-center, sm:rounded-3xl)
-  → 테이블은 모바일 카드 리스트(md:hidden) + 데스크탑 테이블(hidden md:block) 이중 구현
-
-## 빌드/실행
-- mvn spring-boot:run
-- mvn test
 
 ## DB 테이블 목록
 - MEMBER (회원 — username, password, name, role, salaryGross, salaryDay)
@@ -56,54 +44,6 @@ com.dailo.app
 - TIME_BOX_BLOCK (타임박스 블록 — planDate, startHour, startSlot, endHour, endSlot, content, isDone)
 - HABIT (습관 — memberId, name, emoji, color, isActive, sortOrder)
 - HABIT_LOG (습관 체크 기록 — habit_id, log_date, UNIQUE(habit_id, log_date))
-
-## API 엔드포인트 목록
-- POST       /api/auth/login                        ← JWT 로그인 (token, memberId, name, salaryDay 반환)
-- GET/POST   /api/members                           ← GET 목록 / POST 회원가입 (permitAll)
-- GET/PUT    /api/members/{id}                      ← 조회 / 수정 (authenticated)
-- GET/POST   /api/monthly-budgets
-- GET        /api/monthly-budgets/member/{memberId}
-- GET        /api/monthly-budgets/member/{memberId}/month/{settleMonth}
-- PUT/DELETE /api/monthly-budgets/{id}
-- GET/POST   /api/daily-expenses
-- GET        /api/daily-expenses/month/{settleMonth}
-- PUT/DELETE /api/daily-expenses/{id}
-- GET/POST   /api/incomes
-- GET        /api/incomes/month/{settleMonth}
-- PUT/DELETE /api/incomes/{id}
-- GET/POST   /api/fixed-costs
-- GET        /api/fixed-costs/member/{memberId}
-- PUT/DELETE /api/fixed-costs/{id}
-- GET        /api/categories
-- GET        /api/dashboard/summary?month=YYYY-MM
-- GET        /api/dashboard/daily-stats?month=YYYY-MM
-- GET        /api/dashboard/category-stats?month=YYYY-MM
-- GET        /api/dashboard/monthly-report?memberId={id}
-- GET        /api/dashboard/emergency-history?memberId={id}
-- GET/POST   /api/daily-plans/{date}
-- GET        /api/daily-plans/board?year=YYYY&month=MM
-- POST       /api/daily-plans/upload-image
-- GET/POST   /api/todo-items?date=YYYY-MM-DD
-- PUT/DELETE /api/todo-items/{id}
-- GET/POST   /api/time-box?date=YYYY-MM-DD
-- GET        /api/time-box-blocks?date=YYYY-MM-DD
-- POST       /api/time-box-blocks
-- PUT/DELETE /api/time-box-blocks/{id}
-- GET        /api/running/records?memberId={id}
-- GET        /api/running/records/week?start=YYYY-MM-DD
-- GET        /api/running/records/year?year=YYYY
-- GET/POST   /api/running/goal?memberId={id}&month=YYYY-MM
-- GET        /api/habits
-- POST       /api/habits
-- PUT/DELETE /api/habits/{id}
-- GET        /api/habits/logs?year=YYYY&month=MM
-- POST       /api/habits/logs
-- GET/POST   /api/invest/setting
-- GET/POST   /api/invest/accounts
-- GET        /api/invest/dashboard?yearMonth=YYYY-MM
-- PUT        /api/invest/records/{id}
-- GET/POST   /api/invest/diary?year=YYYY&month=M
-- DELETE     /api/invest/diary/{id}
 
 ## 인증 (JWT)
 - 방식: Stateless JWT (jjwt 0.12.6), 30일 만료
@@ -199,82 +139,10 @@ com.dailo.app
 - 경로: routeJson 필드에 JSON 문자열로 저장 (LatLng 배열)
 - 주간/연간 조회: findByRunDateBetweenOrderByRunDateAsc() 사용
 
-## 프론트엔드 규칙
-- 모든 페이지 모바일/데스크탑 반응형 적용
-  → 테이블: 모바일 카드 리스트(md:hidden) + 데스크탑 테이블(hidden md:block)
-  → 모달: 모바일 바텀시트(items-end, rounded-t-3xl) + 데스크탑 중앙 팝업(sm:items-center, sm:rounded-3xl)
-- format.ts 핵심 함수:
-  → getCurrentSettleMonth(): 오늘 날짜 기준 정산월
-  → getSettleMonthForDate(dateStr): 특정 날짜 기준 정산월 (지출/수입 저장 시 사용)
-  → getMonthOptions(count): 최근 N개월 옵션
-- allocationLabels.ts: 예산 분배 항목명(생활비/ISA/연금저축/비상금/자유재량) localStorage 관리
-  → getAllocationLabels() / setAllocationLabels() 사용 — BudgetSettingsPage에서 편집 가능
-
-## 사이드바 규칙
-- Layout.tsx: 상단 «/» 버튼으로 전체 slim 모드(w-14, 아이콘만) ↔ 전체(w-56) 토글
-- Money / Daily 그룹 헤더 클릭으로 섹션 접기/펼치기 가능
-- 설정(Config) 메뉴는 하단 버튼 영역에 위치 (nav 그룹에서 제거)
-- 사이드바/그룹 접힘 상태 localStorage 저장 ('sidebarCollapsed', 'collapsedGroups')
-
-## TodoPage 규칙
-- Big3 항목: 드래그로 내부 순서 변경 가능 (1/2/3 우선순위 재정렬)
-  → 드롭 시 reorderBig3() 호출 → 각 항목 sortOrder PUT 요청
-  → BrainDump ↔ Big3 이동과 Big3 내부 재정렬은 fromItem.type으로 구분
-- BrainDump: 최대 30개, 영역 내부 스크롤 (overflow-y-auto + min-h-0)
-
-## DashboardHome 규칙
-- 상단 요약 카드 5개: 가용금액 / 생활비 소진율 / 비상금 소진율 / 카드 실적 / 주식 투자
-  → 생활비·비상금·카드실적·주식투자 카드 클릭 시 지출 상세 모달(detailModalType 상태)
-  → detailModalItems: '카드'는 paymentMethod 필터, 나머지는 budgetType 필터
-  → investExpenses: expenses.filter(e => e.budgetType === '투자') 클라이언트 집계
-- 지출 상세 모달: 모바일 바텀시트 + 데스크탑 중앙, 하단 "지출 페이지에서 보기 →" 링크
-
-## ExpensesPage 규칙
-- BudgetType: '생활비' | '비상금' | '투자' — 백엔드 String 컬럼이라 추가 마이그레이션 불필요
-- 투자 배지 색상: violet (생활비=emerald, 비상금=amber, 투자=violet)
-- 지출 탭 필터: searchQuery(통합검색) + filterCategoryId + filterBudgetType → filteredExpenses
-  → 예산구분 칩(전체/생활비/비상금/투자)과 카테고리 칩은 별도 줄로 분리
-  → 월 변경 시 모든 필터·정렬 상태 초기화
-- 수입 탭 필터: incomeSearchQuery(출처·메모) → filteredIncomes
-- 컬럼 정렬: sortKey + sortDir(asc/desc) — 지출 6개 컬럼, 수입 3개 컬럼
-  → 같은 컬럼 재클릭 시 방향 토글, 다른 컬럼 클릭 시 desc로 초기화
-  → SortIcon(지출, primary색) / IncomeSortIcon(수입, blue색)
-- 빈 결과: expenses.length===0 → "등록 없음", filteredExpenses.length===0 → "검색 결과 없음"
-
-## InvestSettingsPage 규칙
-- 탭 구조: '기본 설정' / '계좌 & 종목' — activeTab state로 전환
-  → 기본 설정 탭: 세액공제 추천 카드 + 월 투자금/리밸런싱 트리거/연금 세액공제 한도 + 저장
-  → 계좌 & 종목 탭: 계좌 추가·편집, 종목 비중 설정 + 저장
-- 저장하기 버튼은 setting과 accounts를 모두 한 번에 POST (탭별 분리 저장 아님)
-
-## BudgetSettingsPage 규칙
-- 분배 입력 모드: '비율' ↔ '금액' 토글 (localStorage 미저장, 세션 내 유지)
-  → 비율 모드: % 입력 → 금액 자동 표시
-  → 금액 모드: 금액 입력 → % 자동 계산, 합계가 가용금액과 일치해야 저장 가능
-  → 저장 시 항상 비율로 변환해서 백엔드 전송 (API 변경 없음)
-- 항목명 편집: '편집' 버튼 클릭 → 인라인 수정 → '저장' → allocationLabels.ts에 반영
-
-## Git 저장소 구조
-- 모노레포: `Dailo/` 최상위에 단일 `.git` (GitHub: jeong23/LifePlan)
-- `frontend/Dailo` — React 소스 (모노레포에서 관리)
-- `backend/Dailo` — Spring Boot 소스 (모노레포에서 관리)
-- 빌드 결과물(`static/static/`, `asset-manifest.json`, `index.html`)은 `.gitignore`로 제외
-- 커밋은 `Dailo/` 루트 기준으로 한 번만 하면 됨
-
 ## 배포 (외부 접근)
-- React 빌드 후 `src/main/resources/static/`에 복사해서 Spring Boot에서 서빙
-- 외부 접근: Cloudflare Tunnel 사용 (`cloudflared tunnel --url http://localhost:8888
-- `)
 - CORS: setAllowedOriginPatterns 사용 — setAllowedOrigins와 allowCredentials 동시 사용 불가
   허용 패턴: http://localhost:3000, https://*.trycloudflare.com
 - SpaController: React Router 경로(/expenses, /fixed-costs 등)를 index.html로 포워딩
-- 빌드/배포/커밋 단축 명령 (Makefile + ~/.zshrc alias 등록됨):
-  ```
-  ship m="feat: 기능 추가"   # 빌드 + static 복사 + git 커밋 한 번에
-  ddeploy                    # 빌드 + static 복사만
-  dcommit m="fix: 버그 수정" # git add -A + commit만
-  dailo                      # /Users/user/Desktop/workspace/Dailo 로 이동
-  ```
 - Spring Boot 재시작은 수동으로 별도 진행
 
 ## 과거 실수 기록
@@ -297,12 +165,6 @@ com.dailo.app
   → invest_monthly_record 테이블은 ddl-auto가 자동 생성 안 함 → 수동 CREATE TABLE 실행 필요했음
 - MemberService.update()에서 null 필드를 그대로 쓰면 부분 업데이트 시 기존 값 덮어씀
   → null이면 기존 member 값 유지하도록 수정
-- InvestRecordsPage togglePaid: isPaid 토글 시 currentPct: null 전송하면 기존 비중 초기화됨
-  → togglePaid에 currentPct 파라미터 추가해서 기존 값 그대로 전송해야 함 (현재는 InvestDashboardPage에 통합)
-- InvestDashboardPage 로딩 상태: useState(false) 초기값이면 데이터 로드 전 빈 화면 flash 발생
-  → loading 초기값은 true로 설정해야 함
-- invest_monthly_record 테이블 미생성: ddl-auto:update가 이 테이블만 자동 생성 안 했음
-  → 수동 CREATE TABLE 실행으로 해결 (year_month 등 컬럼 모두 백틱 처리 필수)
-
-## 다음 작업 후보
-- [ ] N+1 쿼리 개선 (getMonthlyReport/getEmergencyHistory — 월 수 × 2 쿼리 발생)
+- application.yml YAML 들여쓰기 깨짐(spring.jpa.properties 하위 hibernate가 최상위로 밀림) → 앱 시작 실패
+  → 부팅 실패 시 Spring property binding 에러면 application.yml 들여쓰기부터 확인
+- `mvn` 명령이 PATH에 없음 → `./mvnw` 사용 (IntelliJ는 Bundled Maven이라 무관)

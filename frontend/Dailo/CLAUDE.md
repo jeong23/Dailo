@@ -1,12 +1,14 @@
-# Dailo Frontend
+# Dailo Frontend (frontend/Dailo)
 
-## 프로젝트 개요
+> 공통 규칙은 루트 `CLAUDE.md` 참고. 세액공제 계산기 상세 스펙은 `docs/tax-calc.md`.
+
+## 개요
 - React 19 + TypeScript + Tailwind CSS + Recharts
 - 포트: 3000 (개발 시), 배포 시 Spring Boot(8888)에서 정적 서빙
 - API 백엔드: /api (상대경로 — Spring Boot 정적 서빙 기준)
 
 ## 실행
-- npm start
+- npm start (개발) / 변경 확인은 보통 `ddeploy` + 백엔드 재시작 방식 사용 (루트 CLAUDE.md 참고)
 
 ## 폴더 구조
 ```
@@ -22,6 +24,7 @@ src/
 | 경로 | 컴포넌트 | 설명 |
 |------|----------|------|
 | / | DashboardHome (App.tsx) | 대시보드 메인 |
+| /login | LoginPage | JWT 로그인 |
 | /expenses | ExpensesPage | 지출/수입 통합 관리 (탭) |
 | /fixed-costs | FixedCostPage | 고정비 관리 |
 | /report | ReportPage | 월별 정산 리포트 |
@@ -30,23 +33,29 @@ src/
 | /todo | TodoPage | 일일 플래너 (SIMOL 다이어리 구조) |
 | /planner-board | PlannerBoardPage | 월간 플래너 보드 (달력 뷰) |
 | /running | RunningPage | 운동 기록 (NRC 스타일) |
+| /habits | HabitPage | 습관 트래커 |
+| /invest | InvestDashboardPage | 투자 현황 |
+| /invest/diary | InvestDiaryPage | 투자일기 |
+| /invest/settings | InvestSettingsPage | 투자 설정 |
 
 ## 핵심 유틸 (src/utils/format.ts)
 - formatNumber(value): 숫자 → "1,000,000" 콤마 포맷
 - parseNumber(value): "1,000,000" → 숫자
 - getCurrentSettleMonth(): 오늘 기준 정산월 반환 (25일 이후면 다음 달)
+- getSettleMonthForDate(dateStr): 특정 날짜 기준 정산월 (지출/수입 저장 시 사용)
 - getMonthOptions(count=6): 현재 정산월부터 N개월 옵션 배열
 
 ## 주요 타입 (src/types/index.ts)
 - DailyExpense: categoryName(string) 필드 있음 — category.name 아님
 - DashboardSummary: extraIncomeTotal 포함
-- BudgetType: '생활비' | '비상금'
+- BudgetType: '생활비' | '비상금' | '투자'
 
 ## 상태 관리 규칙
-- monthlyBudgetId: 하드코딩 1 금지 → /monthly-budgets/member/1/month/{월} API로 조회
-- categoryId 초기값: 하드코딩 1 금지 → categories[0].id 사용
+- memberId: 프론트 전역에서 getStoredMemberId() 사용 — 하드코딩 1 절대 금지
+- monthlyBudgetId: 하드코딩 금지 → /monthly-budgets/member/{memberId}/month/{월} API로 조회
+- categoryId 초기값: 하드코딩 금지 → categories[0].id 사용
 - selectedMonth 초기값: 하드코딩 금지 → getCurrentSettleMonth() 사용
-- monthOptions: getMonthOptions() 금지 → /monthly-budgets/member/1 API로 저장된 월만 조회
+- monthOptions: getMonthOptions() 금지 → /monthly-budgets/member/{memberId} API로 저장된 월만 조회
   (BudgetSettingsPage만 예외: 신규 달 입력을 위해 현재 정산월 없으면 목록 앞에 추가)
 - 복수 API 동시 호출 시 Promise.allSettled 사용 (Promise.all 금지 — 하나 실패 시 전체 실패)
 
@@ -65,10 +74,8 @@ src/
 - 바 차트 툴팁: DailyBarTooltip 커스텀 컴포넌트 사용 — 해당 날짜 expenses 필터링해 top3 표시
 
 ## 빌드 및 배포
-- 개발: `npm start` (포트 3000, axios baseURL은 /api 이므로 proxy 설정 필요 또는 백 직접 접근)
 - 배포: `npm run deploy` — 빌드 + Spring Boot static 폴더 복사 한번에 처리
-  - 빌드 결과물(`build/`)을 백엔드 `src/main/resources/static/`에 복사하는 이유:
-    Spring Boot가 해당 폴더를 웹으로 서빙하기 때문 (프론트/백 서버를 8888 하나로 통합)
+  - Spring Boot가 static 폴더를 웹으로 서빙 (프론트/백 서버를 8888 하나로 통합)
 - axios baseURL: `/api` (상대경로) — `http://localhost:8888/api`로 바꾸면 외부 배포 시 broken
 
 ## TodoPage 규칙
@@ -116,10 +123,6 @@ src/
 - 지도 초기화: vanilla `window.kakao.maps.Map()` 직접 사용 — react-kakao-maps-sdk 컴포넌트 사용 시 전역 스크립트와 충돌
 - 지도는 위치 표시 전용 (경로 그리기 기능 제거됨)
 - 경로 표시: pathRef.current로 관리 — 지도 init 콜백 내에서 drawPath(pathRef.current) 직접 호출 (stale closure 방지)
-- SpaController에 `/running` 경로 추가 필수
-- SecurityConfig permitAll에 `/running` 경로 추가 필수
-- 백엔드 엔티티: RunningGoal (월별 목표), RunningRecord (개별 기록)
-- RunningRecord 필드: ran, title, distanceKm, durationSeconds, calories, elevationGain, avgHeartRate, cadence, memo, routeJson
 - 페이스 계산: 백엔드 RecordResponse.calcPace() — durationSeconds / distanceKm → "7'05''" 형식 반환
 - 시간 입력: "MM:SS" 단일 필드, 숫자만 추출 후 자동 콜론 삽입
   ```ts
@@ -136,25 +139,52 @@ src/
 - 본문 wrapper: `flex flex-col flex-1 min-w-0` — overflow 없음
 - main: `overflow-auto` — 가로/세로 스크롤 모두 담당 (overflow-x-auto나 overflow-y-auto 분리 금지)
 
-## 과거 실수 기록
-- TimeBox Block 디자인: time.jpeg 참고 — 3열(시간|30mins|30mins), 블록=colSpan2+rowSpan N
-  30분 단위 병합(8:30~9:00)은 HTML table 구조상 구현 불가 → 시간 단위로만 가능
-- flex 자식에 overflow-auto 줘도 스크롤 안 되는 경우: min-h-0 누락 (min-height:auto 기본값)
-  → `flex-1 min-h-0 overflow-auto` 조합 필수
-- category.name으로 접근 시 undefined → categoryName 필드 사용
-- resetForm()에서 setCategoryId(1) 하드코딩 → categories[0].id 사용
-- monthlyBudgetId: 1 하드코딩 → API 조회 후 사용
-- 월 옵션 하드코딩 → /monthly-budgets/member/1 API로 저장된 월만 사용
-- BudgetSettingsPage 저장 시 분배금액 전송 불필요 → netSalary/cardGoal/livingCarryover만 전송
-- Promise.all 사용 시 summary API 실패(예산 없는 달)로 전체 데이터 로드 실패 → Promise.allSettled로 수정
-- axios baseURL을 http://localhost:8888/api로 설정 시 외부 배포 환경에서 API 호출 실패 → /api 상대경로로 수정
-- TodoPage useSearchParams: useState 초기값만으로는 이미 마운트된 상태에서 날짜 파라미터 변경 미반영
-  → useEffect로 searchParams 변화 감지 추가 필수
-- 달력 grid에서 last:border-r-0은 전체 마지막 셀에만 적용 → [&:nth-child(7n)]:border-r-0 사용
-- 새 페이지 추가 시 SpaController + SecurityConfig 두 곳 모두 경로 추가 필수
-- 카카오맵 useKakaoLoader 대신 index.html script 태그 직접 로드 — react-kakao-maps-sdk 컴포넌트도 window.kakao 전역 사용으로 대체
-- 카카오 도메인 등록: 플랫폼 > Web이 아닌 플랫폼 키 > JavaScript 키에서 직접 등록
-- Layout main에 overflow-x-auto/overflow-y-auto 분리 적용 시 스크롤 방향 충돌 → overflow-auto로 통합
+## 사이드바 규칙
+- Layout.tsx: 상단 «/» 버튼으로 전체 slim 모드(w-14, 아이콘만) ↔ 전체(w-56) 토글
+- Money / Daily 그룹 헤더 클릭으로 섹션 접기/펼치기 가능
+- 설정(Config) 메뉴는 하단 버튼 영역에 위치 (nav 그룹에서 제거)
+- 사이드바/그룹 접힘 상태 localStorage 저장 ('sidebarCollapsed', 'collapsedGroups')
+
+## ExpensesPage 규칙
+- BudgetType: '생활비' | '비상금' | '투자' — 백엔드 String 컬럼이라 추가 마이그레이션 불필요
+- 투자 배지 색상: violet (생활비=emerald, 비상금=amber, 투자=violet)
+- 지출 탭 필터: searchQuery(통합검색) + filterCategoryId + filterBudgetType → filteredExpenses
+  → 예산구분 칩(전체/생활비/비상금/투자)과 카테고리 칩은 별도 줄로 분리
+  → 월 변경 시 모든 필터·정렬 상태 초기화
+- 수입 탭 필터: incomeSearchQuery(출처·메모) → filteredIncomes
+- 컬럼 정렬: sortKey + sortDir(asc/desc) — 지출 6개 컬럼, 수입 3개 컬럼
+  → 같은 컬럼 재클릭 시 방향 토글, 다른 컬럼 클릭 시 desc로 초기화
+  → SortIcon(지출, primary색) / IncomeSortIcon(수입, blue색)
+- 빈 결과: expenses.length===0 → "등록 없음", filteredExpenses.length===0 → "검색 결과 없음"
+
+## DashboardHome 규칙
+- 상단 요약 카드 4개: 가용금액 / 생활비·비상금 소진율(통합) / 카드 실적 / 주식 투자
+  → 2026-07 개편: 기존 "생활비 소진율"/"비상금 소진율" 두 카드를 표시 레이어에서 하나로 통합
+    (합산 예산 = livingBudget+emergencyBudget, 합산 지출 = livingExpenses+emergencyExpenses, 분모 0 가드)
+    → EmergencyPage/BudgetSettingsPage 등 다른 페이지의 데이터 모델은 그대로 — 대시보드 "표시"만 통합
+  → 통합·카드실적·주식투자 카드 클릭 시 지출 상세 모달(detailModalType 상태, 타입: '생활비'|'카드'|'투자')
+  → detailModalItems: '카드'는 paymentMethod 필터, '생활비'는 budgetType이 생활비 OR 비상금인 것 모두, '투자'는 budgetType 필터
+  → investExpenses: expenses.filter(e => e.budgetType === '투자') 클라이언트 집계
+  → cardGoal 미설정(0)이면 퍼센트/진행바 대신 "카드 목표 미설정" 안내 — 500000 하드코딩 폴백 금지 (분모 0 가드)
+- 지출 상세 모달: 모바일 바텀시트 + 데스크탑 중앙, 하단 "지출 페이지에서 보기 →" 링크
+- "이번 달 예산 분배" 카드 배열: 고정비를 맨 앞에 추가 (실수령액에서 가장 먼저 빠지는 돈)
+  → 고정비 퍼센트만 다른 카드와 분모가 다름: fixedCostTotal/netSalary*100 (다른 항목은 value/availableAmount*100) — netSalary 0 가드
+  → 카드 6개 이상 가능해져 그리드 lg:grid-cols-6으로 확장
+- 지출 등록 모달 카테고리 select: categories가 비어있으면(로딩 중/실패) select disabled + "카테고리를 불러오는 중..." 옵션, 저장 버튼도 disabled
+  → categoryId 1~5 하드코딩 폴백 금지, handleSave에도 categories.length===0 가드 추가
+
+## InvestSettingsPage 규칙
+- 탭 구조: '기본 설정' / '계좌 & 종목' — activeTab state로 전환
+  → 기본 설정 탭: 세액공제 추천 카드 + 월 투자금/리밸런싱 트리거/연금 세액공제 한도 + 저장
+  → 계좌 & 종목 탭: 계좌 추가·편집, 종목 비중 설정 + 저장
+- 저장하기 버튼은 setting과 accounts를 모두 한 번에 POST (탭별 분리 저장 아님)
+
+## BudgetSettingsPage 규칙
+- 분배 입력 모드: '비율' ↔ '금액' 토글 (localStorage 미저장, 세션 내 유지)
+  → 비율 모드: % 입력 → 금액 자동 표시
+  → 금액 모드: 금액 입력 → % 자동 계산, 합계가 가용금액과 일치해야 저장 가능
+  → 저장 시 항상 비율로 변환해서 백엔드 전송 (API 변경 없음)
+- 항목명 편집: '편집' 버튼 클릭 → 인라인 수정 → '저장' → allocationLabels.ts에 반영
 
 ## 월별 분배 비율 동적 설정 규칙
 - MonthlyBudget 엔티티에 livingRate / isaRate / pensionRate / emergencyRate / discretionaryRate 5개 컬럼 (DECIMAL(5,4)) 추가
@@ -166,6 +196,10 @@ src/
 - 비율 합계 !== 100% 시 저장 버튼 disabled
 - 비율 input: type="number" step={1}, onChange에서 Math.floor() 적용 (소수 입력 방지)
 - DashboardService / MonthlyBudgetService: 계산 시 entity의 rate 값 사용 (하드코딩 금지)
+
+## allocationLabels.ts
+- 예산 분배 항목명(생활비/ISA/연금저축/비상금/자유재량) localStorage 관리
+- getAllocationLabels() / setAllocationLabels() 사용 — BudgetSettingsPage에서 편집 가능
 
 ## UI 디자인 시스템 (Toss/Banksalad 스타일)
 적용 파일: Layout.tsx, App.tsx(Dashboard), ExpensesPage, FixedCostPage, ReportPage, EmergencyPage, BudgetSettingsPage
@@ -201,57 +235,26 @@ src/
 ### 모달
 - `rounded-3xl shadow-2xl` — 테두리 없음
 
-## 세액공제 최적화 계산기
-
-### 파일 구조
-- **계산 로직**: `src/utils/taxCalc.ts` — 순수 함수, 두 페이지에서 공유
-- **계산기 UI**: `src/pages/BudgetSettingsPage.tsx` 하단 — 실수령액 자동 연동, 결과 읽기 전용
-- **요약 카드**: `src/pages/InvestSettingsPage.tsx` 상단 — localStorage에서 결과 읽어 표시
-
-### localStorage 키 (`taxCalc.ts` 상수)
-- `taxCalcInputs`: `{ isProbation, probEndMonth, joinMonth }` — 입력값 유지
-- `taxCalcResult`: `TaxCalcResult` 전체 객체 — 투자설정 요약 카드가 읽음
-
-### 입력값 (BudgetSettingsPage)
-- 실수령액: 이미 입력된 `netSalary` 상태 자동 사용 (중복 입력 없음)
-- 입사월, 수습 여부, 수습 종료 예정월 → lazy useState로 localStorage 복원
-
-### 역산: 실수령액 → 세전 월급 (`calcGrossFromNet`)
-4대보험 공제율 (직원 부담분):
-- 국민연금 4.5% / 건강보험 3.545% / 장기요양 = 건강보험×12.81% / 고용보험 0.9%
-- 소득세+지방소득세 = `calcAnnualTax(gross×12) / 12`
-- 위 5항목 합산이 (gross - net)에 수렴할 때까지 반복 (최대 80회, 허용오차 10원)
-
-수습 체크 시: `probGross = calcGrossFromNet(net)` → `regGross = probGross / 0.8`
-수습 없음: `regGross = calcGrossFromNet(net)`
-
-### 연간 소득세 (`calcAnnualTax`)
-1. **근로소득공제** (소득세법 §47):
-   - ≤500만: ×70% / 500~1,500만: 350만+초과×40% / 1,500~4,500만: 750만+초과×15%
-   - 4,500~1억: 1,200만+초과×5% / >1억: 1,475만 (한도)
-2. **과세표준** = 총급여 − 근로소득공제 − 기본인적공제 150만
-3. **누진세율** (소득세법 §55):
-   ≤1,400만 6% / ~5,000만 15% / ~8,800만 24% / ~1.5억 35% / ~3억 38% / ~5억 40% / ~10억 42% / 초과 45%
-   (누진공제: 0/84만/624만/1,536만/3,706만/9,406만/17,406만/38,406만)
-4. **근로소득세액공제** (소득세법 §59): 산출세액 ≤50만→×55%, 초과→27.5만+초과×30%
-   한도 (간소화): 총급여 ≤3,300만=74만 / ≤7,000만=66만 / 초과=50만
-   ※ 3,300만~4,300만 구간은 실제 법 기준 슬라이딩 스케일이 있으나 간소화 적용 — 최대 8.8만원 과대추정 허용 오차
-5. **반환값** = (산출세액 − 세액공제) × 1.1 — 지방소득세 10% 포함 (세액공제율 16.5%=15%×1.1과 정합)
-
-### 세액공제율
-- 총급여(=regGross×12) ≤5,500만 → **16.5%** / 초과 → **13.2%**
-
-### 연금저축 추천납입액
-- `pensionAnnual = min(annualTax / creditRate, 600만)` (만원 단위 반올림)
-- `pensionRefund = pensionAnnual × creditRate`
-- `pensionMonthly = pensionAnnual / remainMonths` (remainMonths = 13 − 입사월)
-
-### IRP 추천납입액
-- `remainTax = annualTax − pensionRefund`
-- remainTax ≤ 0 → **IRP 불필요** (연금저축 600만으로 소득세 전액 상계)
-- remainTax > 0 → `irpAnnual = min(remainTax / creditRate, 300만)`, `irpMonthly = irpAnnual / remainMonths`
-
-ISA는 세액공제 없으므로 안내 문구만 표시.
-
-## 다음 작업 후보
-- [ ] 로그인/인증 페이지 (JWT) - 현재 memberId: 1 하드코딩
+## 과거 실수 기록
+- TimeBox Block 디자인: time.jpeg 참고 — 3열(시간|30mins|30mins), 블록=colSpan2+rowSpan N
+  30분 단위 병합(8:30~9:00)은 HTML table 구조상 구현 불가 → 시간 단위로만 가능
+- flex 자식에 overflow-auto 줘도 스크롤 안 되는 경우: min-h-0 누락 (min-height:auto 기본값)
+  → `flex-1 min-h-0 overflow-auto` 조합 필수
+- category.name으로 접근 시 undefined → categoryName 필드 사용
+- resetForm()에서 setCategoryId(1) 하드코딩 → categories[0].id 사용
+- monthlyBudgetId: 1 하드코딩 → API 조회 후 사용
+- 월 옵션 하드코딩 → 저장된 월만 API로 조회해서 사용
+- BudgetSettingsPage 저장 시 분배금액 전송 불필요 → netSalary/cardGoal/livingCarryover만 전송
+- Promise.all 사용 시 summary API 실패(예산 없는 달)로 전체 데이터 로드 실패 → Promise.allSettled로 수정
+- axios baseURL을 http://localhost:8888/api로 설정 시 외부 배포 환경에서 API 호출 실패 → /api 상대경로로 수정
+- TodoPage useSearchParams: useState 초기값만으로는 이미 마운트된 상태에서 날짜 파라미터 변경 미반영
+  → useEffect로 searchParams 변화 감지 추가 필수
+- 달력 grid에서 last:border-r-0은 전체 마지막 셀에만 적용 → [&:nth-child(7n)]:border-r-0 사용
+- 새 페이지 추가 시 SpaController + SecurityConfig 두 곳 모두 경로 추가 필수
+- 카카오맵 useKakaoLoader 대신 index.html script 태그 직접 로드 — react-kakao-maps-sdk 컴포넌트도 window.kakao 전역 사용으로 대체
+- 카카오 도메인 등록: 플랫폼 > Web이 아닌 플랫폼 키 > JavaScript 키에서 직접 등록
+- Layout main에 overflow-x-auto/overflow-y-auto 분리 적용 시 스크롤 방향 충돌 → overflow-auto로 통합
+- InvestRecordsPage togglePaid: isPaid 토글 시 currentPct: null 전송하면 기존 비중 초기화됨
+  → togglePaid에 currentPct 파라미터 추가해서 기존 값 그대로 전송해야 함 (현재는 InvestDashboardPage에 통합)
+- InvestDashboardPage 로딩 상태: useState(false) 초기값이면 데이터 로드 전 빈 화면 flash 발생
+  → loading 초기값은 true로 설정해야 함

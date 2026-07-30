@@ -13,14 +13,19 @@ interface Income {
   memo: string;
 }
 
+// 예산구분(BudgetType) 고정 기본값 — 여기에 이번 달 MonthlyBudget.allocationItems의 label이 동적으로 추가된다
+const BASE_BUDGET_TYPES = ['생활비', '비상금', '투자'];
+
 export const ExpensesPage = () => {
   const [activeTab, setActiveTab] = useState<'expense' | 'income'>('expense');
   const [selectedMonth, setSelectedMonth] = useState(getCurrentSettleMonth());
   const [monthOptions, setMonthOptions] = useState<string[]>([]);
   const [budgetMap, setBudgetMap] = useState<Record<string, number>>({});
+  // 예산구분 select 옵션: 고정 3개 + 이번 달 활성 allocationItems 라벨 (중복 제거)
+  const [budgetTypeOptions, setBudgetTypeOptions] = useState<string[]>(BASE_BUDGET_TYPES);
 
   useEffect(() => {
-    api.get(`/monthly-budgets/member/${getStoredMemberId()}`)
+    api.get('/monthly-budgets/mine')
       .then(res => {
         const budgets: any[] = res.data.data || [];
         const months: string[] = budgets.map((b: any) => b.settleMonth);
@@ -76,7 +81,7 @@ export const ExpensesPage = () => {
       const [expenseRes, categoryRes, budgetRes] = await Promise.allSettled([
         api.get(`/daily-expenses/month/${selectedMonth}`),
         api.get('/categories'),
-        api.get(`/monthly-budgets/member/${getStoredMemberId()}/month/${selectedMonth}`)
+        api.get(`/monthly-budgets/mine/month/${selectedMonth}`)
       ]);
       if (expenseRes.status === 'fulfilled') setExpenses(expenseRes.value.data.data || []);
       if (categoryRes.status === 'fulfilled') {
@@ -85,7 +90,17 @@ export const ExpensesPage = () => {
         if (cats.length > 0) setCategoryId(cats[0].id);
       }
       if (budgetRes.status === 'fulfilled' && budgetRes.value.data.data?.id) {
-        setMonthlyBudgetId(budgetRes.value.data.data.id);
+        const budget = budgetRes.value.data.data;
+        setMonthlyBudgetId(budget.id);
+        const extraLabels: string[] = (budget.allocationItems || [])
+          .map((item: any) => (item.label || '').trim())
+          .filter((label: string) => label !== '');
+        const merged = [...BASE_BUDGET_TYPES, ...extraLabels].filter(
+          (label, idx, arr) => arr.indexOf(label) === idx
+        );
+        setBudgetTypeOptions(merged);
+      } else {
+        setBudgetTypeOptions(BASE_BUDGET_TYPES);
       }
     } catch (error) {
       console.error('지출 데이터 로드 실패:', error);
@@ -435,9 +450,9 @@ export const ExpensesPage = () => {
 
           {/* 칩 필터 */}
           <div className="flex flex-col gap-2">
-            {/* 예산구분 칩 */}
+            {/* 예산구분 칩 (고정 3개 + 이번 달 활성 추가 항목) */}
             <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-              {(['전체', '생활비', '비상금', '투자'] as const).map(type => (
+              {['전체', ...budgetTypeOptions].map(type => (
                 <button
                   key={type}
                   onClick={() => setFilterBudgetType(type === '전체' ? null : type)}
@@ -731,9 +746,10 @@ export const ExpensesPage = () => {
                   <label className="block text-sm font-medium mb-1 dark:text-dark-muted">예산 구분</label>
                   <select value={budgetType} onChange={(e) => setBudgetType(e.target.value as BudgetType)}
                     className="w-full p-2.5 rounded-lg border dark:bg-dark-bg dark:border-dark-border dark:text-dark-text outline-none focus:ring-2 focus:ring-primary-500">
-                    <option value="생활비">생활비</option>
-                    <option value="비상금">비상금</option>
-                    <option value="투자">투자</option>
+                    {/* 수정 중인 지출의 budgetType이 이번 달 활성 목록에 없어도(과거 항목명 변경 등) select에 표시되도록 병합 */}
+                    {Array.from(new Set([...budgetTypeOptions, budgetType])).map(type => (
+                      <option key={type} value={type}>{type}</option>
+                    ))}
                   </select>
                 </div>
               </div>

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import api, { getStoredMemberId } from '../api/axios';
+import api from '../api/axios';
 import { MonthlyReport } from '../types';
 import { getAllocationLabels } from '../utils/allocationLabels';
 
@@ -9,7 +9,7 @@ export const ReportPage = () => {
   const labels = getAllocationLabels();
 
   useEffect(() => {
-    api.get(`/dashboard/monthly-report?memberId=${getStoredMemberId()}`)
+    api.get('/dashboard/monthly-report')
       .then(res => setReports(res.data.data || []))
       .catch(err => console.error('리포트 로드 실패:', err))
       .finally(() => setLoading(false));
@@ -103,11 +103,15 @@ export const ReportPage = () => {
                   />
                 </div>
 
-                {/* 비상금 / 투자 */}
+                {/* 비상금(레거시 달만) / 투자 */}
                 <div className="space-y-2">
                   <p className="text-xs font-medium text-slate-400 dark:text-slate-500">{labels.emergency} / 투자</p>
-                  <Row label={`${labels.emergency} 예산`} value={fmt(r.emergencyBudget)} />
-                  <Row label={`${labels.emergency} 지출`} value={fmt(r.emergencyExpenseTotal)} color="text-red-400" />
+                  {(r.emergencyBudget > 0 || r.emergencyExpenseTotal > 0) && (
+                    <Row label={`${labels.emergency} 예산`} value={fmt(r.emergencyBudget)} />
+                  )}
+                  {(r.emergencyBudget > 0 || r.emergencyExpenseTotal > 0) && (
+                    <Row label={`${labels.emergency} 지출`} value={fmt(r.emergencyExpenseTotal)} color="text-red-400" />
+                  )}
                   <Row label={labels.isa} value={fmt(r.isaAmount)} color="text-emerald-500" />
                   <Row label={labels.pension} value={fmt(r.pensionAmount)} color="text-violet-500" />
                 </div>

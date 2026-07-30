@@ -18,3 +18,8 @@ frontend/Dailo/.env
 .idea/
 *.iml
 .DS_Store
+
+# Claude Code (CLAUDE.md는 git 추적 유지 — agents/커맨드/로그만 로컬 전용)
+agents/
+logs/
+.claude/

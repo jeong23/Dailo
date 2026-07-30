@@ -1,0 +1,50 @@
+# API 엔드포인트 전체 목록 (참고자료)
+
+> 새 엔드포인트 추가/변경 시 이 파일도 함께 갱신할 것.
+
+- POST       /api/auth/login                        ← JWT 로그인 (token, memberId, name, salaryDay 반환)
+- GET/POST   /api/members                           ← GET 목록 / POST 회원가입 (permitAll)
+- GET/PUT    /api/members/{id}                      ← 조회 / 수정 (authenticated)
+- GET/POST   /api/monthly-budgets
+- GET        /api/monthly-budgets/member/{memberId}
+- GET        /api/monthly-budgets/member/{memberId}/month/{settleMonth}
+- PUT/DELETE /api/monthly-budgets/{id}
+- GET/POST   /api/daily-expenses
+- GET        /api/daily-expenses/month/{settleMonth}
+- PUT/DELETE /api/daily-expenses/{id}
+- GET/POST   /api/incomes
+- GET        /api/incomes/month/{settleMonth}
+- PUT/DELETE /api/incomes/{id}
+- GET/POST   /api/fixed-costs
+- GET        /api/fixed-costs/member/{memberId}
+- PUT/DELETE /api/fixed-costs/{id}
+- GET        /api/categories
+- GET        /api/dashboard/summary?month=YYYY-MM
+- GET        /api/dashboard/daily-stats?month=YYYY-MM
+- GET        /api/dashboard/category-stats?month=YYYY-MM
+- GET        /api/dashboard/monthly-report?memberId={id}
+- GET        /api/dashboard/emergency-history?memberId={id}
+- GET/POST   /api/daily-plans/{date}
+- GET        /api/daily-plans/board?year=YYYY&month=MM
+- POST       /api/daily-plans/upload-image
+- GET/POST   /api/todo-items?date=YYYY-MM-DD
+- PUT/DELETE /api/todo-items/{id}
+- GET/POST   /api/time-box?date=YYYY-MM-DD
+- GET        /api/time-box-blocks?date=YYYY-MM-DD
+- POST       /api/time-box-blocks
+- PUT/DELETE /api/time-box-blocks/{id}
+- GET        /api/running/records?memberId={id}
+- GET        /api/running/records/week?start=YYYY-MM-DD
+- GET        /api/running/records/year?year=YYYY
+- GET/POST   /api/running/goal?memberId={id}&month=YYYY-MM
+- GET        /api/habits
+- POST       /api/habits
+- PUT/DELETE /api/habits/{id}
+- GET        /api/habits/logs?year=YYYY&month=MM
+- POST       /api/habits/logs
+- GET/POST   /api/invest/setting
+- GET/POST   /api/invest/accounts
+- GET        /api/invest/dashboard?yearMonth=YYYY-MM
+- PUT        /api/invest/records/{id}
+- GET/POST   /api/invest/diary?year=YYYY&month=M
+- DELETE     /api/invest/diary/{id}

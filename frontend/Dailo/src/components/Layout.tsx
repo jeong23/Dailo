@@ -15,7 +15,7 @@ const NAV_GROUPS = [
       { path: '/expenses',       label: '지출 / 수입', icon: '💳' },
       { path: '/fixed-costs',    label: '고정비',      icon: '📌' },
       { path: '/report',         label: '리포트',      icon: '📈' },
-      { path: '/emergency',      label: '비상금',      icon: '🛡️' },
+      { path: '/emergency',      label: '현금 자산',    icon: '💰' },
       { path: '/invest',         label: '투자 현황',   icon: '💹' },
       { path: '/invest/diary',   label: '투자일기',    icon: '📖' },
       { path: '/invest/settings',label: '투자 설정',   icon: '⚙️' },

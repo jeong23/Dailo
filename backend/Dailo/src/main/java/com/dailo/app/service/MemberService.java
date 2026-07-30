@@ -3,14 +3,12 @@ package com.dailo.app.service;
 import com.dailo.app.dto.MemberRequestDto;
 import com.dailo.app.dto.MemberResponseDto;
 import com.dailo.app.entity.Member;
+import com.dailo.app.repository.CashAssetRepository;
 import com.dailo.app.repository.MemberRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.util.List;
-import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -18,6 +16,7 @@ import java.util.stream.Collectors;
 public class MemberService {
 
     private final MemberRepository memberRepository;
+    private final CashAssetRepository cashAssetRepository;
     private final PasswordEncoder passwordEncoder;
 
     @Transactional
@@ -36,7 +35,8 @@ public class MemberService {
         return MemberResponseDto.from(memberRepository.save(member));
     }
 
-    public MemberResponseDto findById(Long id) {
+    public MemberResponseDto findById(Long authMemberId, Long id) {
+        validateOwnership(authMemberId, id);
         Member member = memberRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("회원을 찾을 수 없습니다: " + id));
         return MemberResponseDto.from(member);
@@ -48,14 +48,9 @@ public class MemberService {
         return MemberResponseDto.from(member);
     }
 
-    public List<MemberResponseDto> findAll() {
-        return memberRepository.findAll().stream()
-                .map(MemberResponseDto::from)
-                .collect(Collectors.toList());
-    }
-
     @Transactional
-    public MemberResponseDto update(Long id, MemberRequestDto request) {
+    public MemberResponseDto update(Long authMemberId, Long id, MemberRequestDto request) {
+        validateOwnership(authMemberId, id);
         Member member = memberRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("회원을 찾을 수 없습니다: " + id));
 
@@ -75,10 +70,19 @@ public class MemberService {
     }
 
     @Transactional
-    public void delete(Long id) {
+    public void delete(Long authMemberId, Long id) {
+        validateOwnership(authMemberId, id);
         if (!memberRepository.existsById(id)) {
             throw new IllegalArgumentException("회원을 찾을 수 없습니다: " + id);
         }
-        memberRepository.deleteById(id);
+        cashAssetRepository.deleteByMemberId(id); // 자식 먼저 (고아 레코드 방지)
+        memberRepository.deleteById(id);          // 부모 나중
+    }
+
+    // 본인 리소스만 조회/수정/삭제 가능하도록 검증 (IDOR 방지)
+    private void validateOwnership(Long authMemberId, Long id) {
+        if (!authMemberId.equals(id)) {
+            throw new IllegalArgumentException("회원을 찾을 수 없습니다: " + id);
+        }
     }
 }

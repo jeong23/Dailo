@@ -1,11 +1,14 @@
 package com.dailo.app.service;
 
+import com.dailo.app.dto.AllocationItemResponseDto;
 import com.dailo.app.dto.CategoryStatsDto;
 import com.dailo.app.dto.DailyStatsDto;
 import com.dailo.app.dto.DashboardSummaryDto;
 import com.dailo.app.dto.EmergencyHistoryDto;
 import com.dailo.app.dto.MonthlyReportDto;
+import com.dailo.app.entity.BudgetAllocationItem;
 import com.dailo.app.entity.MonthlyBudget;
+import com.dailo.app.repository.BudgetAllocationItemRepository;
 import com.dailo.app.repository.DailyExpenseRepository;
 import com.dailo.app.repository.FixedCostRepository;
 import com.dailo.app.repository.IncomeRepository;
@@ -24,11 +27,13 @@ public class DashboardService {
     private final DailyExpenseRepository dailyExpenseRepository;
     private final FixedCostRepository fixedCostRepository;
     private final IncomeRepository incomeRepository;
+    private final BudgetAllocationItemRepository budgetAllocationItemRepository;
 
     @Transactional(readOnly = true)
-    public DashboardSummaryDto getSummary(String month) {
-        MonthlyBudget budget = monthlyBudgetRepository.findBySettleMonth(month)
-                .orElseThrow(() -> new RuntimeException("해당 월 예산이 없습니다."));
+    public DashboardSummaryDto getSummary(Long memberId, String month) {
+        // 인증된 사용자 본인의 예산만 조회 (IDOR 방지 — settleMonth만으로 전역 조회하면 다른 회원 데이터가 나올 수 있었음)
+        MonthlyBudget budget = monthlyBudgetRepository.findByMemberIdAndSettleMonth(memberId, month)
+                .orElseThrow(() -> new IllegalArgumentException("해당 월 예산이 없습니다."));
 
         // 고정비 실시간 조회
         Integer fixedCostTotal = fixedCostRepository.sumActiveByMemberId(budget.getMember().getId());
@@ -43,9 +48,19 @@ public class DashboardService {
         Integer pensionAmount    = (int)(availableAmount * budget.getPensionRate());
         Integer emergencyBudget  = (int)(availableAmount * budget.getEmergencyRate());
         Integer discretionaryBudget = (int)(availableAmount * budget.getDiscretionaryRate());
-        Integer extra1Amount = (int)(availableAmount * (budget.getExtra1Rate() != null ? budget.getExtra1Rate() : 0.0));
-        Integer extra2Amount = (int)(availableAmount * (budget.getExtra2Rate() != null ? budget.getExtra2Rate() : 0.0));
-        Integer extra3Amount = (int)(availableAmount * (budget.getExtra3Rate() != null ? budget.getExtra3Rate() : 0.0));
+
+        // 가변 개수 분배 항목 — rate는 저장된 값(스냅샷)을 쓰되 금액은 실시간 availableAmount로 재계산 (living/isa 등과 동일 원칙)
+        final Integer availableAmountFinal = availableAmount;
+        List<AllocationItemResponseDto> allocationItems = budgetAllocationItemRepository
+                .findByMonthlyBudgetIdOrderBySortOrderAsc(budget.getId()).stream()
+                .map(item -> AllocationItemResponseDto.builder()
+                        .id(item.getId())
+                        .label(item.getLabel())
+                        .rate(item.getRate())
+                        .budgetAmount((int)(availableAmountFinal * (item.getRate() != null ? item.getRate() : 0.0)))
+                        .sortOrder(item.getSortOrder())
+                        .build())
+                .collect(Collectors.toList());
 
         // 지출 집계
         Integer livingExpenseTotal   = dailyExpenseRepository.sumLivingExpense(month);
@@ -67,9 +82,7 @@ public class DashboardService {
                 .pensionAmount(pensionAmount)
                 .emergencyBudget(emergencyBudget)
                 .discretionaryBudget(discretionaryBudget)
-                .extra1Amount(extra1Amount)
-                .extra2Amount(extra2Amount)
-                .extra3Amount(extra3Amount)
+                .allocationItems(allocationItems)
                 .cardGoal(budget.getCardGoal())
                 .livingCarryover(budget.getLivingCarryover())
                 .emergencyCumulative(budget.getEmergencyCumulative())

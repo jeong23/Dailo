@@ -1,7 +1,9 @@
 // src/types/index.ts
 
 export type PaymentMethod = '카드' | '현금' | '이체';
-export type BudgetType = '생활비' | '비상금' | '투자';
+// 예산구분: 고정 3개(생활비/비상금/투자) + 월별 예산의 가변 추가 항목(allocationItems label) 까지 허용해야 하므로
+// 리터럴 유니온이 아닌 string으로 확장 (ExpensesPage 참고)
+export type BudgetType = string;
 
 export interface Category {
   id: number;
@@ -10,8 +12,23 @@ export interface Category {
   sortOrder?: number;
 }
 
+// 예산 분배 가변 항목(생활비/ISA/연금저축/자유재량 4개 고정 항목 이외의 추가 항목들)
+export interface AllocationItemResponseDto {
+  id: number;
+  label: string;
+  rate: number;
+  budgetAmount: number;
+  sortOrder: number;
+}
+
+export interface AllocationItemRequestDto {
+  label: string;
+  rate: number;
+}
+
 export interface MonthlyBudget {
   id: number;
+  memberId?: number;
   settleMonth: string;
   netSalary: number;
   fixedCostTotal: number;
@@ -29,12 +46,9 @@ export interface MonthlyBudget {
   pensionRate: number;
   emergencyRate: number;
   discretionaryRate: number;
-  extra1Rate?: number;
-  extra2Rate?: number;
-  extra3Rate?: number;
-  extra1Budget?: number;
-  extra2Budget?: number;
-  extra3Budget?: number;
+  allocationItems: AllocationItemResponseDto[];
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface DailyExpense {
@@ -61,9 +75,7 @@ export interface DashboardSummary {
   pensionAmount: number;
   emergencyBudget: number;
   discretionaryBudget: number;
-  extra1Amount?: number;
-  extra2Amount?: number;
-  extra3Amount?: number;
+  allocationItems: AllocationItemResponseDto[];
   livingExpenseTotal: number;
   livingBalance: number;
   cardExpenseTotal: number;
@@ -91,6 +103,14 @@ export interface EmergencyHistory {
   emergencyExpense: number;
   emergencyNet: number;
   cumulativeAmount: number;
+}
+
+// 현금 자산(Cash Asset) — 비상금 개념 폐지 후 신규 도입
+export interface CashAssetEntry {
+  id: number;
+  settleMonth: string;
+  balance: number;
+  memo: string | null;
 }
 
 export interface MonthlyReport {

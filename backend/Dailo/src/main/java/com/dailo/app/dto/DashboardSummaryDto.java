@@ -4,6 +4,8 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 
+import java.util.List;
+
 @Getter
 @AllArgsConstructor
 @Builder
@@ -18,9 +20,8 @@ public class DashboardSummaryDto {
     private Integer pensionAmount;
     private Integer emergencyBudget;
     private Integer discretionaryBudget;
-    private Integer extra1Amount;
-    private Integer extra2Amount;
-    private Integer extra3Amount;
+    // 가변 개수 예산 분배 항목 — 대시보드는 실시간 재계산(availableAmount * rate) 값을 담는다 (스냅샷 아님)
+    private List<AllocationItemResponseDto> allocationItems;
     private Integer cardGoal;
     private Integer livingCarryover;
     private Integer emergencyCumulative;

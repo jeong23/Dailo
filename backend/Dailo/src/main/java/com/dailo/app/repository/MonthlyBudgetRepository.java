@@ -16,6 +16,4 @@ public interface MonthlyBudgetRepository extends JpaRepository<MonthlyBudget, Lo
     List<MonthlyBudget> findByMemberIdOrderBySettleMonthAsc(Long memberId);
 
     boolean existsByMemberIdAndSettleMonth(Long memberId, String settleMonth);
-
-    Optional<MonthlyBudget> findBySettleMonth(String settleMonth);
 }

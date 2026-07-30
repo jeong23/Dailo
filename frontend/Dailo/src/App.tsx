@@ -18,7 +18,7 @@ import { InvestDashboardPage } from './pages/InvestDashboardPage';
 import { InvestSettingsPage } from './pages/InvestSettingsPage';
 import { InvestDiaryPage } from './pages/InvestDiaryPage';
 import { LoginPage } from './pages/LoginPage';
-import { isAuthenticated, getStoredMemberId } from './api/axios';
+import { isAuthenticated } from './api/axios';
 import { BudgetType, DailyExpense, Category, DashboardSummary, DailyStats, CategoryStats } from './types';
 import api from './api/axios';
 import { formatNumber, parseNumber, getCurrentSettleMonth } from './utils/format';
@@ -26,6 +26,18 @@ import { getAllocationLabels } from './utils/allocationLabels';
 import { useEscapeKey } from './hooks/useEscapeKey';
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4'];
+
+// "이번 달 예산 분배" 카드의 가변 추가 항목(summary.allocationItems)용 색상 팔레트 — 인덱스 기반 순환
+const ALLOCATION_ITEM_PALETTE = [
+  { color: 'text-sky-500',     bg: 'bg-sky-50 dark:bg-sky-900/20' },
+  { color: 'text-pink-500',    bg: 'bg-pink-50 dark:bg-pink-900/20' },
+  { color: 'text-teal-500',    bg: 'bg-teal-50 dark:bg-teal-900/20' },
+  { color: 'text-cyan-500',    bg: 'bg-cyan-50 dark:bg-cyan-900/20' },
+  { color: 'text-fuchsia-500', bg: 'bg-fuchsia-50 dark:bg-fuchsia-900/20' },
+  { color: 'text-lime-500',    bg: 'bg-lime-50 dark:bg-lime-900/20' },
+  { color: 'text-orange-500',  bg: 'bg-orange-50 dark:bg-orange-900/20' },
+  { color: 'text-indigo-500',  bg: 'bg-indigo-50 dark:bg-indigo-900/20' },
+];
 
 const RADIAN = Math.PI / 180;
 const renderPieLabel = ({ cx, cy, midAngle, outerRadius, name, percent }: any) => {
@@ -117,7 +129,6 @@ const DailyBarTooltip = ({ active, payload, label, expenses }: any) => {
 };
 
 const DashboardHome = () => {
-  const memberId = getStoredMemberId();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState(getCurrentSettleMonth());
 
@@ -139,7 +150,7 @@ const DashboardHome = () => {
   const [allocationLabels, setAllocationLabelsState] = useState(getAllocationLabels());
   const [categoryStats, setCategoryStats] = useState<CategoryStats[]>([]);
   const [monthOptions, setMonthOptions] = useState<string[]>([]);
-  const [detailModalType, setDetailModalType] = useState<'생활비' | '비상금' | '카드' | '투자' | null>(null);
+  const [detailModalType, setDetailModalType] = useState<'생활비' | '카드' | '투자' | null>(null);
 
   // 항목명 변경 동기화 (같은 탭 내 storage 이벤트는 발생 안 하므로 커스텀 이벤트 사용)
   useEffect(() => {
@@ -154,7 +165,7 @@ const DashboardHome = () => {
 
   // 저장된 정산월 목록 로드
   useEffect(() => {
-    api.get(`/monthly-budgets/member/${memberId}`)
+    api.get('/monthly-budgets/mine')
       .then(res => {
         const months: string[] = (res.data.data || []).map((b: any) => b.settleMonth);
         setMonthOptions(months);
@@ -173,7 +184,7 @@ const DashboardHome = () => {
       api.get('/categories'),
       api.get(`/dashboard/summary?month=${selectedMonth}`),
       api.get(`/dashboard/daily-stats?month=${selectedMonth}`),
-      api.get(`/monthly-budgets/member/${memberId}/month/${selectedMonth}`),
+      api.get(`/monthly-budgets/mine/month/${selectedMonth}`),
       api.get(`/dashboard/category-stats?month=${selectedMonth}`)
     ]);
 
@@ -226,40 +237,47 @@ const DashboardHome = () => {
   useEscapeKey(isModalOpen, () => setIsModalOpen(false));
   useEscapeKey(detailModalType !== null, () => setDetailModalType(null));
 
-  // 상세 모달 데이터
+  // 상세 모달 데이터 (생활비 카드는 비상금과 통합 표시 — OR 조건)
   const detailModalItems = detailModalType === null ? [] :
     detailModalType === '카드'
       ? expenses.filter(e => e.paymentMethod === '카드')
+      : detailModalType === '생활비'
+      ? expenses.filter(e => e.budgetType === '생활비' || e.budgetType === '비상금')
       : expenses.filter(e => e.budgetType === detailModalType);
   const detailModalTotal = detailModalItems.reduce((sum, e) => sum + e.amount, 0);
-  const detailModalTitle = detailModalType === '카드' ? '카드 지출 내역' : `${detailModalType} 지출 내역`;
+  const detailModalTitle = detailModalType === '카드'
+    ? '카드 지출 내역'
+    : detailModalType === '생활비'
+    ? '생활비·비상금 지출 내역'
+    : `${detailModalType} 지출 내역`;
   const livingBudget = summary?.livingBudget || 0;
   const emergencyBudget = summary?.emergencyBudget || 0;
   const discretionaryBudget = summary?.discretionaryBudget || 0;
-  const livingRate = livingBudget > 0 ? Math.round((livingExpenses / livingBudget) * 100) : 0;
-  const emergencyRate = emergencyBudget > 0 ? Math.round((emergencyExpenses / emergencyBudget) * 100) : 0;
+  // 생활비 + 비상금 통합 소진율 (분모 0 가드)
+  const combinedBudget = livingBudget + emergencyBudget;
+  const combinedExpenses = livingExpenses + emergencyExpenses;
+  const combinedRate = combinedBudget > 0 ? Math.round((combinedExpenses / combinedBudget) * 100) : 0;
   const getBarColor = (rate: number) => {
     if (rate <= 50) return 'bg-green-500';
     if (rate <= 80) return 'bg-yellow-500';
     return 'bg-red-500';
   };
-  // 경고 알림 목록
+  // 경고 알림 목록 (생활비·비상금 통합 기준)
   const alerts: { type: 'danger' | 'warning'; msg: string }[] = [];
   if (summary) {
-    if (livingRate >= 100) alerts.push({ type: 'danger', msg: `생활비 예산을 초과했습니다 (${livingRate}%)` });
-    else if (livingRate >= 80) alerts.push({ type: 'warning', msg: `생활비 예산 ${livingRate}% 소진 — 주의가 필요합니다` });
-    if (emergencyRate >= 100) alerts.push({ type: 'danger', msg: `비상금 예산을 초과했습니다 (${emergencyRate}%)` });
-    else if (emergencyRate >= 80) alerts.push({ type: 'warning', msg: `비상금 예산 ${emergencyRate}% 소진 — 주의가 필요합니다` });
+    if (combinedRate >= 100) alerts.push({ type: 'danger', msg: `생활비·비상금 예산을 초과했습니다 (${combinedRate}%)` });
+    else if (combinedRate >= 80) alerts.push({ type: 'warning', msg: `생활비·비상금 예산 ${combinedRate}% 소진 — 주의가 필요합니다` });
   }
 
-  // 카드 실적 달성률
+  // 카드 실적 달성률 (cardGoal 미설정 시 0 가드, 하드코딩 폴백 제거)
   const cardTotal = expenses.filter(e => e.paymentMethod === '카드').reduce((sum, e) => sum + e.amount, 0);
-  const cardGoal = summary?.cardGoal || 500000;
-  const cardRate = Math.min(Math.round((cardTotal / cardGoal) * 100), 100);
+  const cardGoal = summary?.cardGoal || 0;
+  const cardRate = cardGoal > 0 ? Math.min(Math.round((cardTotal / cardGoal) * 100), 100) : 0;
 
   // 지출 저장
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (categories.length === 0) return; // 카테고리 미로드 상태에서 존재하지 않는 categoryId로 저장 방지
 
     const requestData = {
       monthlyBudgetId: monthlyBudgetId,
@@ -345,7 +363,7 @@ const DashboardHome = () => {
       )}
 
       {/* 상단 요약 카드 */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         {/* 가용금액 */}
         <div className="p-6 bg-white dark:bg-dark-card rounded-2xl shadow-[0_1px_8px_rgba(0,0,0,0.06)] dark:shadow-none">
           <p className="text-xs font-medium text-slate-400 dark:text-slate-500">이번 달 가용 금액</p>
@@ -358,72 +376,66 @@ const DashboardHome = () => {
           </p>
         </div>
 
-        {/* 생활비 소진율 */}
+        {/* 생활비·비상금 소진율 (통합) */}
         <div className="p-6 bg-white dark:bg-dark-card rounded-2xl shadow-[0_1px_8px_rgba(0,0,0,0.06)] dark:shadow-none cursor-pointer hover:shadow-md transition-shadow" onClick={() => setDetailModalType('생활비')}>
           <div className="flex justify-between items-start">
-            <p className="text-xs font-medium text-slate-400 dark:text-slate-500">생활비 소진율</p>
-            {livingRate >= 100 && (
+            <p className="text-xs font-medium text-slate-400 dark:text-slate-500">생활비{emergencyBudget > 0 ? '·비상금' : ''} 소진율</p>
+            {combinedRate >= 100 && (
               <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-red-50 text-red-500 dark:bg-red-900/30 dark:text-red-400 animate-pulse">초과</span>
             )}
-            {livingRate >= 80 && livingRate < 100 && (
+            {combinedRate >= 80 && combinedRate < 100 && (
               <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-500 dark:bg-amber-900/30 dark:text-amber-400">주의</span>
             )}
           </div>
           <p className="text-3xl font-bold mt-2 tabular-nums text-slate-800 dark:text-dark-text">
-            {livingExpenses.toLocaleString()}
+            {combinedExpenses.toLocaleString()}
             <span className="text-lg font-medium ml-0.5">원</span>
           </p>
           <div className="mt-3">
             <div className="flex justify-between text-xs mb-1.5">
-              <span className="text-slate-400">예산 {livingBudget.toLocaleString()}원</span>
-              <span className={`font-semibold ${livingRate >= 100 ? 'text-red-500' : livingRate >= 80 ? 'text-amber-500' : 'text-slate-500'}`}>{livingRate}%</span>
+              <span className="text-slate-400">예산 {combinedBudget.toLocaleString()}원</span>
+              <span className={`font-semibold ${combinedRate >= 100 ? 'text-red-500' : combinedRate >= 80 ? 'text-amber-500' : 'text-slate-500'}`}>{combinedRate}%</span>
             </div>
             <div className="w-full bg-slate-100 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden">
-              <div className={`${getBarColor(livingRate)} h-full rounded-full transition-all duration-500`} style={{ width: `${Math.min(livingRate, 100)}%` }} />
+              <div className={`${getBarColor(combinedRate)} h-full rounded-full transition-all duration-500`} style={{ width: `${Math.min(combinedRate, 100)}%` }} />
             </div>
           </div>
-        </div>
-
-        {/* 비상금 소진율 */}
-        <div className="p-6 bg-white dark:bg-dark-card rounded-2xl shadow-[0_1px_8px_rgba(0,0,0,0.06)] dark:shadow-none cursor-pointer hover:shadow-md transition-shadow" onClick={() => setDetailModalType('비상금')}>
-          <div className="flex justify-between items-start">
-            <p className="text-xs font-medium text-slate-400 dark:text-slate-500">비상금 소진율</p>
-            {emergencyRate >= 100 && (
-              <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-red-50 text-red-500 dark:bg-red-900/30 dark:text-red-400 animate-pulse">초과</span>
-            )}
-            {emergencyRate >= 80 && emergencyRate < 100 && (
-              <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-500 dark:bg-amber-900/30 dark:text-amber-400">주의</span>
-            )}
-          </div>
-          <p className="text-3xl font-bold mt-2 tabular-nums text-slate-800 dark:text-dark-text">
-            {emergencyExpenses.toLocaleString()}
-            <span className="text-lg font-medium ml-0.5">원</span>
+          <p className="text-xs text-slate-400 mt-2">
+            생활비 {livingBudget.toLocaleString()}원{emergencyBudget > 0 ? ` · 비상금 ${emergencyBudget.toLocaleString()}원` : ''} · 자유재량 {discretionaryBudget.toLocaleString()}원
           </p>
-          <div className="mt-3">
-            <div className="flex justify-between text-xs mb-1.5">
-              <span className="text-slate-400">예산 {emergencyBudget.toLocaleString()}원</span>
-              <span className={`font-semibold ${emergencyRate >= 100 ? 'text-red-500' : emergencyRate >= 80 ? 'text-amber-500' : 'text-slate-500'}`}>{emergencyRate}%</span>
-            </div>
-            <div className="w-full bg-slate-100 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden">
-              <div className={`${getBarColor(emergencyRate)} h-full rounded-full transition-all duration-500`} style={{ width: `${Math.min(emergencyRate, 100)}%` }} />
-            </div>
-          </div>
-          <p className="text-xs text-slate-400 mt-2">자유재량 {discretionaryBudget.toLocaleString()}원</p>
         </div>
 
         {/* 카드 실적 */}
         <div className="p-6 bg-white dark:bg-dark-card rounded-2xl shadow-[0_1px_8px_rgba(0,0,0,0.06)] dark:shadow-none cursor-pointer hover:shadow-md transition-shadow" onClick={() => setDetailModalType('카드')}>
           <p className="text-xs font-medium text-slate-400 dark:text-slate-500">카드 실적</p>
-          <div className="mt-2 flex items-end gap-2">
-            <span className={`text-3xl font-bold tabular-nums ${cardRate >= 100 ? 'text-emerald-500' : 'text-blue-500'}`}>{cardRate}%</span>
-            {cardRate >= 100 && <span className="text-xs font-semibold text-emerald-500 mb-1">달성!</span>}
-          </div>
-          <p className="text-xs text-slate-400 mt-1 tabular-nums">
-            {cardTotal.toLocaleString()} / {cardGoal.toLocaleString()}원
-          </p>
-          <div className="w-full bg-slate-100 dark:bg-slate-700 h-1.5 rounded-full mt-2 overflow-hidden">
-            <div className={`h-full rounded-full transition-all duration-500 ${cardRate >= 100 ? 'bg-emerald-500' : 'bg-blue-500'}`} style={{ width: `${Math.min(cardRate, 100)}%` }} />
-          </div>
+          {cardGoal > 0 ? (
+            <>
+              <div className="mt-2 flex items-end gap-2">
+                <span className={`text-3xl font-bold tabular-nums ${cardRate >= 100 ? 'text-emerald-500' : 'text-blue-500'}`}>{cardRate}%</span>
+                {cardRate >= 100 && <span className="text-xs font-semibold text-emerald-500 mb-1">달성!</span>}
+              </div>
+              <p className="text-xs text-slate-400 mt-1 tabular-nums">
+                {cardTotal.toLocaleString()} / {cardGoal.toLocaleString()}원
+              </p>
+              <div className="w-full bg-slate-100 dark:bg-slate-700 h-1.5 rounded-full mt-2 overflow-hidden">
+                <div className={`h-full rounded-full transition-all duration-500 ${cardRate >= 100 ? 'bg-emerald-500' : 'bg-blue-500'}`} style={{ width: `${Math.min(cardRate, 100)}%` }} />
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="text-2xl font-bold mt-2 tabular-nums text-slate-800 dark:text-dark-text">
+                {cardTotal.toLocaleString()}<span className="text-base font-medium ml-0.5">원</span>
+              </p>
+              <p className="text-xs text-amber-500 dark:text-amber-400 mt-1 font-medium">카드 목표 미설정</p>
+              <a
+                href="/settings"
+                className="text-xs text-primary-600 hover:underline mt-0.5 inline-block"
+                onClick={(e) => e.stopPropagation()}
+              >
+                설정에서 등록 →
+              </a>
+            </>
+          )}
         </div>
 
         {/* 주식 투자 */}
@@ -446,24 +458,35 @@ const DashboardHome = () => {
               실수령 {summary.netSalary.toLocaleString()}원 − 고정비 {summary.fixedCostTotal.toLocaleString()}원
             </span>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
             {[
-              { label: allocationLabels.living,       value: summary.livingBudget,       color: 'text-blue-500',    bg: 'bg-blue-50 dark:bg-blue-900/20' },
-              { label: allocationLabels.isa,           value: summary.isaAmount,           color: 'text-emerald-500', bg: 'bg-emerald-50 dark:bg-emerald-900/20' },
-              { label: allocationLabels.pension,       value: summary.pensionAmount,       color: 'text-violet-500',  bg: 'bg-violet-50 dark:bg-violet-900/20' },
-              { label: allocationLabels.emergency,     value: summary.emergencyBudget,     color: 'text-amber-500',   bg: 'bg-amber-50 dark:bg-amber-900/20' },
-              { label: allocationLabels.discretionary, value: summary.discretionaryBudget, color: 'text-rose-500',    bg: 'bg-rose-50 dark:bg-rose-900/20' },
-              ...(allocationLabels.extra1 && summary.extra1Amount ? [{ label: allocationLabels.extra1, value: summary.extra1Amount, color: 'text-sky-500',  bg: 'bg-sky-50 dark:bg-sky-900/20' }] : []),
-              ...(allocationLabels.extra2 && summary.extra2Amount ? [{ label: allocationLabels.extra2, value: summary.extra2Amount, color: 'text-pink-500', bg: 'bg-pink-50 dark:bg-pink-900/20' }] : []),
-              ...(allocationLabels.extra3 && summary.extra3Amount ? [{ label: allocationLabels.extra3, value: summary.extra3Amount, color: 'text-teal-500', bg: 'bg-teal-50 dark:bg-teal-900/20' }] : []),
-            ].map((item) => (
-              <div key={item.label} className={`text-center p-4 ${item.bg} rounded-xl`}>
-                <p className="text-xs text-slate-500 dark:text-slate-400">{item.label}</p>
+              // 고정비는 실수령액에서 가장 먼저 빠져나가는 돈이라 분모가 availableAmount가 아닌 netSalary — 0 가드 포함
+              { label: '고정비', value: summary.fixedCostTotal, percent: summary.netSalary > 0 ? Math.round((summary.fixedCostTotal / summary.netSalary) * 100) : 0, color: 'text-slate-500', bg: 'bg-slate-100 dark:bg-slate-700/40' },
+              { label: allocationLabels.living,       value: summary.livingBudget,       percent: summary.availableAmount > 0 ? Math.round((summary.livingBudget / summary.availableAmount) * 100) : 0,       color: 'text-blue-500',    bg: 'bg-blue-50 dark:bg-blue-900/20' },
+              { label: allocationLabels.isa,           value: summary.isaAmount,           percent: summary.availableAmount > 0 ? Math.round((summary.isaAmount / summary.availableAmount) * 100) : 0,           color: 'text-emerald-500', bg: 'bg-emerald-50 dark:bg-emerald-900/20' },
+              { label: allocationLabels.pension,       value: summary.pensionAmount,       percent: summary.availableAmount > 0 ? Math.round((summary.pensionAmount / summary.availableAmount) * 100) : 0,       color: 'text-violet-500',  bg: 'bg-violet-50 dark:bg-violet-900/20' },
+              // 비상금 폐지 이후 신규 달은 emergencyBudget이 0 — 레거시 달에서만 카드 노출
+              ...(summary.emergencyBudget > 0 ? [{ label: allocationLabels.emergency, value: summary.emergencyBudget, percent: summary.availableAmount > 0 ? Math.round((summary.emergencyBudget / summary.availableAmount) * 100) : 0, color: 'text-amber-500', bg: 'bg-amber-50 dark:bg-amber-900/20' }] : []),
+              { label: allocationLabels.discretionary, value: summary.discretionaryBudget, percent: summary.availableAmount > 0 ? Math.round((summary.discretionaryBudget / summary.availableAmount) * 100) : 0, color: 'text-rose-500',    bg: 'bg-rose-50 dark:bg-rose-900/20' },
+              // 가변 추가 항목(옛 extra1~3 고정 슬롯 대체) — 서버가 실시간 재계산한 목록을 그대로 순회, 라벨 하드코딩 없음
+              ...(summary.allocationItems || []).map((item, i) => {
+                const p = ALLOCATION_ITEM_PALETTE[i % ALLOCATION_ITEM_PALETTE.length];
+                return {
+                  label: item.label,
+                  value: item.budgetAmount,
+                  percent: summary.availableAmount > 0 ? Math.round((item.budgetAmount / summary.availableAmount) * 100) : 0,
+                  color: p.color,
+                  bg: p.bg,
+                };
+              }),
+            ].map((item, i) => (
+              <div key={`${item.label}-${i}`} className={`text-center p-4 ${item.bg} rounded-xl min-w-0`}>
+                <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{item.label}</p>
                 <p className={`text-lg font-bold mt-1 tabular-nums ${item.color}`}>
                   {(item.value || 0).toLocaleString()}
                 </p>
                 <p className="text-[10px] text-slate-400 mt-0.5">
-                  {summary.availableAmount > 0 ? Math.round((item.value / summary.availableAmount) * 100) : 0}%
+                  {item.percent}%
                 </p>
               </div>
             ))}
@@ -712,20 +735,15 @@ const DashboardHome = () => {
                 <select
                   value={categoryId}
                   onChange={(e) => setCategoryId(Number(e.target.value))}
-                  className="w-full p-2.5 rounded-lg border dark:bg-dark-bg dark:border-dark-border dark:text-dark-text outline-none focus:ring-2 focus:ring-primary-500"
+                  disabled={categories.length === 0}
+                  className="w-full p-2.5 rounded-lg border dark:bg-dark-bg dark:border-dark-border dark:text-dark-text outline-none focus:ring-2 focus:ring-primary-500 disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   {categories.length > 0 ? (
                     categories.map(cat => (
                       <option key={cat.id} value={cat.id}>{cat.icon} {cat.name}</option>
                     ))
                   ) : (
-                    <>
-                      <option value={1}>식비</option>
-                      <option value={2}>교통</option>
-                      <option value={3}>생활</option>
-                      <option value={4}>문화</option>
-                      <option value={5}>기타</option>
-                    </>
+                    <option value={0}>카테고리를 불러오는 중...</option>
                   )}
                 </select>
               </div>
@@ -770,9 +788,10 @@ const DashboardHome = () => {
 
               <button
                 type="submit"
-                className="w-full py-3 bg-primary-600 text-white rounded-lg font-bold mt-4 hover:bg-primary-700 transition-colors"
+                disabled={categories.length === 0}
+                className="w-full py-3 bg-primary-600 text-white rounded-lg font-bold mt-4 hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                저장하기
+                {categories.length === 0 ? '카테고리를 불러오는 중...' : '저장하기'}
               </button>
             </form>
           </div>
