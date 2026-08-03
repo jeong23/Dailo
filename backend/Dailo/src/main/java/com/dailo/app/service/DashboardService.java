@@ -6,15 +6,18 @@ import com.dailo.app.dto.DailyStatsDto;
 import com.dailo.app.dto.DashboardSummaryDto;
 import com.dailo.app.dto.EmergencyHistoryDto;
 import com.dailo.app.dto.MonthlyReportDto;
-import com.dailo.app.entity.BudgetAllocationItem;
+import com.dailo.app.entity.AllocationInputMode;
 import com.dailo.app.entity.MonthlyBudget;
+import com.dailo.app.repository.AllocationTotalProjection;
 import com.dailo.app.repository.BudgetAllocationItemRepository;
 import com.dailo.app.repository.DailyExpenseRepository;
 import com.dailo.app.repository.FixedCostRepository;
 import com.dailo.app.repository.IncomeRepository;
 import com.dailo.app.repository.MonthlyBudgetRepository;
 
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -49,18 +52,31 @@ public class DashboardService {
         Integer emergencyBudget  = (int)(availableAmount * budget.getEmergencyRate());
         Integer discretionaryBudget = (int)(availableAmount * budget.getDiscretionaryRate());
 
-        // 가변 개수 분배 항목 — rate는 저장된 값(스냅샷)을 쓰되 금액은 실시간 availableAmount로 재계산 (living/isa 등과 동일 원칙)
+        // 가변 개수 분배 항목 — inputMode에 따라 재계산 분기 (MonthlyBudgetService.buildAllocationItems()와 반드시 동일 원칙 유지)
+        // - RATE: rate는 저장된 값(스냅샷)을 쓰되 금액은 실시간 availableAmount로 재계산 (living/isa 등과 동일 원칙), Math.round()로 반올림
+        // - AMOUNT: 사용자가 입력한 금액 그대로 (재계산 절대 금지) — available이 바뀌어도 금액은 고정
         final Integer availableAmountFinal = availableAmount;
         List<AllocationItemResponseDto> allocationItems = budgetAllocationItemRepository
                 .findByMonthlyBudgetIdOrderBySortOrderAsc(budget.getId()).stream()
-                .map(item -> AllocationItemResponseDto.builder()
-                        .id(item.getId())
-                        .label(item.getLabel())
-                        .rate(item.getRate())
-                        .budgetAmount((int)(availableAmountFinal * (item.getRate() != null ? item.getRate() : 0.0)))
-                        .sortOrder(item.getSortOrder())
-                        .build())
+                .map(item -> {
+                    boolean isAmountMode = item.getInputMode() == AllocationInputMode.AMOUNT;
+                    Integer itemBudgetAmount = isAmountMode
+                            ? (item.getBudgetAmount() != null ? item.getBudgetAmount() : 0)
+                            : (int) Math.round(availableAmountFinal * (item.getRate() != null ? item.getRate() : 0.0));
+                    return AllocationItemResponseDto.builder()
+                            .id(item.getId())
+                            .label(item.getLabel())
+                            .rate(item.getRate())
+                            .budgetAmount(itemBudgetAmount)
+                            .sortOrder(item.getSortOrder())
+                            .inputMode(item.getInputMode())
+                            .build();
+                })
                 .collect(Collectors.toList());
+
+        Integer allocationTotal = allocationItems.stream()
+                .mapToInt(AllocationItemResponseDto::getBudgetAmount)
+                .sum();
 
         // 지출 집계
         Integer livingExpenseTotal   = dailyExpenseRepository.sumLivingExpense(month);
@@ -83,6 +99,7 @@ public class DashboardService {
                 .emergencyBudget(emergencyBudget)
                 .discretionaryBudget(discretionaryBudget)
                 .allocationItems(allocationItems)
+                .allocationTotal(allocationTotal)
                 .cardGoal(budget.getCardGoal())
                 .livingCarryover(budget.getLivingCarryover())
                 .emergencyCumulative(budget.getEmergencyCumulative())
@@ -138,9 +155,19 @@ public class DashboardService {
     @Transactional(readOnly = true)
     public List<MonthlyReportDto> getMonthlyReport(Long memberId) {
         List<MonthlyBudget> budgets = monthlyBudgetRepository.findByMemberIdOrderBySettleMonthDesc(memberId);
+        if (budgets.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        // N+1 방지: budgetIds를 모아 IN절 집계 쿼리 한 번만 호출 후 Map으로 그룹핑 (루프 안에서는 lookup만)
+        List<Long> budgetIds = budgets.stream().map(MonthlyBudget::getId).collect(Collectors.toList());
+        Map<Long, Integer> allocationTotalByBudgetId = budgetAllocationItemRepository
+                .sumBudgetAmountGroupByMonthlyBudgetIdIn(budgetIds).stream()
+                .collect(Collectors.toMap(AllocationTotalProjection::getMonthlyBudgetId, AllocationTotalProjection::getTotal));
 
         return budgets.stream().map(budget -> {
             String month = budget.getSettleMonth();
+            Integer allocationTotal = allocationTotalByBudgetId.getOrDefault(budget.getId(), 0);
 
             Integer fixedCostTotal   = budget.getFixedCostTotal() != null ? budget.getFixedCostTotal() : 0;
             Integer extraIncomeTotal = incomeRepository.sumBySettleMonth(month);
@@ -167,6 +194,7 @@ public class DashboardService {
                     .fixedCostTotal(fixedCostTotal)
                     .extraIncomeTotal(extraIncomeTotal)
                     .availableAmount(availableAmount)
+                    .allocationTotal(allocationTotal)
                     .livingBudget(livingBudget)
                     .livingCarryover(livingCarryover)
                     .livingExpenseTotal(livingExpenseTotal)

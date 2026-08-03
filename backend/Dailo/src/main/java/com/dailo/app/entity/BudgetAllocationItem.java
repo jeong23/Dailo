@@ -33,10 +33,15 @@ public class BudgetAllocationItem extends BaseEntity {
     @Column(name = "sort_order", nullable = false, columnDefinition = "INT DEFAULT 0")
     private Integer sortOrder;
 
-    public void update(String label, Double rate, Integer budgetAmount, Integer sortOrder) {
+    @Enumerated(EnumType.STRING)
+    @Column(name = "input_mode", nullable = false, length = 10, columnDefinition = "VARCHAR(10) DEFAULT 'RATE'")
+    private AllocationInputMode inputMode;
+
+    public void update(String label, Double rate, Integer budgetAmount, Integer sortOrder, AllocationInputMode inputMode) {
         this.label = label;
         this.rate = rate;
         this.budgetAmount = budgetAmount;
         this.sortOrder = sortOrder;
+        this.inputMode = inputMode;
     }
 }

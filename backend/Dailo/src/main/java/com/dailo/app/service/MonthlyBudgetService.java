@@ -3,6 +3,7 @@ package com.dailo.app.service;
 import com.dailo.app.dto.AllocationItemRequestDto;
 import com.dailo.app.dto.MonthlyBudgetRequestDto;
 import com.dailo.app.dto.MonthlyBudgetResponseDto;
+import com.dailo.app.entity.AllocationInputMode;
 import com.dailo.app.entity.BudgetAllocationItem;
 import com.dailo.app.entity.Member;
 import com.dailo.app.entity.MonthlyBudget;
@@ -35,17 +36,19 @@ public class MonthlyBudgetService {
     private static double safe(Double v) { return v != null ? v : 0.0; }
 
     // 고정 5항목(living/isa/pension/emergency/discretionary)만 계산 — 가변 항목은 buildAllocationItems()에서 별도 계산
-    private int[] calcDistribution(Long memberId, Integer netSalary, MonthlyBudgetRequestDto req) {
+    // rate는 호출부에서 이미 null-fallback 처리된 값을 받는다 (create: 0.0 기본값 / update: 기존 budget 값 유지)
+    private int[] calcDistribution(Long memberId, Integer netSalary, double livingRate, double isaRate,
+                                    double pensionRate, double emergencyRate, double discretionaryRate) {
         int fixedCostTotal = fixedCostRepository.sumActiveByMemberId(memberId);
         int available = Math.max(netSalary - fixedCostTotal, 0);
         return new int[]{
             fixedCostTotal,
             available,
-            (int)(available * safe(req.getLivingRate())),
-            (int)(available * safe(req.getIsaRate())),
-            (int)(available * safe(req.getPensionRate())),
-            (int)(available * safe(req.getEmergencyRate())),
-            (int)(available * safe(req.getDiscretionaryRate()))
+            (int)(available * livingRate),
+            (int)(available * isaRate),
+            (int)(available * pensionRate),
+            (int)(available * emergencyRate),
+            (int)(available * discretionaryRate)
         };
     }
 
@@ -68,13 +71,30 @@ public class MonthlyBudgetService {
         List<BudgetAllocationItem> items = new ArrayList<>();
         int sortOrder = 1;
         for (AllocationItemRequestDto reqItem : requestItems) {
-            double rate = safe(reqItem.getRate());
+            // inputMode가 null이면 RATE로 기본 처리 (프론트 하위호환)
+            AllocationInputMode inputMode = reqItem.getInputMode() != null ? reqItem.getInputMode() : AllocationInputMode.RATE;
+
+            double rate;
+            int budgetAmount;
+            if (inputMode == AllocationInputMode.AMOUNT) {
+                // AMOUNT 모드: 사용자가 입력한 정수 그대로 저장 — 재계산 절대 금지 (300000원 입력 시 299996원 오차 버그의 원인이 available*rate 재계산이었음)
+                budgetAmount = reqItem.getAmount() != null ? reqItem.getAmount() : 0;
+                // rate 컬럼은 NOT NULL이라 참고용으로만 역산해서 채운다 — 표시/통계용일 뿐 재계산에는 절대 사용하지 않는다
+                // DECIMAL(5,4) 컬럼 범위(최대 9.9999)를 넘으면 저장이 실패하므로 클램프 (amount가 available보다 훨씬 클 때 발생)
+                rate = available > 0 ? Math.min(budgetAmount / (double) available, 9.9999) : 0.0;
+            } else {
+                // RATE 모드: (int) 버림 캐스팅 대신 Math.round()로 반올림 오차 축소
+                rate = safe(reqItem.getRate());
+                budgetAmount = (int) Math.round(available * rate);
+            }
+
             items.add(BudgetAllocationItem.builder()
                     .monthlyBudget(budget)
                     .label(reqItem.getLabel())
                     .rate(rate)
-                    .budgetAmount((int)(available * rate))
+                    .budgetAmount(budgetAmount)
                     .sortOrder(sortOrder++)
+                    .inputMode(inputMode)
                     .build());
         }
         return items;
@@ -89,7 +109,15 @@ public class MonthlyBudgetService {
             throw new IllegalArgumentException("해당 월 예산이 이미 존재합니다: " + request.getSettleMonth());
         }
 
-        int[] dist = calcDistribution(member.getId(), request.getNetSalary(), request);
+        // 레거시 5종 rate 컬럼은 NOT NULL이라 요청에 없으면 0.0 기본값으로 채운다 (프론트가 안 보내도 저장 실패하지 않도록)
+        double livingRate = safe(request.getLivingRate());
+        double isaRate = safe(request.getIsaRate());
+        double pensionRate = safe(request.getPensionRate());
+        double emergencyRate = safe(request.getEmergencyRate());
+        double discretionaryRate = safe(request.getDiscretionaryRate());
+
+        int[] dist = calcDistribution(member.getId(), request.getNetSalary(),
+                livingRate, isaRate, pensionRate, emergencyRate, discretionaryRate);
         // dist: [fixedCostTotal, available, living, isa, pension, emergency, discretionary]
 
         MonthlyBudget budget = MonthlyBudget.builder()
@@ -106,11 +134,11 @@ public class MonthlyBudgetService {
                 .cardGoal(request.getCardGoal())
                 .livingCarryover(request.getLivingCarryover())
                 .emergencyCumulative(request.getEmergencyCumulative())
-                .livingRate(request.getLivingRate())
-                .isaRate(request.getIsaRate())
-                .pensionRate(request.getPensionRate())
-                .emergencyRate(request.getEmergencyRate())
-                .discretionaryRate(request.getDiscretionaryRate())
+                .livingRate(livingRate)
+                .isaRate(isaRate)
+                .pensionRate(pensionRate)
+                .emergencyRate(emergencyRate)
+                .discretionaryRate(discretionaryRate)
                 .build();
 
         MonthlyBudget saved = monthlyBudgetRepository.save(budget);
@@ -163,7 +191,15 @@ public class MonthlyBudgetService {
                 .orElseThrow(() -> new IllegalArgumentException("월별 예산을 찾을 수 없습니다: " + id));
         validateOwnership(memberId, budget);
 
-        int[] dist = calcDistribution(budget.getMember().getId(), request.getNetSalary(), request);
+        // 레거시 5종 rate 컬럼은 NOT NULL이라 요청에 값이 없으면 기존 값을 그대로 유지 (부분 업데이트 패턴 — MemberService.update 참고)
+        double livingRate = request.getLivingRate() != null ? request.getLivingRate() : safe(budget.getLivingRate());
+        double isaRate = request.getIsaRate() != null ? request.getIsaRate() : safe(budget.getIsaRate());
+        double pensionRate = request.getPensionRate() != null ? request.getPensionRate() : safe(budget.getPensionRate());
+        double emergencyRate = request.getEmergencyRate() != null ? request.getEmergencyRate() : safe(budget.getEmergencyRate());
+        double discretionaryRate = request.getDiscretionaryRate() != null ? request.getDiscretionaryRate() : safe(budget.getDiscretionaryRate());
+
+        int[] dist = calcDistribution(budget.getMember().getId(), request.getNetSalary(),
+                livingRate, isaRate, pensionRate, emergencyRate, discretionaryRate);
 
         budget.update(
                 request.getNetSalary(),
@@ -177,11 +213,11 @@ public class MonthlyBudgetService {
                 request.getCardGoal(),
                 request.getLivingCarryover(),
                 request.getEmergencyCumulative(),
-                request.getLivingRate(),
-                request.getIsaRate(),
-                request.getPensionRate(),
-                request.getEmergencyRate(),
-                request.getDiscretionaryRate()
+                livingRate,
+                isaRate,
+                pensionRate,
+                emergencyRate,
+                discretionaryRate
         );
 
         // 전체 교체(replace-all) 패턴: 기존 항목 삭제(@Modifying 벌크 DELETE, flushAutomatically로 즉시 실행) 후 요청 리스트로 재삽입

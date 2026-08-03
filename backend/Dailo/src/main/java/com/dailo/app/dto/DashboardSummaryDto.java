@@ -20,8 +20,9 @@ public class DashboardSummaryDto {
     private Integer pensionAmount;
     private Integer emergencyBudget;
     private Integer discretionaryBudget;
-    // 가변 개수 예산 분배 항목 — 대시보드는 실시간 재계산(availableAmount * rate) 값을 담는다 (스냅샷 아님)
+    // 가변 개수 예산 분배 항목 — 대시보드는 실시간 재계산(RATE: availableAmount * rate 반올림, AMOUNT: 입력값 그대로) 값을 담는다 (스냅샷 아님)
     private List<AllocationItemResponseDto> allocationItems;
+    private Integer allocationTotal; // allocationItems.budgetAmount 합계
     private Integer cardGoal;
     private Integer livingCarryover;
     private Integer emergencyCumulative;

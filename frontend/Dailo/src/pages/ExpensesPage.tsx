@@ -3,7 +3,6 @@ import { DailyExpense, Category, BudgetType } from '../types';
 import api, { getStoredMemberId } from '../api/axios';
 import { formatNumber, parseNumber, getCurrentSettleMonth, getSettleMonthForDate } from '../utils/format';
 import { useEscapeKey } from '../hooks/useEscapeKey';
-import { getAllocationLabels } from '../utils/allocationLabels';
 
 interface Income {
   id: number;
@@ -14,15 +13,12 @@ interface Income {
   memo: string;
 }
 
-// 예산구분(BudgetType) 초기 렌더용 기본값 — 실제 목록은 fetchExpenses에서 allocationLabels(생활비/ISA/연금저축/비상금/자유재량)
-// + 이번 달 MonthlyBudget.allocationItems 라벨을 합쳐 동적으로 구성한다
+// 예산구분(BudgetType) 고정 3종 — '생활비'/'비상금'은 DashboardService의 sumLivingExpense/sumEmergencyExpense
+// 쿼리가 이 문자열 그대로를 필터링하므로 구조적으로 고정되어 있고(EmergencyPage 스코프, 이번 작업에서 변경 안 함),
+// '투자'도 대시보드 카드 실적/투자 카드가 참조하는 고정 구분이라 함께 유지한다.
+// ISA/연금저축/자유재량 같은 옛 고정 5슬롯 라벨은 더 이상 하드코딩하지 않음 — 실제 목록은 fetchExpenses에서
+// 이 3종 + 이번 달 MonthlyBudget.allocationItems 라벨(사용자가 직접 지은 이름)을 합쳐 동적으로 구성한다.
 const BASE_BUDGET_TYPES = ['생활비', '비상금', '투자'];
-
-// 고정 5항목(생활비/ISA/연금저축/비상금/자유재량) 라벨 + 투자 — allocationLabels는 사용자가 설정에서 바꾼 이름을 그대로 반영
-const getFixedBudgetTypes = (): string[] => {
-  const labels = getAllocationLabels();
-  return [labels.living, labels.isa, labels.pension, labels.emergency, labels.discretionary, '투자'];
-};
 
 export const ExpensesPage = () => {
   const [activeTab, setActiveTab] = useState<'expense' | 'income'>('expense');
@@ -97,7 +93,7 @@ export const ExpensesPage = () => {
         setCategories(cats);
         if (cats.length > 0) setCategoryId(cats[0].id);
       }
-      const fixedLabels = getFixedBudgetTypes();
+      const fixedLabels = BASE_BUDGET_TYPES;
       if (budgetRes.status === 'fulfilled' && budgetRes.value.data.data?.id) {
         const budget = budgetRes.value.data.data;
         setMonthlyBudgetId(budget.id);

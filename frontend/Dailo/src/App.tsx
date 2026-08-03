@@ -22,7 +22,6 @@ import { isAuthenticated } from './api/axios';
 import { BudgetType, DailyExpense, Category, DashboardSummary, DailyStats, CategoryStats } from './types';
 import api from './api/axios';
 import { formatNumber, parseNumber, getCurrentSettleMonth } from './utils/format';
-import { getAllocationLabels } from './utils/allocationLabels';
 import { useEscapeKey } from './hooks/useEscapeKey';
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4'];
@@ -147,21 +146,9 @@ const DashboardHome = () => {
   const [monthlyBudgetId, setMonthlyBudgetId] = useState<number>(0);
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [dailyStats, setDailyStats] = useState<DailyStats[]>([]);
-  const [allocationLabels, setAllocationLabelsState] = useState(getAllocationLabels());
   const [categoryStats, setCategoryStats] = useState<CategoryStats[]>([]);
   const [monthOptions, setMonthOptions] = useState<string[]>([]);
   const [detailModalType, setDetailModalType] = useState<string | null>(null);
-
-  // 항목명 변경 동기화 (같은 탭 내 storage 이벤트는 발생 안 하므로 커스텀 이벤트 사용)
-  useEffect(() => {
-    const onStorage = () => setAllocationLabelsState(getAllocationLabels());
-    window.addEventListener('storage', onStorage);
-    window.addEventListener('allocationLabelsUpdated', onStorage);
-    return () => {
-      window.removeEventListener('storage', onStorage);
-      window.removeEventListener('allocationLabelsUpdated', onStorage);
-    };
-  }, []);
 
   // 저장된 정산월 목록 로드
   useEffect(() => {
@@ -253,8 +240,15 @@ const DashboardHome = () => {
     : detailModalType === '생활비'
     ? '생활비·비상금 지출 내역'
     : `${detailModalType} 지출 내역`;
-  const livingBudget = summary?.livingBudget || 0;
-  const emergencyBudget = summary?.emergencyBudget || 0;
+  // 고정 5슬롯(생활비/ISA/연금/비상금/자유재량) 폐지 이후: "생활비"/"비상금" 이름의 항목이 summary.allocationItems에
+  // 있으면 그 값을 우선 사용하고, 없으면(과거 달) 레거시 컬럼으로 폴백한다. 신규 달에는 레거시 컬럼이 전부 0으로
+  // 저장되므로 이 폴백이 없으면 카드가 항상 0원으로 보인다 — 하지만 라벨을 다르게 지었거나 항목을 아예 안 만든
+  // 신규 달에는 이 카드 자체를 최소 가드로 숨긴다 (아래 hasLivingAllocation 참고, 전면 재설계는 스코프 아님).
+  const livingAllocationItem = summary?.allocationItems?.find(i => i.label === '생활비');
+  const emergencyAllocationItem = summary?.allocationItems?.find(i => i.label === '비상금');
+  const hasLivingAllocation = !!livingAllocationItem;
+  const livingBudget = livingAllocationItem?.budgetAmount ?? (summary?.livingBudget || 0);
+  const emergencyBudget = emergencyAllocationItem?.budgetAmount ?? (summary?.emergencyBudget || 0);
   const discretionaryBudget = summary?.discretionaryBudget || 0;
   // 생활비 + 비상금 통합 소진율 (분모 0 가드)
   const combinedBudget = livingBudget + emergencyBudget;
@@ -379,7 +373,9 @@ const DashboardHome = () => {
           </p>
         </div>
 
-        {/* 생활비·비상금 소진율 (통합) */}
+        {/* 생활비·비상금 소진율 (통합) — "생활비" 라벨의 allocationItems 항목(또는 과거 레거시 컬럼)이 있을 때만 표시.
+            신규 달에서 항목을 아예 안 만들었거나 다른 이름으로 지었으면 값을 신뢰할 수 없으므로 카드 자체를 숨긴다 (최소 가드). */}
+        {hasLivingAllocation && (
         <div className="p-6 bg-white dark:bg-dark-card rounded-2xl shadow-[0_1px_8px_rgba(0,0,0,0.06)] dark:shadow-none cursor-pointer hover:shadow-md transition-shadow" onClick={() => setDetailModalType('생활비')}>
           <div className="flex justify-between items-start">
             <p className="text-xs font-medium text-slate-400 dark:text-slate-500">생활비{emergencyBudget > 0 ? '·비상금' : ''} 소진율</p>
@@ -407,6 +403,7 @@ const DashboardHome = () => {
             생활비 {livingBudget.toLocaleString()}원{emergencyBudget > 0 ? ` · 비상금 ${emergencyBudget.toLocaleString()}원` : ''} · 자유재량 {discretionaryBudget.toLocaleString()}원
           </p>
         </div>
+        )}
 
         {/* 카드 실적 */}
         <div className="p-6 bg-white dark:bg-dark-card rounded-2xl shadow-[0_1px_8px_rgba(0,0,0,0.06)] dark:shadow-none cursor-pointer hover:shadow-md transition-shadow" onClick={() => setDetailModalType('카드')}>
@@ -463,8 +460,8 @@ const DashboardHome = () => {
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
             {(() => {
-              // 지출입력 예산구분 드롭다운에 뜨는 라벨(생활비/ISA/연금저축/비상금(레거시)/자유재량 + 가변 항목)은
-              // 전부 실제로 그 이름으로 지출을 등록할 수 있으므로, 여기서도 동일하게 배분 예산 대비 소진율을 계산해서 보여준다.
+              // 지출입력 예산구분 드롭다운에 뜨는 라벨은 전부 실제로 그 이름으로 지출을 등록할 수 있으므로,
+              // 여기서도 동일하게 배분 예산 대비 소진율을 계산해서 보여준다.
               // 고정비만 예외 — FixedCost 테이블 기반이라 DailyExpense.budgetType 개념 자체가 없음.
               const withUsage = (label: string, value: number, color: string, bg: string) => {
                 const spent = allocationItemSpent(label);
@@ -476,13 +473,8 @@ const DashboardHome = () => {
               return [
                 // 고정비는 실수령액에서 가장 먼저 빠져나가는 돈이라 분모가 availableAmount가 아닌 netSalary — 0 가드 포함, 소진율 대상 아님
                 { label: '고정비', value: summary.fixedCostTotal, percent: summary.netSalary > 0 ? Math.round((summary.fixedCostTotal / summary.netSalary) * 100) : 0, color: 'text-slate-500', bg: 'bg-slate-100 dark:bg-slate-700/40' },
-                withUsage(allocationLabels.living, summary.livingBudget, 'text-blue-500', 'bg-blue-50 dark:bg-blue-900/20'),
-                withUsage(allocationLabels.isa, summary.isaAmount, 'text-emerald-500', 'bg-emerald-50 dark:bg-emerald-900/20'),
-                withUsage(allocationLabels.pension, summary.pensionAmount, 'text-violet-500', 'bg-violet-50 dark:bg-violet-900/20'),
-                // 비상금 폐지 이후 신규 달은 emergencyBudget이 0 — 레거시 달에서만 카드 노출
-                ...(summary.emergencyBudget > 0 ? [withUsage(allocationLabels.emergency, summary.emergencyBudget, 'text-amber-500', 'bg-amber-50 dark:bg-amber-900/20')] : []),
-                withUsage(allocationLabels.discretionary, summary.discretionaryBudget, 'text-rose-500', 'bg-rose-50 dark:bg-rose-900/20'),
-                // 가변 추가 항목(옛 extra1~3 고정 슬롯 대체) — 서버가 실시간 재계산한 목록을 그대로 순회, 라벨 하드코딩 없음
+                // 고정 5슬롯(생활비/ISA/연금/비상금/자유재량) 하드코딩 카드 제거 — 이제 summary.allocationItems 하나만 순회한다.
+                // 라벨까지 전부 사용자가 설정 페이지에서 직접 지은 이름 그대로 표시됨 (하드코딩 없음)
                 ...(summary.allocationItems || []).map((item, i) => {
                   const p = ALLOCATION_ITEM_PALETTE[i % ALLOCATION_ITEM_PALETTE.length];
                   return withUsage(item.label, item.budgetAmount, p.color, p.bg);

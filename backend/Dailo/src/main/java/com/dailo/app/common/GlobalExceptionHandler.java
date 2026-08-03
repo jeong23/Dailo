@@ -4,6 +4,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -35,6 +36,13 @@ public class GlobalExceptionHandler {
         }
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(ApiResponse.error(message));
+    }
+
+    // JSON 파싱 실패(정의되지 않은 enum 값, 타입 불일치 등) → 500 대신 400으로 반환 (예: inputMode에 RATE/AMOUNT 외 값)
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMessageNotReadable(HttpMessageNotReadableException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.error("요청 형식이 올바르지 않습니다. 입력값을 확인해주세요."));
     }
 
     // DB 제약조건 위반(NOT NULL, UNIQUE 등) → SQL/컬럼명 노출 없이 일반 메시지만 반환, 상세는 서버 로그에만 기록

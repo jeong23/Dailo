@@ -19,4 +19,9 @@ public interface BudgetAllocationItemRepository extends JpaRepository<BudgetAllo
     int deleteByMonthlyBudgetId(@Param("monthlyBudgetId") Long monthlyBudgetId);
 
     long deleteByIdAndMonthlyBudgetId(Long id, Long monthlyBudgetId);
+
+    // getMonthlyReport() allocationTotal용 — budgetIds를 모아 IN절로 한 번에 집계 (N+1 방지)
+    @Query("SELECT i.monthlyBudget.id AS monthlyBudgetId, COALESCE(SUM(i.budgetAmount), 0) AS total " +
+           "FROM BudgetAllocationItem i WHERE i.monthlyBudget.id IN :monthlyBudgetIds GROUP BY i.monthlyBudget.id")
+    List<AllocationTotalProjection> sumBudgetAmountGroupByMonthlyBudgetIdIn(@Param("monthlyBudgetIds") List<Long> monthlyBudgetIds);
 }

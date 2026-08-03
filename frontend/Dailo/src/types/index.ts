@@ -12,18 +12,24 @@ export interface Category {
   sortOrder?: number;
 }
 
-// 예산 분배 가변 항목(생활비/ISA/연금저축/자유재량 4개 고정 항목 이외의 추가 항목들)
+// 예산 분배 항목 입력 모드 — RATE: 가용금액 대비 비율(%)로 입력, AMOUNT: 원 단위 금액을 그대로 입력
+export type AllocationInputMode = 'RATE' | 'AMOUNT';
+
+// 예산 분배 가변 항목 — 고정 슬롯 없이 전부 이 배열 하나로 관리 (라벨·비율·금액 모두 사용자 정의)
 export interface AllocationItemResponseDto {
   id: number;
   label: string;
   rate: number;
   budgetAmount: number;
   sortOrder: number;
+  inputMode: AllocationInputMode; // 입력창을 %입력 vs 금액입력으로 분기 렌더링하는 근거
 }
 
 export interface AllocationItemRequestDto {
   label: string;
-  rate: number;
+  rate?: number;              // RATE 모드일 때 0.0~1.0
+  inputMode?: AllocationInputMode; // 생략 시 서버가 RATE로 기본 처리
+  amount?: number;            // AMOUNT 모드일 때 사용자가 입력한 정수 그대로(원 단위) — 서버가 재계산 없이 저장
 }
 
 export interface MonthlyBudget {
@@ -75,7 +81,9 @@ export interface DashboardSummary {
   pensionAmount: number;
   emergencyBudget: number;
   discretionaryBudget: number;
+  // 아래 5개 레거시 필드(livingBudget~discretionaryBudget)는 하위호환용 — 신규 화면 로직은 allocationItems만 사용
   allocationItems: AllocationItemResponseDto[];
+  allocationTotal: number; // allocationItems.budgetAmount 합계 (프론트에서 직접 sum 안 해도 됨)
   livingExpenseTotal: number;
   livingBalance: number;
   cardExpenseTotal: number;
@@ -119,6 +127,7 @@ export interface MonthlyReport {
   fixedCostTotal: number;
   extraIncomeTotal: number;
   availableAmount: number;
+  allocationTotal: number; // 가변 예산 분배 항목(allocationItems) budgetAmount 합계
   livingBudget: number;
   livingCarryover: number;
   livingExpenseTotal: number;

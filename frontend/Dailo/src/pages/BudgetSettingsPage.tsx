@@ -1,23 +1,17 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { MonthlyBudget } from '../types';
+import { MonthlyBudget, AllocationInputMode } from '../types';
 import api, { getStoredMemberId } from '../api/axios';
 import { formatNumber, parseNumber, formatSignedNumber, parseSignedNumber, getCurrentSettleMonth } from '../utils/format';
-import { getAllocationLabels, setAllocationLabels, AllocationKey } from '../utils/allocationLabels';
 import { calcTaxOptimization, TAX_CALC_RESULT_KEY, TAX_CALC_INPUTS_KEY } from '../utils/taxCalc';
 
-// 고정 5항목(레거시 비상금 포함) — 이 5개는 백엔드 컬럼(livingRate~discretionaryRate)이 그대로 유지된다.
-const ALLOCATION_BASE = [
-  { rateKey: 'livingRate' as const,        labelKey: 'living' as AllocationKey,       color: 'bg-blue-500',    text: 'text-blue-500' },
-  { rateKey: 'isaRate' as const,           labelKey: 'isa' as AllocationKey,          color: 'bg-emerald-500', text: 'text-emerald-500' },
-  { rateKey: 'pensionRate' as const,       labelKey: 'pension' as AllocationKey,      color: 'bg-violet-500',  text: 'text-violet-500' },
-  { rateKey: 'emergencyRate' as const,     labelKey: 'emergency' as AllocationKey,    color: 'bg-amber-500',   text: 'text-amber-500' },
-  { rateKey: 'discretionaryRate' as const, labelKey: 'discretionary' as AllocationKey, color: 'bg-rose-500',  text: 'text-rose-500' },
-];
-
-type RateKey = typeof ALLOCATION_BASE[number]['rateKey'];
-
-// 가변 추가 항목(옛 extra1~3, 이제 개수 제한 없음) 미리보기용 색상 팔레트 — 인덱스 기반 순환
+// 예산 분배 항목(옛 생활비/ISA/연금저축/비상금/자유재량 고정 5슬롯 폐지) 미리보기용 색상 팔레트 — 인덱스 기반 순환
+// 항목 개수 제한 없이 자유롭게 추가/삭제/이름변경 가능 (allocationItems 배열 하나로 통합 관리)
 const ITEM_PALETTE = [
+  { color: 'bg-blue-500',     text: 'text-blue-500' },
+  { color: 'bg-emerald-500',  text: 'text-emerald-500' },
+  { color: 'bg-violet-500',   text: 'text-violet-500' },
+  { color: 'bg-amber-500',    text: 'text-amber-500' },
+  { color: 'bg-rose-500',     text: 'text-rose-500' },
   { color: 'bg-sky-500',      text: 'text-sky-500' },
   { color: 'bg-pink-500',     text: 'text-pink-500' },
   { color: 'bg-teal-500',     text: 'text-teal-500' },
@@ -28,18 +22,15 @@ const ITEM_PALETTE = [
   { color: 'bg-indigo-500',   text: 'text-indigo-500' },
 ];
 
+// 항목별 입력모드(RATE: 비율 %, AMOUNT: 금액 원)를 함께 들고 다니는 폼 상태.
+// AMOUNT 모드는 amountInput(사용자가 입력한 원 단위 문자열)을 저장/전송 시 그대로 정수 변환해서 보내고,
+// 절대 rate로 환산했다가 다시 금액으로 역산하지 않는다 (왕복 변환에서 300,000원 → 299,996원 같은 반올림 오차가 생기던 버그의 원인이었음).
 interface AllocationItemForm {
   label: string;
-  rate: number; // percent 0~100
+  inputMode: AllocationInputMode;
+  rate: number;        // percent 0~100 (RATE 모드에서 사용)
+  amountInput: string; // "300,000" 형태 (AMOUNT 모드에서 사용)
 }
-
-// 레거시(비상금 항목 있던 시절) 기본값은 35/25/15/15/10 이었음 — 과거 데이터는 existingBudget.emergencyRate로 판단하므로
-// 이 상수 자체는 더 이상 참조하지 않는다 (참고용 주석으로만 남김)
-
-// 비상금 폐지 후 4항목 기본값 — 기존 비상금 비율(15%)을 생활비 쪽으로 흡수 (35 + 15 = 50)
-const DEFAULT_RATES_4: Record<RateKey, number> = {
-  livingRate: 50, isaRate: 25, pensionRate: 15, emergencyRate: 0, discretionaryRate: 10,
-};
 
 export const BudgetSettingsPage = () => {
   const [selectedMonth, setSelectedMonth] = useState(getCurrentSettleMonth());
@@ -48,34 +39,17 @@ export const BudgetSettingsPage = () => {
   const [memo, setMemo] = useState('');
   const [memoSaved, setMemoSaved] = useState(false);
 
-  const [labels, setLabels] = useState(getAllocationLabels());
-  const [labelEditMode, setLabelEditMode] = useState(false);
-  const [labelDraft, setLabelDraft] = useState(getAllocationLabels());
-
-  // 비상금 레거시 판단: 현재 선택된 달의 MonthlyBudget에 emergencyRate가 남아있으면(과거 데이터) 5항목 그대로,
-  // 아니면(신규 달) 비상금 제외 4항목만 사용 — 날짜 비교 금지, 저장된 emergencyRate 값 자체로 판단
+  // 비상금 레거시 판단: 현재 선택된 달의 MonthlyBudget에 emergencyRate가 남아있으면(과거 고정 슬롯 시절 데이터) 레거시 표시 사용
+  // 날짜 비교 금지, 저장된 emergencyRate 값 자체로 판단 (EmergencyPage/비상금 로직은 이번 스코프 제외 — 읽기 전용 표시만 그대로 유지)
   const isLegacyEmergency = !!existingBudget?.emergencyRate && existingBudget.emergencyRate > 0;
 
-  // Active fixed allocation items = 레거시면 5, 아니면 4
-  const activeAllocationBase = isLegacyEmergency
-    ? ALLOCATION_BASE
-    : ALLOCATION_BASE.filter(a => a.rateKey !== 'emergencyRate');
-
-  // 폼 상태 — 고정 5항목 비율
+  // 폼 상태
   const [netSalary, setNetSalary] = useState('');
   const [cardGoal, setCardGoal] = useState('');
   const [livingCarryover, setLivingCarryover] = useState('');
-  const [rates, setRates] = useState<Record<RateKey, number>>({ ...DEFAULT_RATES_4 });
 
-  // 가변 추가 항목(라벨+비율) — 개수 제한 없음
+  // 예산 분배 항목 — 고정 슬롯 없이 개수 제한 없는 리스트 하나로 관리 (라벨/입력모드/비율/금액 전부 사용자 정의)
   const [allocationItems, setAllocationItems] = useState<AllocationItemForm[]>([]);
-
-  // 금액 입력 모드
-  const [inputMode, setInputMode] = useState<'rate' | 'amount'>('rate');
-  const [amountInputs, setAmountInputs] = useState<Record<RateKey, string>>({
-    livingRate: '', isaRate: '', pensionRate: '', emergencyRate: '', discretionaryRate: '',
-  });
-  const [itemAmountInputs, setItemAmountInputs] = useState<string[]>([]);
 
   // 고정비 합계 (서버에서 조회)
   const [fixedCostTotal, setFixedCostTotal] = useState(0);
@@ -114,98 +88,41 @@ export const BudgetSettingsPage = () => {
   const net = parseNumber(netSalary);
   const available = Math.max(net - fixedCostTotal, 0);
 
-  // 고정 항목 + 가변 항목을 합친 통합 행 목록 — 합계 검증·미리보기·모드 전환에 공통 사용
-  const combinedRows = useMemo(() => [
-    ...activeAllocationBase.map(a => ({
-      kind: 'fixed' as const,
-      id: a.rateKey as string,
-      label: labels[a.labelKey],
-      color: a.color,
-      text: a.text,
-      rate: rates[a.rateKey],
-      amountInput: amountInputs[a.rateKey],
-      fixedKey: a.rateKey,
-    })),
-    ...allocationItems.map((item, index) => ({
-      kind: 'item' as const,
-      id: `item-${index}`,
-      label: item.label,
-      color: ITEM_PALETTE[index % ITEM_PALETTE.length].color,
-      text: ITEM_PALETTE[index % ITEM_PALETTE.length].text,
-      rate: item.rate,
-      amountInput: itemAmountInputs[index] ?? '',
-      index,
-    })),
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [activeAllocationBase, labels, rates, amountInputs, allocationItems, itemAmountInputs]);
+  // 항목 1개의 실제 배분 금액 — 백엔드 계산 원칙과 동일하게 유지
+  // RATE: Math.round(available * rate) / AMOUNT: 사용자가 입력한 정수 그대로 (재계산 절대 금지)
+  const itemAmount = (item: AllocationItemForm): number =>
+    item.inputMode === 'RATE'
+      ? Math.round(available * item.rate / 100)
+      : parseNumber(item.amountInput);
 
-  const rateTotal = combinedRows.reduce((s, r) => s + r.rate, 0);
+  const totalAllocated = allocationItems.reduce((s, it) => s + itemAmount(it), 0);
+  const allocationDiff = available - totalAllocated;
 
-  // 금액 모드: 생활비는 직접 입력받지 않고 "가용금액 - 나머지 항목 합계"로 자동 계산 — 나머지가 전부 생활비로 흡수되어
-  // ISA/연금저축처럼 딱 떨어지는 금액만 맞추면 되고, 합계를 100%로 수동 조정할 필요가 없어진다.
-  const livingRowIndex = combinedRows.findIndex(r => r.kind === 'fixed' && r.fixedKey === 'livingRate');
-  const rawAmounts = combinedRows.map(r => parseNumber(r.amountInput));
-  const otherAmountsTotal = rawAmounts.reduce((s, v, i) => (i === livingRowIndex ? s : s + v), 0);
-  const livingRemainder = Math.max(available - otherAmountsTotal, 0);
-  const parsedAmounts = rawAmounts.map((v, i) => (i === livingRowIndex ? livingRemainder : v));
-  const amountTotal = parsedAmounts.reduce((s, v) => s + v, 0);
-  const amountDiff = available - amountTotal;
+  // 저장 버튼 활성화 조건: "비율 모드 항목들의 rate 합 + 금액 모드 항목들이 가용금액에서 차지하는 비율"의 합이 100%가 되어야 함
+  // (기존엔 모드가 전역이라 비율 합만 보면 됐지만, 이제 항목마다 모드가 다르므로 두 비율을 합쳐서 하나의 기준으로 검증한다)
+  const rateItemsPercentTotal = allocationItems
+    .filter(it => it.inputMode === 'RATE')
+    .reduce((s, it) => s + it.rate, 0);
+  const amountItemsTotal = allocationItems
+    .filter(it => it.inputMode === 'AMOUNT')
+    .reduce((s, it) => s + parseNumber(it.amountInput), 0);
+  const amountItemsPercent = available > 0 ? Math.round((amountItemsTotal / available) * 100) : 0;
+  const combinedPercentTotal = rateItemsPercentTotal + amountItemsPercent;
 
-  // 미리보기 (rate 또는 amount 모드에 따라 실효 비율/금액 계산)
-  const preview = combinedRows.map((r, i) => {
-    const effectivePercent = inputMode === 'rate'
-      ? r.rate
-      : (available > 0 ? Math.round(parsedAmounts[i] / available * 100) : 0);
-    const effectiveAmount = inputMode === 'rate'
-      ? Math.floor(available * r.rate / 100)
-      : parsedAmounts[i];
-    return { ...r, ratio: effectivePercent / 100, amount: effectiveAmount };
+  // 미리보기 (항목별 실효 비율/금액)
+  const preview = allocationItems.map((item, index) => {
+    const palette = ITEM_PALETTE[index % ITEM_PALETTE.length];
+    const amount = itemAmount(item);
+    const percent = available > 0 ? Math.round((amount / available) * 100) : 0;
+    return { id: `item-${index}`, label: item.label, color: palette.color, text: palette.text, ratio: percent / 100, amount };
   });
 
-  // 가변 항목 라벨 중복 검사 (백엔드 UNIQUE 제약과 동일 기준 — 저장 전 프론트에서 미리 안내)
+  // 항목 라벨 중복 검사 (백엔드 UNIQUE 제약과 동일 기준 — 저장 전 프론트에서 미리 안내)
   const trimmedItemLabels = allocationItems.map(it => it.label.trim());
   const duplicateItemLabels = Array.from(new Set(
     trimmedItemLabels.filter((label, idx) => label !== '' && trimmedItemLabels.indexOf(label) !== idx)
   ));
   const hasBlankItemLabel = allocationItems.some(it => it.label.trim() === '');
-
-  const switchToAmount = () => {
-    if (available > 0 && combinedRows.length > 0) {
-      const amounts = combinedRows.map(r => Math.floor(available * r.rate / 100));
-      const remainder = available - amounts.slice(0, -1).reduce((s, v) => s + v, 0);
-      amounts[amounts.length - 1] = remainder;
-
-      const newAmountInputs = { ...amountInputs };
-      const newItemAmountInputs = [...itemAmountInputs];
-      combinedRows.forEach((r, i) => {
-        if (r.kind === 'fixed') newAmountInputs[r.fixedKey] = formatNumber(amounts[i]);
-        else newItemAmountInputs[r.index] = formatNumber(amounts[i]);
-      });
-      setAmountInputs(newAmountInputs);
-      setItemAmountInputs(newItemAmountInputs);
-    } else {
-      setAmountInputs(prev => Object.fromEntries(
-        activeAllocationBase.map(a => [a.rateKey, ''])
-      ) as Record<RateKey, string>);
-      setItemAmountInputs(allocationItems.map(() => ''));
-    }
-    setInputMode('amount');
-  };
-
-  const switchToRate = () => {
-    if (available > 0 && amountTotal > 0) {
-      const newRates = { ...rates };
-      const newItems = allocationItems.map(it => ({ ...it }));
-      combinedRows.forEach((r, i) => {
-        const pct = Math.round(parsedAmounts[i] / available * 100);
-        if (r.kind === 'fixed') newRates[r.fixedKey] = pct;
-        else newItems[r.index].rate = pct;
-      });
-      setRates(newRates);
-      setAllocationItems(newItems);
-    }
-    setInputMode('rate');
-  };
 
   useEffect(() => {
     api.get('/monthly-budgets/mine')
@@ -231,6 +148,19 @@ export const BudgetSettingsPage = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // 서버 응답(AllocationItemResponseDto[])을 폼 상태로 변환 — AMOUNT 모드는 budgetAmount(서버가 그대로 저장한 값)를 신뢰해서 표시,
+  // rate로 역산하지 않는다 (역산하면 표시 단계에서부터 오차가 생김)
+  const toItemForm = (items: MonthlyBudget['allocationItems'] | undefined): AllocationItemForm[] =>
+    (items || [])
+      .slice()
+      .sort((a, b) => a.sortOrder - b.sortOrder)
+      .map(a => ({
+        label: a.label,
+        inputMode: a.inputMode || 'RATE',
+        rate: Math.round((a.rate || 0) * 100),
+        amountInput: a.inputMode === 'AMOUNT' ? formatNumber(String(a.budgetAmount ?? 0)) : '',
+      }));
+
   const fetchData = async (budgetList = allBudgets, month = selectedMonth) => {
     const memberId = getStoredMemberId();
     const [budgetRes, fixedRes, emergencyRes, cashAssetRes] = await Promise.allSettled([
@@ -247,19 +177,7 @@ export const BudgetSettingsPage = () => {
         setNetSalary(formatNumber(budget.netSalary));
         setCardGoal(formatNumber(budget.cardGoal));
         setLivingCarryover(formatSignedNumber(budget.livingCarryover));
-        setRates({
-          livingRate:        Math.round(budget.livingRate * 100),
-          isaRate:           Math.round(budget.isaRate * 100),
-          pensionRate:       Math.round(budget.pensionRate * 100),
-          emergencyRate:     Math.round(budget.emergencyRate * 100),
-          discretionaryRate: Math.round(budget.discretionaryRate * 100),
-        });
-        const items = (budget.allocationItems || [])
-          .slice()
-          .sort((a, b) => a.sortOrder - b.sortOrder)
-          .map(a => ({ label: a.label, rate: Math.round(a.rate * 100) }));
-        setAllocationItems(items);
-        setItemAmountInputs(items.map(() => ''));
+        setAllocationItems(toItemForm(budget.allocationItems));
       }
     } else {
       setExistingBudget(null);
@@ -272,29 +190,13 @@ export const BudgetSettingsPage = () => {
       if (prev) {
         setNetSalary(formatNumber(prev.netSalary));
         setCardGoal(formatNumber(prev.cardGoal));
-        // 신규 달은 항상 4항목 — 전월에 비상금 비율이 남아있었다면 생활비 쪽으로 흡수해서 이전
-        const prevLivingRate = prev.livingRate ? Math.round(prev.livingRate * 100) : DEFAULT_RATES_4.livingRate;
-        const prevEmergencyRate = prev.emergencyRate ? Math.round(prev.emergencyRate * 100) : 0;
-        setRates({
-          livingRate:        prevLivingRate + prevEmergencyRate,
-          isaRate:           prev.isaRate           ? Math.round(prev.isaRate * 100)           : DEFAULT_RATES_4.isaRate,
-          pensionRate:       prev.pensionRate       ? Math.round(prev.pensionRate * 100)       : DEFAULT_RATES_4.pensionRate,
-          emergencyRate:     0,
-          discretionaryRate: prev.discretionaryRate ? Math.round(prev.discretionaryRate * 100) : DEFAULT_RATES_4.discretionaryRate,
-        });
-        // carry-forward: 전월 allocationItems(라벨+비율) 전체를 그대로 복사 (드롭다운 선택월과 무관하게 항상 직전 저장월 기준)
-        const prevItems = (prev.allocationItems || [])
-          .slice()
-          .sort((a, b) => a.sortOrder - b.sortOrder)
-          .map(a => ({ label: a.label, rate: Math.round(a.rate * 100) }));
-        setAllocationItems(prevItems);
-        setItemAmountInputs(prevItems.map(() => ''));
+        // carry-forward: 전월 allocationItems(라벨+비율/금액) 전체를 그대로 복사 (드롭다운 선택월과 무관하게 항상 직전 저장월 기준)
+        setAllocationItems(toItemForm(prev.allocationItems));
       } else {
+        // 첫 달(직전 저장 데이터 없음): 빈 리스트로 시작 — 사용자가 직접 항목을 추가
         setNetSalary('');
         setCardGoal('');
-        setRates({ ...DEFAULT_RATES_4 });
         setAllocationItems([]);
-        setItemAmountInputs([]);
       }
     }
 
@@ -351,32 +253,30 @@ export const BudgetSettingsPage = () => {
     }
     setIsSaving(true);
 
-    // 현재 입력 모드(비율/금액)와 무관하게 최종 비율(%)로 정규화해서 전송
-    // 금액 모드는 정수 %로 반올림하면 500,000원 → 27% → 저장 후 509,113원처럼 오차가 생기므로
-    // DB 컬럼(DECIMAL(5,4), 소수 4자리)에 맞춰 소수점 넷째 자리까지 정밀하게 변환한다.
-    // 비율 모드는 사용자가 애초에 정수 %로만 입력하므로(step=1) 그대로 사용해도 오차가 없다.
-    const finalRates: Record<RateKey, number> = { ...rates };
-    const finalItems = allocationItems.map(it => ({ ...it }));
-    combinedRows.forEach((row, i) => {
-      const pct = inputMode === 'rate'
-        ? row.rate
-        : (available > 0 ? Math.round((parsedAmounts[i] / available) * 1000000) / 10000 : 0);
-      if (row.kind === 'fixed') finalRates[row.fixedKey] = pct;
-      else finalItems[row.index].rate = pct;
-    });
-
     const body = {
       settleMonth: selectedMonth,
       netSalary: net,
       cardGoal:          parseNumber(cardGoal),
       livingCarryover:   parseSignedNumber(livingCarryover),
-      livingRate:        finalRates.livingRate / 100,
-      isaRate:           finalRates.isaRate / 100,
-      pensionRate:       finalRates.pensionRate / 100,
-      // 신규 달(비 레거시)은 비상금 폐지 — 실수로라도 값이 남아있지 않도록 저장 시 항상 0 고정
-      emergencyRate:     isLegacyEmergency ? finalRates.emergencyRate / 100 : 0,
-      discretionaryRate: finalRates.discretionaryRate / 100,
-      allocationItems:   finalItems.map(item => ({ label: item.label.trim(), rate: item.rate / 100 })),
+      // 고정 5슬롯(생활비/ISA/연금/비상금/자유재량) 입력 UI는 완전히 제거됨 — 이제 분배는 allocationItems 하나로만 관리한다.
+      // 단, MonthlyBudget 엔티티의 livingRate~discretionaryRate 컬럼은 DB상 NOT NULL이라 null을 보낼 수 없고,
+      // 과거(레거시) 달의 경우 이 값들을 이 페이지가 더 이상 편집하지 않는데도 저장할 때마다 0으로 덮어쓰면
+      // ReportPage/EmergencyPage가 참조하는 해당 월 스냅샷이 조용히 깨진다.
+      // → 기존 값이 있으면 그대로 되돌려보내고(신규 달은 existingBudget이 없으니 자연히 0), UI에서만 완전히 숨긴다.
+      livingRate:        existingBudget?.livingRate ?? 0,
+      isaRate:           existingBudget?.isaRate ?? 0,
+      pensionRate:       existingBudget?.pensionRate ?? 0,
+      emergencyRate:     existingBudget?.emergencyRate ?? 0,
+      discretionaryRate: existingBudget?.discretionaryRate ?? 0,
+      allocationItems: allocationItems.map(item => {
+        const label = item.label.trim();
+        if (item.inputMode === 'AMOUNT') {
+          // AMOUNT 모드: 사용자가 입력한 정수 그대로 전송 — 프론트에서 반올림/역산 절대 금지
+          // (300,000원 입력 시 299,996원으로 저장되던 오차의 원인이 여기서의 왕복 계산이었음)
+          return { label, inputMode: 'AMOUNT' as const, amount: parseNumber(item.amountInput) };
+        }
+        return { label, inputMode: 'RATE' as const, rate: item.rate / 100 };
+      }),
     };
 
     try {
@@ -412,23 +312,9 @@ export const BudgetSettingsPage = () => {
     }
   };
 
-  const handleSaveLabels = () => {
-    const trimmed = Object.fromEntries(
-      Object.entries(labelDraft).map(([k, v]) => {
-        // 고정 항목은 항상 값이 있어야 함 — 비워두면 기존 라벨 유지
-        const val = (v as string).trim();
-        return [k, val || labels[k as AllocationKey]];
-      })
-    ) as Record<AllocationKey, string>;
-    setAllocationLabels(trimmed);
-    setLabels(trimmed);
-    setLabelEditMode(false);
-  };
-
-  // 가변 추가 항목 관리
+  // 예산 분배 항목 관리 (개수 제한 없음)
   const addAllocationItem = () => {
-    setAllocationItems(prev => [...prev, { label: '새 항목', rate: 0 }]);
-    setItemAmountInputs(prev => [...prev, '']);
+    setAllocationItems(prev => [...prev, { label: '새 항목', inputMode: 'RATE', rate: 0, amountInput: '' }]);
   };
 
   const updateAllocationItemLabel = (index: number, label: string) => {
@@ -440,12 +326,25 @@ export const BudgetSettingsPage = () => {
   };
 
   const updateAllocationItemAmount = (index: number, value: string) => {
-    setItemAmountInputs(prev => prev.map((v, i) => i === index ? formatNumber(value) : v));
+    setAllocationItems(prev => prev.map((it, i) => i === index ? { ...it, amountInput: formatNumber(value) } : it));
+  };
+
+  // 입력모드 토글 — 전환 시점에 available 기준으로 한 번만 값을 옮겨서 편집 편의를 제공 (자동 왕복 계산이 아니라
+  // 사용자가 명시적으로 토글을 누른 그 순간에만 일어나는 1회성 변환이며, 실제 저장 값은 토글 이후 그 모드의 필드를 그대로 사용한다)
+  const updateAllocationItemMode = (index: number, mode: AllocationInputMode) => {
+    setAllocationItems(prev => prev.map((it, i) => {
+      if (i !== index || it.inputMode === mode) return it;
+      if (mode === 'AMOUNT') {
+        const seedAmount = available > 0 ? Math.round(available * it.rate / 100) : 0;
+        return { ...it, inputMode: mode, amountInput: formatNumber(String(seedAmount)) };
+      }
+      const seedRate = available > 0 ? Math.round((parseNumber(it.amountInput) / available) * 100) : 0;
+      return { ...it, inputMode: mode, rate: seedRate };
+    }));
   };
 
   const removeAllocationItem = (index: number) => {
     setAllocationItems(prev => prev.filter((_, i) => i !== index));
-    setItemAmountInputs(prev => prev.filter((_, i) => i !== index));
   };
 
   const [activeTab, setActiveTab] = useState<'budget' | 'tax' | 'memo'>('budget');
@@ -458,7 +357,7 @@ export const BudgetSettingsPage = () => {
 
   const saveDisabled = isSaving
     || !netSalary
-    || (inputMode === 'rate' ? rateTotal !== 100 : Math.abs(amountDiff) > 1)
+    || (available > 0 && combinedPercentTotal !== 100)
     || duplicateItemLabels.length > 0
     || hasBlankItemLabel;
 
@@ -614,136 +513,28 @@ export const BudgetSettingsPage = () => {
               )}
             </div>
 
-            {/* 고정 항목명 편집 */}
+            {/* 예산 분배 항목 — 고정 슬롯 없이 자유롭게 추가/삭제/이름변경, 항목마다 비율(%)/금액(원) 모드 선택 */}
             <div>
               <div className="flex justify-between items-center mb-2">
-                <label className="text-sm font-medium dark:text-dark-muted">고정 항목명</label>
-                {!labelEditMode ? (
-                  <button
-                    type="button"
-                    onClick={() => { setLabelDraft({ ...labels }); setLabelEditMode(true); }}
-                    className="text-xs text-primary-500 hover:text-primary-600 font-medium"
-                  >
-                    편집
-                  </button>
-                ) : (
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={handleSaveLabels}
-                      className="text-xs text-emerald-500 hover:text-emerald-600 font-medium"
-                    >
-                      저장
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setLabelEditMode(false)}
-                      className="text-xs text-slate-400 hover:text-slate-500 font-medium"
-                    >
-                      취소
-                    </button>
-                  </div>
-                )}
-              </div>
-              {labelEditMode ? (
-                <div className="space-y-2">
-                  {/* 고정 항목 (레거시 달은 5개, 신규 달은 비상금 제외 4개) */}
-                  {activeAllocationBase.map(a => (
-                    <div key={a.labelKey} className="flex items-center gap-2">
-                      <span className={`w-2 h-2 rounded-full flex-shrink-0 ${a.color}`} />
-                      <input
-                        type="text"
-                        value={labelDraft[a.labelKey]}
-                        onChange={e => setLabelDraft(prev => ({ ...prev, [a.labelKey]: e.target.value }))}
-                        maxLength={10}
-                        className="flex-1 p-1.5 rounded-lg border text-sm dark:bg-dark-bg dark:border-dark-border dark:text-dark-text outline-none focus:ring-2 focus:ring-primary-500"
-                      />
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="flex flex-wrap gap-2">
-                  {activeAllocationBase.map(a => (
-                    <span key={a.labelKey} className={`text-xs font-medium px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 ${a.text}`}>
-                      {labels[a.labelKey]}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* 분배 입력 */}
-            <div>
-              <div className="flex justify-between items-center mb-2">
-                <label className="text-sm font-medium dark:text-dark-muted">분배 설정</label>
-                <div className="flex items-center bg-slate-100 dark:bg-slate-800 rounded-lg p-0.5 gap-0.5">
-                  <button
-                    type="button"
-                    onClick={switchToRate}
-                    className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${inputMode === 'rate' ? 'bg-white dark:bg-dark-card text-slate-800 dark:text-dark-text shadow-sm' : 'text-slate-400 dark:text-slate-500 hover:text-slate-600'}`}
-                  >
-                    비율
-                  </button>
-                  <button
-                    type="button"
-                    onClick={switchToAmount}
-                    className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${inputMode === 'amount' ? 'bg-white dark:bg-dark-card text-slate-800 dark:text-dark-text shadow-sm' : 'text-slate-400 dark:text-slate-500 hover:text-slate-600'}`}
-                  >
-                    금액
-                  </button>
-                </div>
+                <label className="text-sm font-medium dark:text-dark-muted">분배 항목</label>
+                <span className="text-xs text-slate-400">항목마다 비율 · 금액 모드를 각각 선택할 수 있어요</span>
               </div>
 
-              {inputMode === 'rate' ? (
-                <>
-                  <div className="space-y-2">
-                    {/* 고정 항목 */}
-                    {activeAllocationBase.map(a => (
-                      <div key={a.rateKey} className="flex items-center gap-2">
-                        <span className={`text-xs font-medium w-16 truncate ${a.text}`}>{labels[a.labelKey]}</span>
-                        <input
-                          type="number"
-                          min={0}
-                          max={100}
-                          step={1}
-                          value={rates[a.rateKey]}
-                          onChange={e => setRates(prev => ({ ...prev, [a.rateKey]: Math.floor(Number(e.target.value)) }))}
-                          className="w-20 p-1.5 rounded-lg border text-sm dark:bg-dark-bg dark:border-dark-border dark:text-dark-text outline-none focus:ring-2 focus:ring-primary-500"
-                        />
-                        <span className="text-xs text-slate-400">%</span>
-                        {available > 0 && (
-                          <span className="text-xs text-slate-400 tabular-nums ml-auto">
-                            {Math.floor(available * rates[a.rateKey] / 100).toLocaleString()}원
-                          </span>
-                        )}
-                      </div>
-                    ))}
-                    {/* 가변 추가 항목 — 라벨 직접 입력 + 비율 + 삭제 */}
-                    {allocationItems.map((item, i) => (
-                      <div key={`item-${i}`} className="flex items-center gap-2">
+              <div className="space-y-2">
+                {allocationItems.map((item, i) => {
+                  const palette = ITEM_PALETTE[i % ITEM_PALETTE.length];
+                  const amount = itemAmount(item);
+                  return (
+                    <div key={`item-${i}`} className="p-3 rounded-xl border border-slate-100 dark:border-dark-border space-y-2">
+                      <div className="flex items-center gap-2">
                         <input
                           type="text"
                           value={item.label}
                           onChange={e => updateAllocationItemLabel(i, e.target.value)}
-                          maxLength={10}
+                          maxLength={50}
                           placeholder="항목명"
-                          className={`w-16 shrink-0 p-1.5 rounded-lg border text-xs font-medium ${ITEM_PALETTE[i % ITEM_PALETTE.length].text} dark:bg-dark-bg dark:border-dark-border outline-none focus:ring-2 focus:ring-primary-500`}
+                          className={`flex-1 min-w-0 p-2 rounded-lg border text-sm font-medium ${palette.text} dark:bg-dark-bg dark:border-dark-border outline-none focus:ring-2 focus:ring-primary-500`}
                         />
-                        <input
-                          type="number"
-                          min={0}
-                          max={100}
-                          step={1}
-                          value={item.rate}
-                          onChange={e => updateAllocationItemRate(i, Math.floor(Number(e.target.value)))}
-                          className="w-20 p-1.5 rounded-lg border text-sm dark:bg-dark-bg dark:border-dark-border dark:text-dark-text outline-none focus:ring-2 focus:ring-primary-500"
-                        />
-                        <span className="text-xs text-slate-400">%</span>
-                        {available > 0 && (
-                          <span className="text-xs text-slate-400 tabular-nums ml-auto">
-                            {Math.floor(available * item.rate / 100).toLocaleString()}원
-                          </span>
-                        )}
                         <button
                           type="button"
                           onClick={() => removeAllocationItem(i)}
@@ -753,104 +544,76 @@ export const BudgetSettingsPage = () => {
                           ×
                         </button>
                       </div>
-                    ))}
-                    <button
-                      type="button"
-                      onClick={addAllocationItem}
-                      className="w-full min-h-[44px] py-1.5 text-xs text-primary-500 hover:text-primary-600 border border-dashed border-primary-300 dark:border-primary-700 rounded-lg transition-colors"
-                    >
-                      + 항목 추가
-                    </button>
-                  </div>
-                  <p className={`text-xs font-bold mt-2 ${rateTotal === 100 ? 'text-emerald-500' : 'text-red-500'}`}>
-                    합계 {rateTotal}%{rateTotal !== 100 && ' (100%여야 합니다)'}
-                  </p>
-                </>
-              ) : (
-                <>
-                  <div className="space-y-2">
-                    {activeAllocationBase.map(a => {
-                      const isLivingAuto = a.rateKey === 'livingRate';
-                      return (
-                        <div key={a.rateKey} className="flex items-center gap-2">
-                          <span className={`text-xs font-medium w-16 truncate ${a.text}`}>{labels[a.labelKey]}</span>
-                          {isLivingAuto ? (
-                            <div
-                              className="flex-1 p-1.5 rounded-lg border border-dashed dark:border-dark-border text-sm text-right tabular-nums bg-slate-50 dark:bg-slate-800/50 text-slate-500 dark:text-dark-muted"
-                              title="나머지 항목을 다 채우고 남은 금액이 자동으로 들어갑니다"
-                            >
-                              {livingRemainder.toLocaleString()}
-                            </div>
-                          ) : (
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <div className="flex items-center bg-slate-100 dark:bg-slate-800 rounded-lg p-0.5 gap-0.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => updateAllocationItemMode(i, 'RATE')}
+                            className={`min-h-[44px] px-3 rounded-md text-xs font-medium transition-colors ${item.inputMode === 'RATE' ? 'bg-white dark:bg-dark-card text-slate-800 dark:text-dark-text shadow-sm' : 'text-slate-400 dark:text-slate-500 hover:text-slate-600'}`}
+                          >
+                            비율
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateAllocationItemMode(i, 'AMOUNT')}
+                            className={`min-h-[44px] px-3 rounded-md text-xs font-medium transition-colors ${item.inputMode === 'AMOUNT' ? 'bg-white dark:bg-dark-card text-slate-800 dark:text-dark-text shadow-sm' : 'text-slate-400 dark:text-slate-500 hover:text-slate-600'}`}
+                          >
+                            금액
+                          </button>
+                        </div>
+                        {item.inputMode === 'RATE' ? (
+                          <div className="flex items-center gap-1.5">
+                            <input
+                              type="number"
+                              min={0}
+                              max={100}
+                              step={1}
+                              value={item.rate}
+                              onChange={e => updateAllocationItemRate(i, Math.floor(Number(e.target.value)))}
+                              className="w-20 p-1.5 rounded-lg border text-sm dark:bg-dark-bg dark:border-dark-border dark:text-dark-text outline-none focus:ring-2 focus:ring-primary-500"
+                            />
+                            <span className="text-xs text-slate-400">%</span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1.5 flex-1 min-w-[120px]">
                             <input
                               type="text"
-                              value={amountInputs[a.rateKey]}
-                              onChange={e => setAmountInputs(prev => ({ ...prev, [a.rateKey]: formatNumber(e.target.value) }))}
+                              value={item.amountInput}
+                              onChange={e => updateAllocationItemAmount(i, e.target.value)}
                               placeholder="0"
-                              className="flex-1 p-1.5 rounded-lg border text-sm dark:bg-dark-bg dark:border-dark-border dark:text-dark-text outline-none focus:ring-2 focus:ring-primary-500 text-right"
+                              className="flex-1 min-w-0 p-1.5 rounded-lg border text-sm text-right dark:bg-dark-bg dark:border-dark-border dark:text-dark-text outline-none focus:ring-2 focus:ring-primary-500"
                             />
-                          )}
-                          <span className="text-xs text-slate-400">원</span>
-                          {isLivingAuto ? (
-                            <span className="text-[10px] text-slate-400 w-14 text-right shrink-0">나머지 자동</span>
-                          ) : (
-                            available > 0 && parseNumber(amountInputs[a.rateKey]) > 0 && (
-                              <span className="text-xs text-slate-400 tabular-nums w-8 text-right">
-                                {Math.round(parseNumber(amountInputs[a.rateKey]) / available * 100)}%
-                              </span>
-                            )
-                          )}
-                        </div>
-                      );
-                    })}
-                    {allocationItems.map((item, i) => (
-                      <div key={`item-${i}`} className="flex items-center gap-2">
-                        <input
-                          type="text"
-                          value={item.label}
-                          onChange={e => updateAllocationItemLabel(i, e.target.value)}
-                          maxLength={10}
-                          placeholder="항목명"
-                          className={`w-16 shrink-0 p-1.5 rounded-lg border text-xs font-medium ${ITEM_PALETTE[i % ITEM_PALETTE.length].text} dark:bg-dark-bg dark:border-dark-border outline-none focus:ring-2 focus:ring-primary-500`}
-                        />
-                        <input
-                          type="text"
-                          value={itemAmountInputs[i] ?? ''}
-                          onChange={e => updateAllocationItemAmount(i, e.target.value)}
-                          placeholder="0"
-                          className="flex-1 p-1.5 rounded-lg border text-sm dark:bg-dark-bg dark:border-dark-border dark:text-dark-text outline-none focus:ring-2 focus:ring-primary-500 text-right"
-                        />
-                        <span className="text-xs text-slate-400">원</span>
-                        {available > 0 && parseNumber(itemAmountInputs[i] ?? '') > 0 && (
-                          <span className="text-xs text-slate-400 tabular-nums w-8 text-right">
-                            {Math.round(parseNumber(itemAmountInputs[i] ?? '') / available * 100)}%
-                          </span>
+                            <span className="text-xs text-slate-400 shrink-0">원</span>
+                          </div>
                         )}
-                        <button
-                          type="button"
-                          onClick={() => removeAllocationItem(i)}
-                          className="min-w-[44px] min-h-[44px] flex items-center justify-center text-slate-300 hover:text-red-400 transition-colors text-lg leading-none shrink-0"
-                          title="항목 삭제"
-                        >
-                          ×
-                        </button>
+                        <span className="text-xs text-slate-400 tabular-nums ml-auto shrink-0">
+                          {amount.toLocaleString()}원{available > 0 && ` (${Math.round((amount / available) * 100)}%)`}
+                        </span>
                       </div>
-                    ))}
-                    <button
-                      type="button"
-                      onClick={addAllocationItem}
-                      className="w-full min-h-[44px] py-1.5 text-xs text-primary-500 hover:text-primary-600 border border-dashed border-primary-300 dark:border-primary-700 rounded-lg transition-colors"
-                    >
-                      + 항목 추가
-                    </button>
-                  </div>
-                  <div className={`flex justify-between items-center mt-2 text-xs font-bold ${Math.abs(amountDiff) <= 1 ? 'text-emerald-500' : 'text-red-500'}`}>
-                    <span>합계 {amountTotal.toLocaleString()}원</span>
-                    {Math.abs(amountDiff) > 1 && (
-                      <span>{amountDiff > 0 ? `${amountDiff.toLocaleString()}원 남음` : `${Math.abs(amountDiff).toLocaleString()}원 초과`}</span>
-                    )}
-                  </div>
-                </>
+                    </div>
+                  );
+                })}
+                <button
+                  type="button"
+                  onClick={addAllocationItem}
+                  className="w-full min-h-[44px] py-1.5 text-xs text-primary-500 hover:text-primary-600 border border-dashed border-primary-300 dark:border-primary-700 rounded-lg transition-colors"
+                >
+                  + 항목 추가
+                </button>
+              </div>
+
+              {/* 검증 문구 — 비율 항목 합(%) + 금액 항목이 가용금액에서 차지하는 비율(%)의 합이 100%가 되어야 저장 가능 */}
+              {available > 0 ? (
+                <p className={`text-xs font-bold mt-2 ${combinedPercentTotal === 100 ? 'text-emerald-500' : 'text-red-500'}`}>
+                  분배 합계 {combinedPercentTotal}% · {totalAllocated.toLocaleString()}원 / 가용 {available.toLocaleString()}원
+                  {combinedPercentTotal !== 100 && (
+                    allocationDiff > 0
+                      ? ` (${allocationDiff.toLocaleString()}원 남음 — 100%를 채워야 저장할 수 있습니다)`
+                      : ` (${Math.abs(allocationDiff).toLocaleString()}원 초과 — 100% 이내로 줄여야 저장할 수 있습니다)`
+                  )}
+                </p>
+              ) : (
+                <p className="text-xs text-slate-400 mt-2">가용 금액이 없어 분배할 금액이 없습니다.</p>
               )}
               {duplicateItemLabels.length > 0 && (
                 <p className="text-xs font-bold text-red-500 mt-2">
@@ -897,6 +660,11 @@ export const BudgetSettingsPage = () => {
 
           {/* 항목별 분배 */}
           <div className="bg-white dark:bg-dark-card rounded-2xl shadow-[0_1px_8px_rgba(0,0,0,0.06)] dark:shadow-none p-6 space-y-4">
+            {preview.length === 0 && (
+              <p className="text-sm text-slate-400 dark:text-dark-muted text-center py-4">
+                아직 분배 항목이 없습니다. 항목을 추가해주세요.
+              </p>
+            )}
             {preview.map((item) => (
               <div key={item.id}>
                 <div className="flex justify-between items-center mb-1">
