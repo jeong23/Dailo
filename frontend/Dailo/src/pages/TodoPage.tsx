@@ -2,12 +2,18 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { DailyPlan, TodoItem, TimeBoxSlot } from '../types';
 import api from '../api/axios';
+import { VisionBoard } from '../components/VisionBoard';
 
 const HOURS = Array.from({ length: 19 }, (_, i) => i + 5);
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 // 슬롯을 선형 인덱스로 변환 (5:00 = 0, 5:30 = 1, 6:00 = 2 ...)
+// ⠿ 핸들: 터치에선 44px 타깃 + touch-action:none(드래그 중 페이지 스크롤 방지)
+const DRAG_HANDLE = 'flex-shrink-0 -ml-2 w-8 h-11 sm:w-auto sm:h-auto sm:ml-0 flex items-center justify-center text-slate-400 dark:text-slate-500 sm:text-slate-300 sm:dark:text-slate-600 text-base sm:text-xs select-none touch-none cursor-grab';
+// 삭제 버튼: 마우스 기기는 hover 때만, 터치 기기(hover 없음)는 항상 보이게
+const DELETE_BTN = 'flex-shrink-0 w-8 h-8 -mr-1 flex items-center justify-center text-slate-300 hover:text-red-400 transition-all text-sm [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100';
+
 const slotToIndex = (hour: number, slot: number) => (hour - 5) * 2 + slot;
 
 interface TimeBoxBlock {
@@ -54,9 +60,7 @@ export const TodoPage = () => {
   const [timeSlots, setTimeSlots] = useState<Record<number, TimeBoxSlot>>({});
   const [blocks, setBlocks] = useState<TimeBoxBlock[]>([]);
   const [blockSelectStart, setBlockSelectStart] = useState<{ hour: number; slot: number } | null>(null);
-  const [uploading, setUploading] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | ''>('');
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const planTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const todoTimer = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
   const timeboxTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -125,23 +129,6 @@ export const TodoPage = () => {
     debouncedSavePlan(updated);
   };
 
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setUploading(true);
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-      const res = await api.post('/daily-plans/upload-image', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-      const updated = { ...plan, futureVisionUrl: res.data.data, planDate: selectedDate };
-      setPlan(updated);
-      await api.post('/daily-plans', updated);
-    } catch { alert('이미지 업로드 실패'); }
-    finally { setUploading(false); }
-  };
-
   const [focusId, setFocusId] = useState<number | null>(null);
 
   const addTodoItem = async (type: 'BRAIN_DUMP' | 'BIG3') => {
@@ -202,6 +189,8 @@ export const TodoPage = () => {
     setSelectedDate(d.toISOString().split('T')[0]);
   };
 
+  const isTouch = typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches;
+
   // ── TimeBox 블록 선택 핸들러 (클릭 & Shift+클릭, 30분 단위) ──
   const getCoveringBlock = (hour: number, slot: number) => {
     const idx = slotToIndex(hour, slot);
@@ -216,7 +205,8 @@ export const TodoPage = () => {
   const handleSlotClick = async (hour: number, slot: number, e: React.MouseEvent) => {
     if (getCoveringBlock(hour, slot)) return;
 
-    if (e.shiftKey && blockSelectStart !== null) {
+    // 터치 기기(폰·폴드)는 Shift가 없으므로 두 번째 칸 탭 = 끝점
+    if ((e.shiftKey || isTouch) && blockSelectStart !== null && !isSlotSelected(hour, slot)) {
       const startIdx = slotToIndex(blockSelectStart.hour, blockSelectStart.slot);
       const endIdx = slotToIndex(hour, slot);
       if (startIdx === endIdx) { setBlockSelectStart(null); return; }
@@ -265,30 +255,120 @@ export const TodoPage = () => {
 
   const brainDump = todoItems.filter(i => i.type === 'BRAIN_DUMP');
   const big3 = todoItems.filter(i => i.type === 'BIG3');
+
+  // ── 터치 드래그 (폰·폴드) ─────────────────────────
+  // HTML5 DnD(draggable)는 터치에서 동작하지 않음 → ⠿ 핸들에서 Pointer Events로 직접 구현
+  // 핸들에 pointer capture를 걸고, 손가락 아래 요소를 elementFromPoint로 찾아 data-drop-zone / data-big3-idx로 판정
+  const [ghost, setGhost] = useState<{ content: string; x: number; y: number } | null>(null);
+  const touchDrag = useRef<{ id: number; zone: 'BRAIN_DUMP' | 'BIG3' | null; idx: number | null; y: number } | null>(null);
+  const autoScrollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopAutoScroll = () => {
+    if (autoScrollTimer.current) clearInterval(autoScrollTimer.current);
+    autoScrollTimer.current = null;
+  };
+  useEffect(() => stopAutoScroll, []);
+
+  // 화면 위·아래 가장자리에 손가락을 대고 있으면 스크롤 영역을 계속 굴림 (Brain Dump ↔ Big3가 한 화면에 안 들어올 때)
+  const scrollParentOf = (el: HTMLElement | null): HTMLElement | null => {
+    for (let n = el?.parentElement; n; n = n.parentElement) {
+      const oy = getComputedStyle(n).overflowY;
+      if ((oy === 'auto' || oy === 'scroll') && n.scrollHeight > n.clientHeight) return n;
+    }
+    return null;
+  };
+
+  const touchHandleProps = (item: TodoItem) => ({
+    onPointerDown: (e: React.PointerEvent<HTMLElement>) => {
+      if (e.pointerType === 'mouse' || !item.id) return; // 마우스는 기존 draggable 사용
+      e.preventDefault();
+      try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* 캡처 실패해도 move/up은 핸들에서 계속 받음 */ }
+      touchDrag.current = { id: item.id, zone: null, idx: null, y: e.clientY };
+      setDragId(item.id);
+      setGhost({ content: item.content || (item.type === 'BIG3' ? '핵심 과제' : '할 일'), x: e.clientX, y: e.clientY });
+      navigator.vibrate?.(15);
+      const scroller = scrollParentOf(e.currentTarget);
+      stopAutoScroll();
+      autoScrollTimer.current = setInterval(() => {
+        const t = touchDrag.current;
+        if (!t || !scroller) return;
+        const r = scroller.getBoundingClientRect();
+        if (t.y < r.top + 60) scroller.scrollTop -= 10;
+        else if (t.y > r.bottom - 60) scroller.scrollTop += 10;
+      }, 16);
+    },
+    onPointerMove: (e: React.PointerEvent<HTMLElement>) => {
+      const t = touchDrag.current;
+      if (!t) return;
+      t.y = e.clientY;
+      setGhost(g => g && { ...g, x: e.clientX, y: e.clientY });
+      const under = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null;
+      const zone = (under?.closest('[data-drop-zone]') as HTMLElement | null)?.dataset.dropZone as 'BRAIN_DUMP' | 'BIG3' | undefined;
+      const idxAttr = (under?.closest('[data-big3-idx]') as HTMLElement | null)?.dataset.big3Idx;
+      t.zone = zone ?? null;
+      t.idx = zone === 'BIG3' && idxAttr !== undefined ? Number(idxAttr) : null;
+      setDragOver(t.zone);
+      setBig3DragOverIdx(t.idx);
+    },
+    onPointerUp: () => {
+      const t = touchDrag.current;
+      if (t) {
+        const from = todoItems.find(i => i.id === t.id);
+        if (t.zone === 'BRAIN_DUMP') moveType(t.id, 'BRAIN_DUMP');
+        else if (t.zone === 'BIG3') {
+          if (from?.type === 'BIG3' && t.idx !== null) reorderBig3(t.id, t.idx);
+          else if (from?.type === 'BRAIN_DUMP') moveType(t.id, 'BIG3');
+        }
+      }
+      endTouchDrag();
+    },
+    onPointerCancel: () => endTouchDrag(),
+  });
+
+  const endTouchDrag = () => {
+    touchDrag.current = null;
+    stopAutoScroll();
+    setGhost(null);
+    setDragId(null);
+    setDragOver(null);
+    setBig3DragOverIdx(null);
+  };
+
+  // Big3가 꽉 찬 상태에서 Brain Dump 항목을 끌고 오면 빨간색으로 '못 놓음' 표시
+  const big3Blocked = dragOver === 'BIG3' && big3.length >= 3 && todoItems.find(i => i.id === dragId)?.type === 'BRAIN_DUMP';
   const dow = new Date(selectedDate).getDay();
   const d = new Date(selectedDate);
   const dateStr = `${d.getFullYear()} . ${d.getMonth() + 1} . ${d.getDate()}`;
 
   return (
-    <div className="h-full flex flex-col gap-4">
+    <div className="md:h-full flex flex-col gap-3 md:gap-4">
+      {/* 터치 드래그 중 손가락을 따라다니는 미리보기 */}
+      {ghost && (
+        <div className="fixed z-[70] pointer-events-none -translate-x-1/2 -translate-y-[130%] max-w-[70vw] truncate px-3 py-2 rounded-xl bg-white dark:bg-slate-700 shadow-2xl ring-2 ring-primary-400 text-sm font-medium text-slate-800 dark:text-dark-text"
+          style={{ left: ghost.x, top: ghost.y }}>
+          {ghost.content}
+        </div>
+      )}
       {/* ── 날짜 헤더 ── */}
-      <div className="flex-shrink-0 flex items-center justify-between">
-        <div className="flex items-center gap-1">
-          <button onClick={() => moveDate(-1)} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 text-xl">‹</button>
+      <div className="flex-shrink-0 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1 min-w-0">
+          <button onClick={() => moveDate(-1)} aria-label="이전 날" className="w-11 h-11 flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 text-xl">‹</button>
           <button
             onClick={() => document.getElementById('date-picker')?.click()}
-            className="text-xl font-bold dark:text-dark-text px-2 hover:text-primary-600 transition-colors"
+            className="text-lg sm:text-xl font-bold whitespace-nowrap tabular-nums dark:text-dark-text px-1 sm:px-2 hover:text-primary-600 transition-colors"
           >
             {dateStr}
           </button>
           <input id="date-picker" type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className="sr-only" />
-          <button onClick={() => moveDate(1)} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 text-xl">›</button>
+          <button onClick={() => moveDate(1)} aria-label="다음 날" className="w-11 h-11 flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 text-xl">›</button>
         </div>
-        <div className="flex items-center gap-4">
-          {saveStatus === 'saving' && <span className="text-xs text-slate-400">저장 중...</span>}
-          {saveStatus === 'saved' && <span className="text-xs text-primary-500">저장됨 ✓</span>}
+        <div className="flex items-center gap-2 sm:gap-4 shrink-0">
+          {saveStatus === 'saving' && <span className="text-xs text-slate-400 whitespace-nowrap">저장 중...</span>}
+          {saveStatus === 'saved' && <span className="text-xs text-primary-500 whitespace-nowrap">저장됨 ✓</span>}
+          {/* 좁은 화면(폴드 커버)에선 오늘 요일만 */}
+          <span className="sm:hidden text-sm font-bold text-primary-600 dark:text-primary-400">{DAYS[dow]}</span>
           {DAYS.map((day, i) => (
-            <span key={day} className={`text-sm font-medium ${i === dow ? 'text-primary-600 dark:text-primary-400 font-bold' : 'text-slate-300 dark:text-slate-600'}`}>
+            <span key={day} className={`hidden sm:inline text-sm font-medium ${i === dow ? 'text-primary-600 dark:text-primary-400 font-bold' : 'text-slate-300 dark:text-slate-600'}`}>
               {day}
             </span>
           ))}
@@ -296,38 +376,20 @@ export const TodoPage = () => {
       </div>
 
       {/* ── 다이어리 본문 ── */}
-      <div className="flex-1 min-h-0 overflow-auto rounded-xl border border-slate-200 dark:border-dark-border">
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_1fr_200px] min-w-[800px] min-h-full bg-white dark:bg-dark-card rounded-xl">
+      {/* 모바일: 페이지(main)가 스크롤 / md 이상: 본문 박스 안에서 스크롤 — min-w 고정폭 제거(폴드 커버에서 가로 스크롤 생김) */}
+      <div className="md:flex-1 md:min-h-0 md:overflow-auto rounded-xl border border-slate-200 dark:border-dark-border">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-[1fr_1fr_220px] min-h-full bg-white dark:bg-dark-card rounded-xl">
 
         {/* ── 왼쪽 ── */}
-        <div className="flex flex-col divide-y divide-slate-100 dark:divide-dark-border border-r border-slate-200 dark:border-dark-border">
+        <div className="flex flex-col divide-y divide-slate-100 dark:divide-dark-border border-b md:border-b-0 md:border-r border-slate-200 dark:border-dark-border">
 
-          {/* 미래 시각화 */}
-          <div className="p-6">
-            <SectionTitle color="teal">미래 시각화</SectionTitle>
-            <div
-              className="mt-3 w-full h-56 border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-lg flex flex-col items-center justify-center cursor-pointer overflow-hidden hover:border-primary-400 hover:bg-primary-50 dark:hover:bg-primary-900/10 transition-colors bg-slate-50 dark:bg-slate-800/30"
-              onClick={() => fileInputRef.current?.click()}
-            >
-              {plan.futureVisionUrl ? (
-                <img src={plan.futureVisionUrl} alt="미래 시각화" className="w-full h-full object-contain" />
-              ) : (
-                <>
-                  <svg className="w-8 h-8 text-slate-300 dark:text-slate-600 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                  </svg>
-                  <span className="text-slate-400 dark:text-slate-500 text-sm font-medium">
-                    {uploading ? '업로드 중...' : '클릭하여 이미지 업로드'}
-                  </span>
-                  <span className="text-slate-300 dark:text-slate-600 text-xs mt-1">JPG, PNG, GIF 등</span>
-                </>
-              )}
-            </div>
-            <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
+          {/* 미래 시각화 — 회원별 보드 하나(날짜 무관), 사진 여러 장 자유 배치 */}
+          <div className="p-4 sm:p-6">
+            <VisionBoard title={<SectionTitle color="teal">미래 시각화</SectionTitle>} legacyUrl={plan.futureVisionUrl} />
           </div>
 
           {/* 정체성 */}
-          <div className="p-6">
+          <div className="p-4 sm:p-6">
             <SectionTitle color="red">정체성</SectionTitle>
             <div className="mt-3 space-y-3">
               {(['identity1', 'identity2', 'identity3'] as (keyof DailyPlan)[]).map((f, i) => (
@@ -339,7 +401,7 @@ export const TodoPage = () => {
           </div>
 
           {/* 내적동기 */}
-          <div className="p-6">
+          <div className="p-4 sm:p-6">
             <SectionTitle color="red">내적동기</SectionTitle>
             <div className="mt-3 space-y-3">
               {(['motivation1', 'motivation2', 'motivation3'] as (keyof DailyPlan)[]).map((f, i) => (
@@ -351,7 +413,7 @@ export const TodoPage = () => {
           </div>
 
           {/* 감사일기 */}
-          <div className="p-6">
+          <div className="p-4 sm:p-6">
             <SectionTitle color="red">감사일기</SectionTitle>
             <div className="mt-3 space-y-3">
               {(['gratitude1', 'gratitude2', 'gratitude3'] as (keyof DailyPlan)[]).map((f, i) => (
@@ -364,10 +426,10 @@ export const TodoPage = () => {
         </div>
 
         {/* ── 가운데 ── */}
-        <div className="flex flex-col divide-y divide-slate-100 dark:divide-dark-border border-r border-slate-200 dark:border-dark-border">
+        <div className="flex flex-col divide-y divide-slate-100 dark:divide-dark-border border-b xl:border-b-0 xl:border-r border-slate-200 dark:border-dark-border">
 
           {/* 기상 직후 할 일 */}
-          <div className="p-6">
+          <div className="p-4 sm:p-6">
             <SectionTitle color="teal">기상 직후 할 일</SectionTitle>
             <textarea
               value={plan.firstTask || ''} onChange={e => updatePlan('firstTask', e.target.value)}
@@ -378,7 +440,8 @@ export const TodoPage = () => {
 
           {/* Brain Dump */}
           <div
-            className={`p-6 flex-1 flex flex-col transition-colors ${dragOver === 'BRAIN_DUMP' ? 'bg-primary-50 dark:bg-primary-900/10' : ''}`}
+            data-drop-zone="BRAIN_DUMP"
+            className={`p-4 sm:p-6 flex-1 flex flex-col transition-colors ${dragOver === 'BRAIN_DUMP' ? 'bg-primary-50 dark:bg-primary-900/10' : ''}`}
             onDragOver={e => { e.preventDefault(); setDragOver('BRAIN_DUMP'); }}
             onDragLeave={() => setDragOver(null)}
             onDrop={e => { e.preventDefault(); if (dragId) moveType(dragId, 'BRAIN_DUMP'); setDragOver(null); setDragId(null); }}
@@ -393,8 +456,8 @@ export const TodoPage = () => {
                   draggable
                   onDragStart={() => setDragId(item.id!)}
                   onDragEnd={() => { setDragId(null); setDragOver(null); }}
-                  className={`flex items-center gap-3 group rounded-lg px-2 py-1 transition-colors cursor-grab active:cursor-grabbing ${itemRowStyle(item.content, item.isDone)}`}>
-                  <span className="text-slate-300 dark:text-slate-600 text-xs select-none">⠿</span>
+                  className={`flex items-center gap-3 group rounded-lg px-2 py-1 transition-colors cursor-grab active:cursor-grabbing ${dragId === item.id ? 'opacity-40' : ''} ${itemRowStyle(item.content, item.isDone)}`}>
+                  <span {...touchHandleProps(item)} aria-label="끌어서 옮기기" className={DRAG_HANDLE}>⠿</span>
                   <button onClick={() => toggleTodo(item)} onMouseDown={e => e.stopPropagation()}
                     className={`w-5 h-5 flex-shrink-0 rounded-md flex items-center justify-center transition-colors ${item.isDone ? 'bg-green-500' : 'bg-red-400'}`}>
                     {item.isDone && (
@@ -409,7 +472,7 @@ export const TodoPage = () => {
                     onFocus={() => setFocusId(null)}
                     onMouseDown={e => e.stopPropagation()}
                     className={`flex-1 bg-transparent text-base focus:outline-none py-0.5 placeholder-slate-300 dark:placeholder-slate-700 transition-colors ${itemTextStyle(item.content, item.isDone)}`} />
-                  <button onClick={() => deleteTodo(item.id!)} className="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-400 transition-all text-sm">✕</button>
+                  <button onClick={() => deleteTodo(item.id!)} aria-label="삭제" className={DELETE_BTN}>✕</button>
                 </div>
               ))}
               {brainDump.length < 30 && (
@@ -423,7 +486,8 @@ export const TodoPage = () => {
 
           {/* Big 3 */}
           <div
-            className={`p-6 transition-colors ${dragOver === 'BIG3' ? 'bg-primary-50 dark:bg-primary-900/10' : ''}`}
+            data-drop-zone="BIG3"
+            className={`p-4 sm:p-6 transition-colors ${big3Blocked ? 'bg-red-50 dark:bg-red-900/10' : dragOver === 'BIG3' ? 'bg-primary-50 dark:bg-primary-900/10' : ''}`}
             onDragOver={e => { e.preventDefault(); setDragOver('BIG3'); }}
             onDragLeave={e => {
               if (!(e.currentTarget as HTMLElement).contains(e.relatedTarget as Node)) {
@@ -443,7 +507,10 @@ export const TodoPage = () => {
             }}
           >
             <div className="flex items-center justify-between mb-3">
-              <span className="text-base font-bold dark:text-dark-text">Big 3</span>
+              <span className="text-base font-bold dark:text-dark-text">
+                Big 3
+                {big3Blocked && <span className="ml-2 text-xs font-medium text-red-500">3개가 꽉 찼어요</span>}
+              </span>
               {big3.length < 3 && (
                 <button onClick={() => addTodoItem('BIG3')} className="text-sm text-slate-400 hover:text-primary-500 transition-colors">+ 추가</button>
               )}
@@ -453,6 +520,7 @@ export const TodoPage = () => {
                 ? <button onClick={() => addTodoItem('BIG3')} className="w-full py-4 text-slate-300 dark:text-slate-600 text-sm border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-lg hover:border-primary-300 transition-colors">+ 핵심 과제 추가</button>
                 : big3.map((item, i) => (
                   <div key={item.id}
+                    data-big3-idx={i}
                     draggable
                     onDragStart={e => { e.stopPropagation(); setDragId(item.id!); }}
                     onDragEnd={() => { setDragId(null); setDragOver(null); setBig3DragOverIdx(null); }}
@@ -477,7 +545,7 @@ export const TodoPage = () => {
                       }
                       ${dragId === item.id ? 'opacity-40' : ''}
                       ${itemRowStyle(item.content, item.isDone)}`}>
-                    <span className="text-slate-300 dark:text-slate-600 text-xs select-none">⠿</span>
+                    <span {...touchHandleProps(item)} aria-label="끌어서 옮기기" className={DRAG_HANDLE}>⠿</span>
                     <button onClick={() => toggleTodo(item)} onMouseDown={e => e.stopPropagation()}
                       className={`w-7 h-7 flex-shrink-0 rounded-full flex items-center justify-center transition-all font-bold text-sm select-none border-2
                         ${item.isDone
@@ -495,7 +563,7 @@ export const TodoPage = () => {
                       placeholder="오늘의 핵심 과제..."
                       onMouseDown={e => e.stopPropagation()}
                       className={`flex-1 bg-transparent text-base focus:outline-none py-0.5 placeholder-slate-300 dark:placeholder-slate-700 transition-colors ${itemTextStyle(item.content, item.isDone)}`} />
-                    <button onClick={() => deleteTodo(item.id!)} className="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-400 transition-all text-sm">✕</button>
+                    <button onClick={() => deleteTodo(item.id!)} aria-label="삭제" className={DELETE_BTN}>✕</button>
                   </div>
                 ))
               }
@@ -503,7 +571,7 @@ export const TodoPage = () => {
           </div>
 
           {/* Feedback */}
-          <div className="p-6">
+          <div className="p-4 sm:p-6">
             <span className="text-base font-bold dark:text-dark-text block mb-3">Feedback</span>
             <div className="space-y-4">
               {([
@@ -525,9 +593,12 @@ export const TodoPage = () => {
         </div>
 
         {/* ── 오른쪽: Time Box ── */}
-        <div className="p-4 flex flex-col h-full">
+        {/* md~lg(폴드 펼침)에선 2열 아래 전체 폭으로 */}
+        <div className="p-4 flex flex-col h-full md:col-span-2 xl:col-span-1">
           <span className="text-base font-bold dark:text-dark-text block mb-1">Time Box</span>
-          <p className="text-xs text-slate-400 mb-3">클릭 → 시작 선택 · Shift+클릭 → 블록 생성</p>
+          <p className="text-xs text-slate-400 mb-3">
+            {isTouch ? '탭 → 시작 선택 · 다른 칸 탭 → 블록 생성' : '클릭 → 시작 선택 · Shift+클릭 → 블록 생성'}
+          </p>
           <div className="flex-1 overflow-auto select-none">
             <table className="w-full border-collapse">
               <thead>

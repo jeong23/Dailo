@@ -2,7 +2,6 @@ package com.dailo.app.service;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-import org.springframework.web.multipart.MultipartFile;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.core.sync.RequestBody;
@@ -11,7 +10,6 @@ import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
-import java.io.IOException;
 import java.net.URI;
 import java.util.UUID;
 
@@ -33,8 +31,9 @@ public class R2UploadService {
         this.bucketName = bucketName;
         this.publicDomain = publicDomain;
 
-        boolean isConfigured = !accountId.isBlank() && !accessKey.isBlank()
-                && !secretKey.isBlank() && !bucketName.isBlank() && !publicDomain.isBlank();
+        // 빈 값뿐 아니라 application.yml 예시 값(YOUR_...)도 미설정으로 취급 → 로컬 저장으로 대체됨 (ImageStorageService)
+        boolean isConfigured = isSet(accountId) && isSet(accessKey)
+                && isSet(secretKey) && isSet(bucketName) && isSet(publicDomain);
         this.configured = isConfigured;
 
         if (isConfigured) {
@@ -47,24 +46,28 @@ public class R2UploadService {
         }
     }
 
+    static boolean isSet(String value) {
+        return value != null && !value.isBlank() && !value.contains("YOUR_");
+    }
+
     public boolean isConfigured() {
         return configured;
     }
 
-    public String upload(MultipartFile file) throws IOException {
+    // 형식 검증·확장자 결정은 ImageStorageService가 담당
+    public String upload(String folder, byte[] bytes, String ext, String contentType) {
         if (!configured) {
             throw new IllegalStateException("R2 스토리지가 설정되지 않았습니다. application.yml의 r2 설정을 확인해주세요.");
         }
-        String ext = getExtension(file.getOriginalFilename());
-        String key = "future-vision/" + UUID.randomUUID() + ext;
+        String key = folder + "/" + UUID.randomUUID() + ext;
 
         s3Client.putObject(
                 PutObjectRequest.builder()
                         .bucket(bucketName)
                         .key(key)
-                        .contentType(file.getContentType())
+                        .contentType(contentType)
                         .build(),
-                RequestBody.fromBytes(file.getBytes())
+                RequestBody.fromBytes(bytes)
         );
 
         return publicDomain + "/" + key;
@@ -77,10 +80,5 @@ public class R2UploadService {
                 .bucket(bucketName)
                 .key(key)
                 .build());
-    }
-
-    private String getExtension(String filename) {
-        if (filename == null || !filename.contains(".")) return "";
-        return filename.substring(filename.lastIndexOf("."));
     }
 }
