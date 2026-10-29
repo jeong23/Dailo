@@ -23,6 +23,7 @@ public class WorkoutLogDto {
         private Float weightKg;
         private Integer reps;
         private Boolean isDone;
+        private String setType;  // NORMAL / WARMUP / DROP / FAILURE
     }
 
     @Getter
@@ -45,6 +46,7 @@ public class WorkoutLogDto {
         private Float weightKg;
         private Integer reps;
         private Boolean isDone;
+        private String setType;
 
         public static SetResponse from(WorkoutSet set) {
             return SetResponse.builder()
@@ -55,6 +57,7 @@ public class WorkoutLogDto {
                     .weightKg(set.getWeightKg())
                     .reps(set.getReps())
                     .isDone(set.getIsDone())
+                    .setType(set.getSetType() != null ? set.getSetType() : "NORMAL")
                     .build();
         }
     }

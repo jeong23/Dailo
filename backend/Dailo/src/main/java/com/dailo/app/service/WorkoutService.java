@@ -2,10 +2,12 @@ package com.dailo.app.service;
 
 import com.dailo.app.dto.WorkoutLogDto;
 import com.dailo.app.dto.WorkoutRoutineDto;
+import com.dailo.app.entity.WorkoutBookmark;
 import com.dailo.app.entity.WorkoutLog;
 import com.dailo.app.entity.WorkoutRoutine;
 import com.dailo.app.entity.WorkoutRoutineExercise;
 import com.dailo.app.entity.WorkoutSet;
+import com.dailo.app.repository.WorkoutBookmarkRepository;
 import com.dailo.app.repository.WorkoutLogRepository;
 import com.dailo.app.repository.WorkoutRoutineExerciseRepository;
 import com.dailo.app.repository.WorkoutRoutineRepository;
@@ -32,6 +34,41 @@ public class WorkoutService {
     private final WorkoutRoutineExerciseRepository routineExerciseRepository;
     private final WorkoutLogRepository logRepository;
     private final WorkoutSetRepository setRepository;
+    private final WorkoutBookmarkRepository bookmarkRepository;
+
+    // ── Bookmark ──────────────────────────
+    // 회원 id + 종목명으로만 조회·삭제하므로 다른 회원 즐겨찾기에 접근할 경로가 없음
+
+    public List<String> findBookmarks(Long memberId) {
+        return bookmarkRepository.findByMemberIdOrderByIdAsc(memberId).stream()
+                .map(WorkoutBookmark::getExerciseName)
+                .collect(Collectors.toList());
+    }
+
+    @Transactional
+    public List<String> addBookmark(Long memberId, String exerciseName) {
+        String name = normalizeExerciseName(exerciseName);
+        // 이미 있으면 그대로 (중복 클릭·재시도에도 안전하게)
+        if (bookmarkRepository.findByMemberIdAndExerciseName(memberId, name).isEmpty()) {
+            bookmarkRepository.save(WorkoutBookmark.builder().memberId(memberId).exerciseName(name).build());
+        }
+        return findBookmarks(memberId);
+    }
+
+    @Transactional
+    public List<String> removeBookmark(Long memberId, String exerciseName) {
+        bookmarkRepository.findByMemberIdAndExerciseName(memberId, normalizeExerciseName(exerciseName))
+                .ifPresent(bookmarkRepository::delete);
+        return findBookmarks(memberId);
+    }
+
+    private String normalizeExerciseName(String exerciseName) {
+        String name = exerciseName == null ? "" : exerciseName.trim();
+        if (name.isEmpty() || name.length() > 100) {
+            throw new IllegalArgumentException("종목명은 1~100자여야 합니다");
+        }
+        return name;
+    }
 
     // ── Routine ───────────────────────────
 
@@ -155,8 +192,12 @@ public class WorkoutService {
                 if (sr.getId() != null) {
                     set = setRepository.findById(sr.getId())
                             .orElseThrow(() -> new IllegalArgumentException("세트를 찾을 수 없습니다: " + sr.getId()));
+                    // 이 회원·이 날짜 기록에 속한 세트만 수정 가능 (다른 회원 세트 덮어쓰기 방지, IDOR)
+                    if (!set.getWorkoutLog().getId().equals(log.getId())) {
+                        throw new IllegalArgumentException("세트를 찾을 수 없습니다: " + sr.getId());
+                    }
                     set.update(sr.getExerciseName(), sr.getExerciseSortOrder(), sr.getSetNumber(),
-                            sr.getWeightKg(), sr.getReps(), sr.getIsDone());
+                            sr.getWeightKg(), sr.getReps(), sr.getIsDone(), normalizeSetType(sr.getSetType()));
                 } else {
                     WorkoutLog finalLog = log;
                     set = setRepository.save(WorkoutSet.builder()
@@ -167,6 +208,7 @@ public class WorkoutService {
                             .weightKg(sr.getWeightKg())
                             .reps(sr.getReps())
                             .isDone(sr.getIsDone() != null ? sr.getIsDone() : Boolean.FALSE)
+                            .setType(normalizeSetType(sr.getSetType()))
                             .build());
                 }
                 keptSetIds.add(set.getId());
@@ -187,10 +229,21 @@ public class WorkoutService {
         return WorkoutLogDto.LogResponse.from(log, finalSets);
     }
 
+    // 허용된 세트 종류만 저장 — 그 외 값/누락은 NORMAL
+    private static final Set<String> SET_TYPES = Set.of("NORMAL", "WARMUP", "DROP", "FAILURE");
+
+    private String normalizeSetType(String setType) {
+        return setType != null && SET_TYPES.contains(setType) ? setType : "NORMAL";
+    }
+
     @Transactional
-    public void deleteLog(Long id) {
+    public void deleteLog(Long memberId, Long id) {
         WorkoutLog log = logRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("운동 기록을 찾을 수 없습니다: " + id));
+        // 다른 회원의 운동 기록 삭제 방지 (IDOR)
+        if (!log.getMemberId().equals(memberId)) {
+            throw new IllegalArgumentException("운동 기록을 찾을 수 없습니다: " + id);
+        }
         setRepository.deleteByWorkoutLogId(id);
         logRepository.delete(log);
     }

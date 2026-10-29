@@ -32,13 +32,18 @@ public class WorkoutSet extends BaseEntity {
     @Column(nullable = false)
     private Boolean isDone;
 
+    // 세트 종류: NORMAL / WARMUP / DROP / FAILURE — 기존 로우는 null (= NORMAL로 취급)
+    @Column(length = 10)
+    private String setType;
+
     public void update(String exerciseName, Integer exerciseSortOrder, Integer setNumber,
-                        Float weightKg, Integer reps, Boolean isDone) {
+                        Float weightKg, Integer reps, Boolean isDone, String setType) {
         this.exerciseName = exerciseName;
         this.exerciseSortOrder = exerciseSortOrder;
         this.setNumber = setNumber;
         this.weightKg = weightKg;
         this.reps = reps;
         this.isDone = isDone;
+        this.setType = setType;
     }
 }

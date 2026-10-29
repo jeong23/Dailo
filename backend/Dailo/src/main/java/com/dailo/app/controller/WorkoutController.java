@@ -10,6 +10,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/workouts")
@@ -50,9 +51,33 @@ public class WorkoutController {
     }
 
     @DeleteMapping("/logs/{id}")
-    public ApiResponse<Void> deleteLog(@PathVariable Long id) {
-        workoutService.deleteLog(id);
+    public ApiResponse<Void> deleteLog(
+            @AuthenticationPrincipal CustomUserDetails userDetails,
+            @PathVariable Long id) {
+        workoutService.deleteLog(userDetails.getMemberId(), id);
         return ApiResponse.ok(null);
+    }
+
+    // ── 종목 즐겨찾기 ───────────────────────
+    // 종목명에 공백·한글이 있어 path variable 대신 body / query param 사용
+
+    @GetMapping("/bookmarks")
+    public ApiResponse<List<String>> getBookmarks(@AuthenticationPrincipal CustomUserDetails userDetails) {
+        return ApiResponse.ok(workoutService.findBookmarks(userDetails.getMemberId()));
+    }
+
+    @PostMapping("/bookmarks")
+    public ApiResponse<List<String>> addBookmark(
+            @AuthenticationPrincipal CustomUserDetails userDetails,
+            @RequestBody Map<String, String> body) {
+        return ApiResponse.ok(workoutService.addBookmark(userDetails.getMemberId(), body.get("exerciseName")));
+    }
+
+    @DeleteMapping("/bookmarks")
+    public ApiResponse<List<String>> removeBookmark(
+            @AuthenticationPrincipal CustomUserDetails userDetails,
+            @RequestParam String exerciseName) {
+        return ApiResponse.ok(workoutService.removeBookmark(userDetails.getMemberId(), exerciseName));
     }
 
     // ── 종목명 자동완성 ─────────────────────
