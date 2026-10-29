@@ -1,6 +1,9 @@
 # API 엔드포인트 전체 목록 (참고자료)
 
 > 새 엔드포인트 추가/변경 시 이 파일도 함께 갱신할 것.
+>
+> 플래너(daily-plans / todo-items / time-box / time-box-blocks)는 JWT의 로그인 회원 기준으로만 조회·저장된다 (memberId 파라미터 없음).
+> 다른 회원의 {id}로 PUT/DELETE 하면 400 "…을(를) 찾을 수 없습니다: {id}".
 
 - POST       /api/auth/login                        ← JWT 로그인 (token, memberId, name, salaryDay 반환)
 - GET/POST   /api/members                           ← GET 목록 / POST 회원가입 (permitAll)
@@ -15,9 +18,9 @@
 - GET/POST   /api/incomes
 - GET        /api/incomes/month/{settleMonth}
 - PUT/DELETE /api/incomes/{id}
-- GET/POST   /api/fixed-costs
-- GET        /api/fixed-costs/member/{memberId}
-- PUT/DELETE /api/fixed-costs/{id}
+- POST       /api/fixed-costs (memberId는 로그인 정보 — body로 받지 않음)
+- GET        /api/fixed-costs/mine, /api/fixed-costs/mine/active (금액 DESC)
+- GET/PUT/DELETE /api/fixed-costs/{id} (본인 것만, 아니면 not-found)
 - GET        /api/categories
 - GET        /api/dashboard/summary?month=YYYY-MM
 - GET        /api/dashboard/daily-stats?month=YYYY-MM
@@ -26,13 +29,17 @@
 - GET        /api/dashboard/emergency-history?memberId={id}
 - GET/POST   /api/daily-plans/{date}
 - GET        /api/daily-plans/board?year=YYYY&month=MM
-- POST       /api/daily-plans/upload-image
+- POST       /api/daily-plans/upload-image   (multipart file, JPG/PNG/GIF/WEBP·10MB 이하 → 이미지 URL. R2 미설정 시 /uploads/... 로컬 URL)
+- GET        /api/vision-board               (미래 시각화 보드 — 로그인 회원 사진 목록, z 오름차순)
+- POST       /api/vision-board               ({imageUrl, x, y, w, h, z} — 위치·크기는 보드 대비 %, imageUrl은 /uploads/ 또는 https만, 회원당 20장)
+- PUT        /api/vision-board/{id}          ({x, y, w, h, z} — 보드 밖으로 안 나가게 서버에서 범위 보정)
+- DELETE     /api/vision-board/{id}
 - GET/POST   /api/todo-items?date=YYYY-MM-DD
-- PUT/DELETE /api/todo-items/{id}
+- PUT/DELETE /api/todo-items/{id}                 (본인 것만 — 아니면 400 "할 일을 찾을 수 없습니다")
 - GET/POST   /api/time-box?date=YYYY-MM-DD
 - GET        /api/time-box-blocks?date=YYYY-MM-DD
 - POST       /api/time-box-blocks
-- PUT/DELETE /api/time-box-blocks/{id}
+- PUT/DELETE /api/time-box-blocks/{id}            (본인 것만 — 아니면 400 "블록을 찾을 수 없습니다")
 - GET        /api/running/records?memberId={id}
 - GET        /api/running/records/week?start=YYYY-MM-DD
 - GET        /api/running/records/year?year=YYYY
@@ -46,5 +53,19 @@
 - GET/POST   /api/invest/accounts
 - GET        /api/invest/dashboard?yearMonth=YYYY-MM
 - PUT        /api/invest/records/{id}
+- POST       /api/invest/holdings/{holdingId}/trades   (체결 완료 → 보유 수량·평균단가 반영)
+- GET        /api/invest/trades?yearMonth=YYYY-MM
+- DELETE     /api/invest/trades/{id}                    (되돌리기 — 종목별 가장 최근 체결만)
+- GET/POST   /api/invest/themes                         (투자 테마 목록 통째로 저장)
+- GET/POST   /api/savings  ·  PUT/DELETE /api/savings/{id}   (적금·주택청약 — kind SAVINGS|HOUSING, 청약은 months=0·balanceOverride·region(SEOUL_BUSAN|METRO|OTHER)·householdHead, 적금은 monthlyBonus·bonusBalance 정부기여금)
+- GET/POST   /api/assets/buckets                        (자산 배분 칸 — 첫 GET에 4×25% 생성)
 - GET/POST   /api/invest/diary?year=YYYY&month=M
 - DELETE     /api/invest/diary/{id}
+- GET/POST   /api/workouts/routines              (POST: 루틴 전체 목록을 통째로 저장)
+- GET        /api/workouts/logs?year=YYYY&month=M
+- POST       /api/workouts/logs                  (날짜 기준 upsert, 세트 setType: NORMAL/WARMUP/DROP/FAILURE)
+- DELETE     /api/workouts/logs/{id}
+- GET        /api/workouts/exercise-names?query=
+- GET        /api/workouts/bookmarks             (종목명 문자열 배열)
+- POST       /api/workouts/bookmarks             body {exerciseName} — 중복 저장 안 됨, 갱신된 목록 반환
+- DELETE     /api/workouts/bookmarks?exerciseName=   — 갱신된 목록 반환

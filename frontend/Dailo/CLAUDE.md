@@ -27,6 +27,7 @@ src/
 | /login | LoginPage | JWT 로그인 |
 | /expenses | ExpensesPage | 지출/수입 통합 관리 (탭) |
 | /fixed-costs | FixedCostPage | 고정비 관리 |
+| /savings | SavingsPage | 적금·주택청약 (쌓이는 돈 — 고정비와 분리) |
 | /report | ReportPage | 월별 정산 리포트 |
 | /emergency | EmergencyPage | 비상금 누적 흐름 |
 | /settings | BudgetSettingsPage | 월별 예산 설정 |
@@ -34,6 +35,7 @@ src/
 | /planner-board | PlannerBoardPage | 월간 플래너 보드 (달력 뷰) |
 | /running | RunningPage | 운동 기록 (NRC 스타일) |
 | /habits | HabitPage | 습관 트래커 |
+| /allocation | AllocationPage | 자산 배분 (현금·투자·부동산·적금 목표 vs 현재) |
 | /invest | InvestDashboardPage | 투자 현황 |
 | /invest/diary | InvestDiaryPage | 투자일기 |
 | /invest/settings | InvestSettingsPage | 투자 설정 |
@@ -59,10 +61,18 @@ src/
   (BudgetSettingsPage만 예외: 신규 달 입력을 위해 현재 정산월 없으면 목록 앞에 추가)
 - 복수 API 동시 호출 시 Promise.allSettled 사용 (Promise.all 금지 — 하나 실패 시 전체 실패)
 
-## 다크모드
-- Tailwind class 전략 사용
-- localStorage 'darkMode' 키로 저장
-- 기본값: 다크모드 ON
+## 다크모드 / 색 테마 (화면 설정 /preferences — DisplaySettingsPage)
+- Tailwind class 전략 사용, 적용 로직은 `utils/theme.ts` 단일 소스 — index.tsx에서 렌더 전 initTheme() (깜빡임 방지)
+- 모드: localStorage 'themeMode' = light | dark | system (기본 dark). system이면 prefers-color-scheme 변경 추적
+  → 옛 'darkMode' 키는 themeMode 없을 때만 읽고, 저장 시 같이 갱신(호환용)
+- 색 테마: localStorage 'colorTheme' = {id: 프리셋 | 'custom', accent?, sidebar?}
+  → tailwind `primary-*`와 `sidebar` 색은 CSS 변수(`--primary-50..900`, `--sidebar-bg`, "r g b" 형식) — 기본값은 index.css(tailwind blue)
+  → 'blue' 프리셋은 tailwind blue 원본 그대로, 나머지는 강조색 하나에서 50~900 스케일 생성. 너무 밝은 강조색은 흰 글자가 읽히게 어둡게 보정
+  → 새 hex 하드코딩 대신 primary-* 클래스를 써야 테마를 따라감. 사이드바 배경은 `bg-sidebar`
+- isDark가 필요하면 useTheme() 사용 (Layout 로고 밝기 등) — documentElement.classList를 직접 토글 금지
+- 스크롤바: `index.css`에서 전역 처리 — `html.dark`에 `color-scheme: dark` + CSS 변수(--scrollbar-thumb)로 썸 색 전환
+  → color-scheme 없으면 다크모드에서도 흰 스크롤 트랙·흰 date picker가 나옴
+  → 둥근 시트 안 스크롤 영역은 `themed-scrollbar`(위아래 여백), 가로 칩 목록은 `no-scrollbar`
 
 ## 비상금 누적액 규칙
 - emergencyCumulative는 EmergencyPage(/emergency)에서 sequential 계산이 단일 소스
@@ -88,7 +98,12 @@ src/
   - itemTextStyle(content, isDone): 텍스트 색 + 완료 시 line-through
   - slotStyle(value, done): TimeBox 셀 배경+텍스트
 - TimeBox 셀 클릭 → done 토글 / 텍스트 입력 클릭 → e.stopPropagation()으로 분리
-- Brain Dump ↔ Big3 드래그앤드롭: HTML5 DnD API 사용
+- Brain Dump ↔ Big3 드래그앤드롭: 마우스는 HTML5 DnD API(draggable), 터치는 ⠿ 핸들의 Pointer Events(touchHandleProps)
+  - HTML5 DnD는 터치에서 동작 안 함 → 핸들 pointerdown(pointerType≠mouse)에서 시작, elementFromPoint + `data-drop-zone`/`data-big3-idx`로 놓을 곳 판정
+  - 핸들은 `touch-none`(드래그 중 스크롤 방지) + 44px 높이, 손가락 따라오는 미리보기(ghost), 화면 위·아래 60px에서 스크롤 컨테이너 자동 스크롤
+  - setPointerCapture는 try/catch — 실패해도 핸들에서 move/up 받음
+  - Big3 꽉 찬 상태에서 Brain Dump 항목을 올리면 빨간 배경 + "3개가 꽉 찼어요" (big3Blocked)
+  - 삭제 ✕는 `[@media(hover:hover)]:opacity-0` — hover 없는 터치 기기에선 항상 보임 (group-hover만 쓰면 폰에서 삭제 불가)
   - PUT /todo-items/{id} 에 type 필드 포함하여 타입 변경
   - Big3 → Brain Dump: 조건 없음 / Brain Dump → Big3: Big3 3개 미만일 때만
   - 드래그 중 대상 영역 파란색 하이라이트 (dragOver state)
@@ -105,6 +120,13 @@ src/
   - 블록은 시간 단위(hour-level)로만 병합 가능 — 30분 단위 병합은 HTML table 구조상 불가
   - slotToIndex(hour, slot) = (hour - 5) * 2 + slot
   - getCoveringBlock(hour, slot): 해당 슬롯을 덮는 블록 탐색
+- 미래 시각화 = `components/VisionBoard.tsx` 보드 (2026-10): 회원별 보드 하나(날짜 무관), 사진 최대 20장 자유 배치
+  → 업로드는 shrinkImage(긴 변 1920px JPEG, GIF·1MB 미만은 원본) → upload-image → POST /vision-board, 여러 장 선택 가능
+  → 위치·크기는 보드 대비 %(보드 aspect 4:3 고정) — 폭이 달라도 같은 배치. 크기 조절은 오른쪽 아래 ●, 사진 비율 유지
+  → 마우스는 바로 드래그, 터치는 탭해서 선택된 사진만 드래그(touch-none) — 선택 안 된 사진 위 스와이프는 페이지 스크롤
+  → 저장은 drag.current.last 값으로 — itemsRef는 렌더 후 갱신이라 pointerup 시점엔 한 박자 늦은 값일 수 있음
+  → 옛 DailyPlan.futureVisionUrl(날짜별 1장)은 남아 있음: 보드가 비었을 때 '이 날 올렸던 사진 가져오기'로만 사용
+  → 이미지 URL은 R2 절대주소 또는 `/uploads/...` 상대주소 둘 다 올 수 있음
 - 플래너 레이아웃 스크롤: root div `h-full flex flex-col` + 콘텐츠 wrapper `flex-1 min-h-0 overflow-auto`
   - flex 자식에 overflow-auto만으론 스크롤 안 됨 — `min-h-0` 필수 (min-height: auto 기본값 때문)
 
@@ -113,6 +135,10 @@ src/
 - 달력 셀 border: `[&:nth-child(7n)]:border-r-0` 사용 — `last:border-r-0`은 마지막 셀 하나에만 적용됨
 - 셀 클릭 → navigate(`/todo?date=${ds}`) 로 TodoPage 연동
 - 모바일 가로 스크롤: overflow-x-auto wrapper + min-w-[480px] 로 처리
+- 하단 월간 메모(localStorage 'plannerGoals-YYYY-MM')는 자동 리스트 — `utils/listTextarea.ts` handleListKeyDown/startListOnFocus
+  → Enter로 • / 1. / ☐ 기호 이어쓰기, 빈 항목 Enter는 목록 종료, 줄 맨 앞 -·*·[] + Space 변환
+  → 한글 IME 조합 중(isComposing / keyCode 229) Enter는 무시해야 함 — 안 그러면 마지막 글자 중복
+  → 값 변경은 execCommand('insertText')로 — onChange 발화 + Ctrl+Z 유지. 기호만 남은 메모는 빈 값으로 저장(isBlankList)
 
 ## RunningPage 규칙
 - 카카오맵 SDK: `public/index.html` `<head>`에 스크립트 태그로 직접 로드 — useKakaoLoader 사용 시 불안정
@@ -134,16 +160,56 @@ src/
 - 주 네비게이션 레이블: "N월 M주차" 형식 (getWeekOfMonth 헬퍼)
 - 쉬었어요 기록 시 path 초기화: `setRecForm(p => ({ ...p, ran: false, path: [] }))`
 
+## WeightTab 규칙 (RunningPage '웨이트' 탭 — 2026-10 번핏 스타일 개편)
+- 레이아웃: lg 2열(달력/통계·루틴 | 선택한 날 운동), 모바일 순서는 달력 → 오늘 운동 → 통계·루틴 (order-last + lg:col/row-start)
+- 부위 분류: `utils/bodyPart.ts` getBodyPart(종목명) — DB에 부위 컬럼 없음. EXERCISE_LIBRARY 정확 일치 → 키워드 정규식 순서(복근→하체→팔→어깨→가슴→등)
+  → 순서 바꾸면 '레그 레이즈'가 하체, '레그 컬'이 팔로 잘못 분류됨
+- {year, month} 단일 view state + 지난 달 로그도 같이 조회 (이전 기록·전월 대비용), 월 이동 시 selectedDate는 그 달 안으로 맞춤
+- 세트 표: 세트|이전|kg|회|완료 — '이전' 클릭 시 지난 세션 값 복사, 빈 칸 상태로 ✓ 누르면 이전 값 채우고 완료 + 휴식 타이머 시작
+- kg/회 입력은 NumCell(내부 문자열 state) 사용 — 숫자 state에 바로 parseFloat하면 "62." 입력 불가
+- 휴식 시간 localStorage 'restSeconds' (기본 90초), 저장 여부는 snapshotOf()로 서버 값과 비교, 미저장 상태에서 날짜/월 이동 시 confirm
+- 종목 이미지: `utils/exerciseInfo.ts` — 1순위 Everkinetic 라인 드로잉 SVG(CC BY-SA 4.0, `art`: id_num), 없는 종목만 free-exercise-db 사진(`photo`)
+  → 둘 다 jsDelivr **커밋 고정 URL** (main/master로 바꾸면 원본 변경 시 깨짐)
+  → CC BY-SA라 저작자 표기 필수 — ExerciseMotion 하단 캡션(ART_CREDIT) 삭제 금지
+  → SVG는 흰 배경+검은 선: 라이트 `mix-blend-multiply`, 다크 `invert + mix-blend-screen`(ART_BLEND) + 부모 `isolate`
+    부모 배경은 **불투명색만** — 반투명(`/60` 등)이면 SVG 검은 배경이 비쳐 어두운 사각형이 생김
+  → relaxation(시작)/tension(수축) 크로스페이드 + 스케일 = ExerciseMotion, 탭하면 일시정지, prefers-reduced-motion이면 정지 상태로 시작
+  → 근육명·자세 포인트는 한글로 직접 작성 (원본 영어 설명 미사용). 새 기본 종목은 bodyPart.ts EXERCISE_LIBRARY + EXERCISE_INFO 둘 다 추가
+- 즐겨찾기: GET/POST/DELETE `/workouts/bookmarks` (종목명 문자열), toggleBookmark는 낙관적 업데이트 + 실패 시 롤백·토스트
+  → 종목 시트 첫 탭 '★ 즐겨찾기'(있으면 기본 선택), 행마다 StarButton(행 버튼과 분리 — 버튼 중첩 금지), 상세 시트 헤더에도 별
+- 종목 추가 흐름: 종목 시트 → 상세 시트(ExerciseDetail, mode='add') → 세트 설정(프리셋 5×5/3×8… + 세트·무게·횟수 스테퍼) → 추가
+  → 카드 헤더 탭 = 상세 시트 mode='edit': 완료 세트는 유지하고 남은 세트에만 무게·횟수 적용
+- 세트 종류 setType: NORMAL/WARMUP(W)/DROP(D)/FAILURE(F) — 세트 번호 칸 탭 → 메뉴. 웜업은 볼륨·1RM·월간 세트 수 집계에서 제외(isWorking)
+  → 카드에 animate-rise-in(transform)이 있어 stacking context가 생김 → 메뉴 열린 카드는 relative z-20 필요 (없으면 바깥 클릭 오버레이가 메뉴를 덮음)
+- 애니메이션 keyframes는 tailwind.config.js (sheet-up / fade-in / rise-in / pop)
+
 ## Layout 규칙
 - 최상위 div: `overflow-hidden` — 뷰포트 고정
 - 본문 wrapper: `flex flex-col flex-1 min-w-0` — overflow 없음
 - main: `overflow-auto` — 가로/세로 스크롤 모두 담당 (overflow-x-auto나 overflow-y-auto 분리 금지)
 
+## 폴더블·반응형 내비게이션 (2026-10 갤럭시 폴드 대응)
+- 기준 화면: 폴드 커버(약 412px, 폰) / 폴드 펼침(약 700~900px, 정사각형에 가까움)
+- < md: 상단 바(로고+다크모드) + **하단 탭 바**(홈·지출·플래너·운동·전체) — '전체'가 드로어를 엶, 햄버거 버튼 없음
+  → 화면 고정 요소(FAB·Toast·InstallPrompt)는 모바일에서 `bottom-[calc(4.5rem+env(safe-area-inset-bottom))]`로 탭 바 위에 띄움
+  → 드로어 오버레이는 z-50 (FAB z-40보다 위)
+- md~lg(768~1023): 아이콘+작은 라벨 **레일 고정**(w-[72px]) — 전체 사이드바(224px)면 본문이 600px대로 줄어 표가 글자 단위로 깨졌음
+- lg+: 기존 사이드바(접기 토글 유지)
+- 루트 높이 `h-[100dvh]`(모바일 주소창 대응), viewport meta에 `viewport-fit=cover` + safe-area 패딩
+- 표 ↔ 카드 리스트 전환은 **lg** 기준(`lg:hidden` / `hidden lg:block`) — md 기준이면 폴드 펼침 화면에서 표가 너무 좁음
+- TodoPage: min-w-[800px] 금지 — 1열(모바일) → 2열+TimeBox 전체폭(md) → 3열(xl), 터치 기기는 Shift 대신 두 번째 칸 탭으로 블록 생성
+
 ## 사이드바 규칙
 - Layout.tsx: 상단 «/» 버튼으로 전체 slim 모드(w-14, 아이콘만) ↔ 전체(w-56) 토글
-- Money / Daily 그룹 헤더 클릭으로 섹션 접기/펼치기 가능
+- 그룹: 가계부(대시보드·지출/수입·고정비·리포트·현금 자산) / 투자(투자 현황·투자일기) / Daily — 그룹 헤더 클릭으로 접기/펼치기
+  → 투자 설정은 사이드바에 없음: 투자 현황 헤더 ⚙️ 설정 버튼으로 진입, /invest/settings에선 '투자 현황'을 활성 표시 + 상단 '← 투자 현황' 링크
 - 설정(Config) 메뉴는 하단 버튼 영역에 위치 (nav 그룹에서 제거)
 - 사이드바/그룹 접힘 상태 localStorage 저장 ('sidebarCollapsed', 'collapsedGroups')
+
+## FixedCostPage 규칙
+- '매달 고정' / '할부' 섹션 분리, 각 섹션 금액 DESC (할부는 완납이 맨 아래)
+- 합계는 응답의 countedThisMonth만 더함 — isActive로 더하면 시작 전·완납 할부까지 들어감 (대시보드 고정비 모달, BudgetSettingsPage도 동일)
+- 할부 회차/남은 개월은 백엔드 계산값(paidMonths/remainingMonths) 표시 — 프론트에서 다시 계산하지 않음
 
 ## ExpensesPage 규칙
 - BudgetType: '생활비' | '비상금' | '투자' — 백엔드 String 컬럼이라 추가 마이그레이션 불필요
@@ -173,11 +239,81 @@ src/
 - 지출 등록 모달 카테고리 select: categories가 비어있으면(로딩 중/실패) select disabled + "카테고리를 불러오는 중..." 옵션, 저장 버튼도 disabled
   → categoryId 1~5 하드코딩 폴백 금지, handleSave에도 categories.length===0 가드 추가
 
+## 투자 페이지 공통 (2026-10 개편 — 레퍼런스: 토스증권 / Daylio / 토스 설정)
+- 수익 색: 상승·강세 = rose(빨강), 하락·약세 = blue (한국 증시 관례) — 일기의 시장 분위기 칩도 동일
+- 피드백은 alert 대신 `components/Toast.tsx`의 useToast() + <Toast /> 사용 (confirm은 삭제 확인에만)
+- 종목 색 팔레트(HOLDING_COLORS / SEGMENT_COLORS)는 대시보드 도넛·종목 컬러바·설정 비중바가 같은 순서로 공유
+
+## InvestDashboardPage 규칙
+- 상단: 총 평가금액 히어로 카드 + 현재 비중 도넛(평가금액 없으면 목표 비중으로 그림)
+- 정렬: sortByValue — 계좌는 금액 합계 DESC, 계좌 안 종목도 금액 DESC (금액 = 평가금액, 현재가 없으면 원금 평균단가×수량)
+  → 종목 색(colorOf)은 정렬 **전** 설정 순서로 매김 — 정렬 후 매기면 실시간 시세로 순위 바뀔 때 색이 바뀜
+- 종목 행은 표가 아니라 리스트 행 — 평균단가/현재가/납입 진행 컬럼은 `xl:`에서만 같은 줄 (lg는 사이드바 때문에 폭 부족해 넘침)
+- 상단 grid는 `grid-cols-1` 필수 — 빠지면 모바일에서 암묵적 auto 열이 콘텐츠 폭만큼 늘어나 가로 스크롤 생김
+- 현재가/이달 납입 입력은 계좌 단위 바텀시트(sheetAccId), 저장은 Promise.allSettled + 실패 개수 토스트
+
+- 실시간 시세: `hooks/useLiveQuotes.ts` (SSE를 fetch 스트림으로 읽음 — EventSource는 Authorization 헤더 불가) → applyLiveQuotes로 현재가·평가금액·손익·비중 재계산
+  → **이번 달 화면에만** 적용 (지난 달은 저장된 현재가), 종목코드(stockCode) 있는 종목만, 헤더 LiveBadge: 실시간 / 네이버 시세 · 20초(status.provider==='NAVER', KIS 키 없을 때) / 장 마감·종가 기준 / 시세 연결 중 / 수동 현재가
+- 페이지 목적 = 매달 "이번 달 할 일" → 증권 앱 실행 → '체결 완료' 순환. 맨 위가 할 일 카드, 평가금액·도넛·계좌는 그 아래 근거
+  → 체결 완료 시트: POST /invest/holdings/{id}/trades {side, shares, price} — 백엔드가 보유 수량·평균단가(매수 가중평균, 매도 유지) 갱신
+  → 이번 달 체결 내역은 GET /invest/trades?yearMonth, 되돌리기는 종목별 가장 최근 체결만(DELETE /invest/trades/{id})
+  → 계좌별 쓸 수 있는 돈 = 납입금(토글) + 이번 달 매도 − 매수 — 체결 후 같은 추천이 다시 안 나오게
+  → 같은 종목코드 두 줄인 계좌는 추천 대신 '설정에서 합치기' (utils/mergeHoldings.ts duplicateCodes)
+- 리밸런싱 추천 카드(2026-10 납입 가이드 대체): `utils/rebalance.ts` rebalancePlan — 계좌 안에서만 계산(연금·ISA 간 이동 없음)
+  → 목표 ±rebalanceThreshold(%p) 넘게 무거운 종목은 목표까지 매도(1주 단위 내림), 판 돈 + 이번 달 납입금(토글)으로 가벼운 종목 매수. 밴드 안이면 매도 안 함
+  → 매도 종목은 다시 매수 대상에서 뺌, 매수 합계 = 납입금 + 매도 합계 (테스트 `utils/__tests__/rebalancePlan.test.ts`)
+  → 보유 수량 있는데 현재가 없는 종목이 있으면 그 계좌는 추천 안 하고 '현재가 입력' 안내 (비중을 모름)
+  → 색: 매수 rose / 매도 blue (토스증권 관례). 목표 0%인 보유 종목은 전량 매도로 나와서 경고 문구 표시
+- 계좌 카드 헤더: 평가금액(text-2xl) + 수익률/손익 — statsOf()로 **현재가 있는 종목만** 손익 계산 (현재가 없는 종목 원금까지 넣으면 손실로 보임)
+- allocateContribution/overweightAfter는 남아 있지만 화면에선 rebalancePlan만 사용
+  → 테스트는 `utils/__tests__/` (CRA 5 glob 버그로 *.test.ts가 빌드 타입체크에 걸림 — __tests__ 폴더는 제외됨)
+
+## 테마 기반 투자 관리 (2026-10)
+- 사용자 방식: 전체 자산 4분할(현금·투자·부동산·적금) → 투자 안은 **테마**(미국 지수·AI·원자재·국내 지수·현금성)로 목표 % 고정, 종목은 테마 안에서 바뀔 수 있음
+- 투자 설정 '테마' 탭: 테마 이름·목표 %(합계 100)·현금성 토글. '추천 테마로 시작' = utils/themeDefaults.ts DEFAULT_THEMES + 종목명 키워드 자동 배정(guessThemeIndex — 현금성을 먼저 매칭)
+  → 저장 순서: POST /invest/themes 먼저(응답이 보낸 순서) → 새 테마 id를 themeKey('new:xx')로 찾아 holding.themeId 연결 → POST /invest/accounts
+  → 테마가 있으면 계좌 안 종목 % 입력·검증 숨김(저장 시 균등으로 채움 — 이달 납입 계획 계산용), 종목 카드에 테마 select
+  → 현금성 테마 종목은 주수 대신 '금액'(manualValue) 입력. 평가금액 = manualValue, 원금 없음 → 손익 계산 제외(statsOf)
+- 투자 현황 테마 모드(themes.length > 0): ThemeTodo(이번 달 할 일) → 요약(테마 도넛) → ThemeBreakdown(테마별 현재/목표·소속 종목) → 계좌 카드
+  → utils/themeRebalance.ts rebalanceByTheme: 밴드 넘은 테마 매도(현금성이면 '현금 사용'), 계좌별 돈(납입금+매도−매수)으로
+    **살 수 있는 테마가 적은 계좌부터** 1주씩, 전체 기준 부족 비율이 가장 큰 테마의 그 계좌 종목을 매수, 목표 채운 테마는 안 삼, 못 쓴 돈은 '남는 돈'
+    (라운드 로빈이면 선택지 많은 연금이 원자재를 먼저 채워 ISA 돈이 35만원 남았음 — 순서 바꾸지 말 것)
+  → 중복 종목코드·현재가 없는 보유 종목이 있으면 계산 안 하고 blockers로 안내
+  → 테마 없으면 예전 계좌 단위 추천(rebalancePlan) 그대로
+- 계좌 종류 PENSION/IRP/ISA/GENERAL — 라벨·인출 조건 문구는 `utils/accountLiquidity.ts` 단일 소스(세법 바뀌면 여기만), 페이지에 TYPE_LABEL 다시 만들지 말 것
+  → 연금저축·IRP = 55세까지 묶인 돈, ISA·일반 = 꺼낼 수 있는 돈. 화면엔 LIQUIDITY_DISCLAIMER(참고용) 같이 표시
+- 금액 줄(예수금·MMF·펀드): 종목코드 없이 manualValue — 평균단가만 있고 코드·수량 없는 줄은 불러올 때·저장할 때 manualValue로 옮김(priceOnlyToAmount), 계좌 단위 리밸런싱에선 제외
+- 자산 배분 페이지: CASH=현금 자산 최신 잔액(/cash-assets 마지막), INVEST=투자 평가금액(시세 /invest/quotes 반영), MANUAL=직접 입력. 목표 대비 부족/초과 금액, 투자 칸 아래 테마 비중
+
+## SavingsPage 규칙 (적금)
+- 고정비(사라지는 돈)와 분리 — 적금은 자산. 자산 배분 SAVINGS 칸 금액 = 적금 현재 원금 합계(만기 지나도 삭제 전까지 포함)
+- 계산은 utils/savings.ts (테스트 utils/__tests__/savings.test.ts): 매달 시작일과 같은 날 납입(말일 보정), 단리 이자 = 월납 × 이율 × n(n+1)/2 ÷ 12, 일반과세 15.4%(10원 절사)
+  → 납입 회차는 날짜로 자동, 실제와 다르면 paidOverride로 직접 입력. 날짜는 toYmd 로컬 기준
+- 상태: ACTIVE(납입 중) / DONE(납입 완료, 만기 전) / MATURED(만기 — 수령 후 삭제 안내)
+- 정부기여금(청년미래적금 등): monthlyBonus(월) + bonusBalance(앱의 현재 적립액, 비우면 월 × 회차) — 적금 전용, 청약은 저장 시 null
+  → summary.current = 원금 + 기여금 (요약 카드·자산 배분은 current), 만기 수령액에 월 기여금 × 기간 더함, 기여금 이자는 미반영
+  → 우대금리는 별도 칸 없이 연 이율에 합산해서 입력
+- 수정 시트에서도 적금 ↔ 주택청약 종류 변경 가능
+- 주택청약종합저축(kind=HOUSING, 2026-10): 만기 없음 — 백엔드는 months=0으로 저장, 만기 관련 값(taxFree) 무시
+  → utils/savings.ts housingSummary (테스트 __tests__/housing.test.ts): 원금 = 은행 잔액(balanceOverride) 우선, 이자는 금리가 낮아 원금에 안 더함
+  → 청약 인정 금액: 회차마다 min(월납, 한도) — 2024-11-01 전 10만 / 이후 25만
+  → 민영 예치금(region별 85/102/135/모든 면적), 1순위 가입기간(6/12/24개월), 소득공제(무주택 세대주, 연 300만 × 40%)
+  → 자산 배분 적금 칸은 currentPrincipal(종류별)로 합산 — savingsSummary 직접 쓰면 청약이 0원/만기 계산으로 잘못 들어감
+
+## InvestDiaryPage 규칙
+- 왼쪽 감정 달력(이모지) + 이번 달 감정 분포 / 오른쪽 타임라인. 날짜 클릭 → 기록 있으면 카드로 스크롤, 없으면 그 날짜로 작성
+- 날짜 문자열은 toYmd() 로컬 기준 — toISOString()은 UTC라 KST 오전 9시 전 '오늘'이 어제가 됨
+- 백엔드 POST /invest/diary는 날짜 기준 upsert → 수정 중 날짜를 바꾸면 저장 후 옛 id DELETE 필요, 같은 날짜 기존 기록은 폼에서 덮어쓰기 경고
+
 ## InvestSettingsPage 규칙
 - 탭 구조: '기본 설정' / '계좌 & 종목' — activeTab state로 전환
-  → 기본 설정 탭: 세액공제 추천 카드 + 월 투자금/리밸런싱 트리거/연금 세액공제 한도 + 저장
-  → 계좌 & 종목 탭: 계좌 추가·편집, 종목 비중 설정 + 저장
-- 저장하기 버튼은 setting과 accounts를 모두 한 번에 POST (탭별 분리 저장 아님)
+  → 기본 설정 탭: 월 투자금/리밸런싱 기준/연금 세액공제 한도(설정 행 리스트) + 세액공제 추천 카드
+  → 계좌 & 종목 탭: 계좌 비중바 + 계좌 카드(종류 세그먼트, 비중, 종목 비중바, 균등 분배)
+- 같은 계좌에 같은 종목코드 두 줄 → 경고 배너 + '한 줄로 합치기'(mergeDuplicates: 목표 비중 큰 줄 유지, 비중·수량 합계, 평균단가 가중평균) + 저장 차단(백엔드도 400)
+- 저장은 하단 sticky 저장바 하나 — setting과 accounts를 모두 한 번에 POST (탭별 분리 저장 아님)
+  → savedSnapshot과 비교해 변경 있을 때만 활성, 검증 오류(비중 합계·이름 누락)는 저장바에 첫 번째 메시지 표시
+- 종목 카드 '수익률로 계산' → AvgPriceCalc 패널: 현재가(1주) 또는 평가금액(총액) + 수익률 → 평균단가 역산(`utils/avgPrice.ts`, 테스트 `utils/__tests__/avgPrice.test.ts`)
+  → 평균단가 = 값 ÷ (1+수익률), 평가금액 기준은 ÷ 보유 수량까지. 적용은 폼 값만 바꿈 — 저장바로 저장해야 반영
 
 ## BudgetSettingsPage 규칙
 - 분배 입력 모드: '비율' ↔ '금액' 토글 (localStorage 미저장, 세션 내 유지)

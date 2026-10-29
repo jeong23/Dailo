@@ -36,12 +36,12 @@ com.dailo.app
 - MONTHLY_BUDGET (월별 예산)
 - DAILY_EXPENSE (일일 지출 — settleMonth는 expenseDate 기준 자동 계산)
 - CATEGORY (카테고리)
-- FIXED_COST (고정비)
+- FIXED_COST (고정비 — cost_type RECURRING|INSTALLMENT(null=RECURRING), 할부는 installment_start/months/end)
 - INCOME (기타 수입 - 이자, 환급금 등)
-- DAILY_PLAN (일일 플래너 — 미래시각화/정체성/내적동기/감사일기/기상직후할일/피드백)
-- TODO_ITEM (할 일 — type: BIG3 | BRAIN_DUMP, isDone, sortOrder)
-- TIME_BOX_SLOT (타임박스 — hour(5~23), slot1/slot2 텍스트, slot1Done/slot2Done)
-- TIME_BOX_BLOCK (타임박스 블록 — planDate, startHour, startSlot, endHour, endSlot, content, isDone)
+- DAILY_PLAN (일일 플래너 — memberId, 미래시각화/정체성/내적동기/감사일기/기상직후할일/피드백, UNIQUE(member_id, plan_date))
+- TODO_ITEM (할 일 — memberId, type: BIG3 | BRAIN_DUMP, isDone, sortOrder)
+- TIME_BOX_SLOT (타임박스 — memberId, hour(5~23), slot1/slot2 텍스트, slot1Done/slot2Done, UNIQUE(member_id, plan_date, hour))
+- TIME_BOX_BLOCK (타임박스 블록 — memberId, planDate, startHour, startSlot, endHour, endSlot, content, isDone)
 - HABIT (습관 — memberId, name, emoji, color, isActive, sortOrder)
 - HABIT_LOG (습관 체크 기록 — habit_id, log_date, UNIQUE(habit_id, log_date))
 
@@ -65,7 +65,9 @@ com.dailo.app
 - ddl-auto: update (초기 설정 완료)
 
 ## 계산 로직 (DashboardService)
-- fixedCostTotal: FixedCostRepository.sumActiveByMemberId() 실시간 조회
+- fixedCostTotal: FixedCostRepository.sumActiveByMemberId() 실시간 조회 — 할부는 이번 달(달력 월)에 결제 있는 것만 합산
+  → API는 /fixed-costs/mine — memberId는 @AuthenticationPrincipal, {id} 조회·수정·삭제는 FixedCostService.findOwned() 소유자 확인
+  → FixedCostResponseDto.countedThisMonth가 같은 기준, paid/remainingMonths는 오늘 기준 계산(저장 안 함). 기준 바꾸면 둘 다 수정
 - extraIncomeTotal: IncomeRepository.sumBySettleMonth() 실시간 조회
 - availableAmount: netSalary + extraIncomeTotal - fixedCostTotal
 - 분배: living 35% / ISA 25% / pension 15% / emergency 15% / discretionary 10%
@@ -88,6 +90,10 @@ com.dailo.app
 - 로그인 후 프론트 localStorage: token, memberId, memberName, salaryDay 저장
 
 ## 플래너 관련 규칙
+- 플래너 4개 테이블(daily_plan/todo_item/time_box_slot/time_box_block)은 회원별 — 모든 조회·upsert는 로그인 memberId 조건 포함
+  → date 기준 upsert(플랜, 슬롯)도 findByMemberIdAnd... 로 찾음 (memberId 빼면 다른 회원 같은 날짜 행을 덮어씀)
+  → todo/block의 PUT·DELETE {id}는 서비스 findOwned()에서 소유자 다르면 not-found와 같은 메시지로 IllegalArgumentException
+  → 2026-10-28 기존 행 이관: backend/Dailo/docs/migrations/2026-10-28_planner_member_scope.sql (구 unique(plan_date), unique(plan_date,hour) 삭제 포함)
 - DailyPlanService가 TodoItemRepository도 의존 (findMonthlyBoard에서 같이 조회)
 - findMonthlyBoard: 3번의 쿼리(dailyPlan + big3 + brainDump)로 월간 요약 반환
   → 데이터 없는 날은 응답에 포함 안 됨 (프론트에서 map으로 빈 날은 entry=undefined 처리)
@@ -97,9 +103,20 @@ com.dailo.app
 - TodoItem.sortOrder: PUT /api/todo-items/{id}에서 sortOrder 업데이트 지원 (Big3 드래그 재정렬용)
   → UpdateRequest에 sortOrder 필드 포함, item.updateSortOrder() 메서드로 갱신
 
-## R2 업로드 규칙
-- application.yml에 r2.* 설정 없으면 앱 시작 안 됨 방지: @Value에 빈 기본값(:) 필수
-- isConfigured 플래그로 설정 여부 체크 — 미설정 시 upload() 호출 시 예외 대신 메시지 반환
+## 이미지 업로드 규칙 (ImageStorageService → R2 또는 로컬)
+- 업로드는 항상 `ImageStorageService.store(folder, file)` 경유 — 검증(빈 파일·10MB·형식) 후 저장소 선택
+  → R2 설정이 있으면 R2, 없으면 `LocalImageStorage`(서버 컴퓨터 `upload.local-dir`, 기본 `~/dailo-uploads`)
+  → 로컬 파일은 `UploadResourceConfig`가 `/uploads/**`로 서빙(인증 없음 — <img>는 JWT 못 보냄, 파일명 UUID)
+- 형식은 파일 앞부분 매직 넘버로 판정(JPG/PNG/GIF/WEBP) — 파일명·Content-Type은 조작 가능하므로 믿지 않음, 확장자도 판정 결과로 붙임
+- R2: @Value 빈 기본값(:) 필수(설정 없어도 앱 기동), `isSet()`은 빈 값과 `YOUR_` 예시 값을 미설정으로 취급
+  → 예시 값을 설정된 것으로 보면 가짜 엔드포인트로 업로드하다 실패함 (2026-10 실제 발생)
+- 런칭 시: application.yml r2.* 에 실제 키만 넣으면 R2로 전환. 기존 /uploads/ 이미지는 옮겨야 함
+
+## VisionBoard 규칙 (미래 시각화 보드, 2026-10)
+- `vision_board_item` (memberId, imageUrl, x, y, w, h, z) — 회원별 보드 하나, 날짜 무관. ddl-auto update로 테이블 생성
+- x/y/w/h는 보드 대비 퍼센트(0~100) — `VisionBoardService.apply()`가 보드 밖·최소 크기(5%) 보정, null 필드는 기존 값 유지
+- imageUrl은 `/uploads/` 또는 `https://`만 허용, 회원당 20장. 수정·삭제는 findOwned로 소유자 확인(IDOR)
+- 사진 삭제 시 저장소 파일은 지우지 않음(R2/로컬 모두) — 고아 파일 정리가 필요하면 별도 작업
 
 ## TimeBoxBlock 규칙
 - TIME_BOX_SLOT과 TIME_BOX_BLOCK은 별개 — SLOT은 시간별 텍스트 2칸, BLOCK은 드래그 병합 블록
@@ -133,6 +150,21 @@ com.dailo.app
 - 투자 탭 구조: 투자 현황(납입입력+평가금액 통합) / 투자일기 / 투자 설정 — 납입기록 탭 제거됨
   → /invest/records 접근 시 /invest로 리다이렉트 (SpaController·SecurityConfig에 경로 유지 필요)
 
+## 실시간 시세 (KisClient / QuoteService / InvestQuoteController)
+- 구조: KIS WebSocket(H0STCNT0 체결가) → KisClient(앱 전체 연결 1개) → QuoteService 캐시 → SSE `/api/invest/quotes/stream` (회원 본인 종목만)
+  → 스냅샷 조회: GET `/api/invest/quotes` / SSE 이벤트: snapshot · quote · status + 25초 하트비트 주석
+- 키: 환경변수 `KIS_APP_KEY` / `KIS_APP_SECRET` (모의투자 키면 `KIS_MOCK=true`) — application.yml에 넣지 말 것(커밋 금지 파일)
+  → 키 없으면 연결 시도 안 함, status.configured=false → 프론트는 수동 현재가로 동작
+- **조회 전용** — 주문 API는 붙이지 않는다
+- 종목 매칭: InvestHolding.stockCode (6자리 영숫자, InvestService.normalizeStockCode로 검증). ticker(종목명)는 표시용
+- 종목 저장(saveAccounts) 후 InvestHoldingsChangedEvent → AFTER_COMMIT에 구독 종목 재계산
+- KIS 제약: 세션당 실시간 등록 약 41건(MAX_SUBSCRIPTIONS=40), 접근토큰 발급 분당 1회(메모리 캐시), PINGPONG은 받은 그대로 돌려보내야 연결 유지
+- KIS 키 없으면 네이버 폴링 대체(NaverQuoteClient): `polling.finance.naver.com/api/realtime/domestic/stock/{코드,코드}` — 장중 20초 / 장외 10분, 20종목씩 묶음
+  → 비공식 API라 형식 바뀌면 빈 결과(수동 현재가로 복귀). `quote.naver.enabled=false`로 끔. source="NAVER", Status.provider = KIS / NAVER / NONE
+  → pollNaver는 RuntimeException까지 잡아야 함 — scheduleWithFixedDelay는 예외 한 번에 이후 실행이 멈춤
+- 웹소켓 상태는 KisClient의 단일 스레드 scheduler에서만 변경 (리스너 콜백은 scheduler로 넘겨서 처리)
+- 실시간 가격은 DB에 저장하지 않음 (InvestMonthlyRecord.currentPrice는 수동 입력값 그대로)
+
 ## RunningRecord 규칙
 - duration 입력: 프론트에서 "MM:SS" 문자열로 받아 durationSeconds(int)로 저장
 - 페이스: RecordResponse.calcPace() — durationSeconds / distanceKm → "7'05''" 형식
@@ -141,7 +173,9 @@ com.dailo.app
 
 ## 배포 (외부 접근)
 - CORS: setAllowedOriginPatterns 사용 — setAllowedOrigins와 allowCredentials 동시 사용 불가
-  허용 패턴: http://localhost:3000, https://*.trycloudflare.com
+  허용 패턴: http://localhost:3000, https://*.trycloudflare.com, https://*.ts.net (Tailscale serve 고정 주소)
+  → 새 접속 주소를 쓰면 여기 추가 필요 — 빠지면 브라우저 POST가 "Invalid CORS request" 403 (같은 origin이어도 Origin 헤더 검사함)
+- SSE 등 비동기 응답: `dispatcherTypeMatchers(DispatcherType.ASYNC).permitAll()` 필수 — JWT 필터가 ASYNC 디스패치에서 안 돌아 스트림이 403으로 끊김
 - SpaController: React Router 경로(/expenses, /fixed-costs 등)를 index.html로 포워딩
 - Spring Boot 재시작은 수동으로 별도 진행
 
@@ -167,4 +201,33 @@ com.dailo.app
   → null이면 기존 member 값 유지하도록 수정
 - application.yml YAML 들여쓰기 깨짐(spring.jpa.properties 하위 hibernate가 최상위로 밀림) → 앱 시작 실패
   → 부팅 실패 시 Spring property binding 에러면 application.yml 들여쓰기부터 확인
-- `mvn` 명령이 PATH에 없음 → `./mvnw` 사용 (IntelliJ는 Bundled Maven이라 무관)
+- `mvn` 명령이 PATH에 없음 → `./mvnw` 사용 (IntelliJ는 Bundled Maven이라 무관)- id로 수정·삭제하는 API에서 회원 소유권 미확인(IDOR) — `PUT /invest/records/{id}`, `DELETE /invest/diary/{id}`, `DELETE /workouts/logs/{id}`, `POST /workouts/logs`의 세트 id
+  → 2026-10-27 수정: 컨트롤러에서 `@AuthenticationPrincipal`로 memberId를 받고, 서비스에서 소유자가 다르면 not-found와 같은 메시지로 IllegalArgumentException(400)
+  → 자식 엔티티는 부모 경로로 검증 (record → holding → account.memberId / set → workoutLog가 지금 저장 중인 로그인지)
+  → 새 `{id}` 엔드포인트 추가 시 반드시 소유권 검증 + `OwnershipGuardTest`에 케이스 추가 (플래너는 `PlannerOwnershipGuardTest`)
+- 플래너(daily-plans/todo-items/time-box/time-box-blocks)에 memberId가 아예 없어 모든 계정이 같은 플랜을 공유·수정 (2026-10-28 수정)
+  → ddl-auto update는 NOT NULL 컬럼을 0으로 채우고 기존 unique 인덱스를 지우지 않음 → 컬럼 추가 마이그레이션은 SQL로 먼저 실행
+  → `./mvnw test`의 contextLoads는 실제 DB(3333)에 붙음 — 엔티티 스키마 변경 후 마이그레이션 전이면 `-Dspring.jpa.hibernate.ddl-auto=none`으로 실행
+- WorkoutSet.setType (NORMAL/WARMUP/DROP/FAILURE, nullable — 기존 로우 null은 응답에서 NORMAL) — ddl-auto update로 컬럼 자동 추가, 허용값 외는 서비스에서 NORMAL로 정규화
+- 운동 종목 즐겨찾기: `workout_bookmark`(member_id, exercise_name 유니크) — 종목 마스터 테이블이 없어 종목명 문자열로 저장
+  → 종목명에 공백·한글이 있어 path variable 대신 POST body / DELETE query param 사용, 항상 로그인 memberId로만 조회·삭제
+
+## 투자 체결 기록 (InvestTradeService / invest_trade)
+- POST `/api/invest/holdings/{holdingId}/trades` {side: BUY|SELL, shares, price, tradeDate?} → 보유 수량·평균단가 갱신
+  → 매수: 평균단가 = (기존 평균×기존 수량 + 체결가×수량) / 새 수량 (반올림), 매도: 수량만 감소(보유보다 많이 팔면 400)
+  → 이번 달 기록에 수동 현재가가 있으면 평가금액도 새 수량으로 재계산
+- GET `/api/invest/trades?yearMonth=YYYY-MM`, DELETE `/api/invest/trades/{id}` (되돌리기 — 종목별 가장 최근 체결만, sharesBefore/avgBefore로 복원)
+- invest_trade는 holding FK 없이 id·이름 스냅샷 저장 (종목 삭제돼도 기록 유지). 모든 조회·수정은 memberId 소유 확인
+- saveAccounts: 계좌/종목 id 소유 확인 추가(IDOR 수정), 한 계좌에 같은 종목코드 두 줄이면 400
+
+## 테마 · 자산 배분 (AllocationService / invest_theme / asset_bucket)
+- GET/POST `/api/invest/themes` — 목록 통째로 저장(요청에 없는 테마 삭제 → 소속 종목 themeId null), 합계 100 검증, id 소유 확인
+- GET/POST `/api/assets/buckets` — 처음 GET 시 현금(CASH)·투자(INVEST)·부동산·적금(MANUAL) 25%씩 생성, kind는 CASH/INVEST/MANUAL
+- InvestHolding.themeId(FK 아님) / manualValue(현금성 금액) — saveAccounts에서 assign(), themeId는 본인 테마만(아니면 400)
+- DashboardResponse.themes 포함. 리밸런싱 계산은 프론트(utils/themeRebalance.ts)
+
+## 적금 (SavingsService / savings)
+- GET/POST `/api/savings`, PUT/DELETE `/api/savings/{id}` — 소유 확인, 기간 1~120개월, 이율 0~30%, paidOverride 0~기간
+- 회차·원금·만기 수령액은 저장하지 않음(프론트 utils/savings.ts 계산). AssetBucket kind에 SAVINGS 추가
+  → getBuckets: 예전 기본값으로 만든 '적금'(MANUAL, 금액 없음) 칸은 SAVINGS로 자동 전환
+
