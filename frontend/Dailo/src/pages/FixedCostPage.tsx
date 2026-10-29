@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import api from '../api/axios';
 import { formatNumber, parseNumber } from '../utils/format';
 import { useEscapeKey } from '../hooks/useEscapeKey';
+import { Toast, useToast } from '../components/Toast';
 
 type CostType = 'RECURRING' | 'INSTALLMENT';
 type InstallmentStatus = 'UPCOMING' | 'ONGOING' | 'DONE';
@@ -50,6 +51,7 @@ const installmentLabel = (item: FixedCost) => {
 };
 
 export const FixedCostPage = () => {
+  const { toast, show } = useToast();
   const [fixedCosts, setFixedCosts] = useState<FixedCost[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<FixedCost | null>(null);
@@ -137,7 +139,7 @@ export const FixedCostPage = () => {
       fetchData();
     } catch (error: any) {
       console.error('저장 실패:', error);
-      alert(error?.response?.data?.message || '저장 실패');
+      show(error?.response?.data?.message || '저장 실패', 'error');
     }
   };
 
@@ -327,6 +329,7 @@ export const FixedCostPage = () => {
 
   return (
     <div className="space-y-6">
+      <Toast toast={toast} />
       {/* 헤더 */}
       <div className="flex justify-between items-end gap-3">
         <div className="min-w-0">

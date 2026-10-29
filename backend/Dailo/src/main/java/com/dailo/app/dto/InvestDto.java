@@ -15,6 +15,8 @@ public class InvestDto {
         private Integer monthlyBudget;
         private Float rebalanceThreshold;
         private Integer pensionLimit;
+        private Boolean allowSell;        // null = 기존 값 유지
+        private String strategyPreset;    // null = 기존 값 유지
     }
 
     @Getter @Builder
@@ -23,6 +25,11 @@ public class InvestDto {
         private Integer monthlyBudget;
         private Float rebalanceThreshold;
         private Integer pensionLimit;
+        private Boolean allowSell;
+        private String strategyPreset;
+        private Integer taxJoinMonth;     // null = 아직 입력 안 함
+        private Boolean taxProbation;
+        private Integer taxProbEndMonth;
 
         public static SettingResponse from(InvestSetting s) {
             return SettingResponse.builder()
@@ -30,8 +37,27 @@ public class InvestDto {
                     .monthlyBudget(s.getMonthlyBudget())
                     .rebalanceThreshold(s.getRebalanceThreshold())
                     .pensionLimit(s.getPensionLimit())
+                    .allowSell(s.isSellAllowed())
+                    .strategyPreset(s.getStrategyPreset())
+                    .taxJoinMonth(s.getTaxJoinMonth())
+                    .taxProbation(s.getTaxProbation())
+                    .taxProbEndMonth(s.getTaxProbEndMonth())
                     .build();
         }
+    }
+
+    // 계좌 켜기/끄기 (PATCH /accounts/{id}/active)
+    @Getter @NoArgsConstructor @AllArgsConstructor
+    public static class ActiveRequest {
+        private Boolean active;
+    }
+
+    // 세액공제 계산기 입력만 저장 (월 투자금 등 다른 설정은 건드리지 않음)
+    @Getter @NoArgsConstructor @AllArgsConstructor
+    public static class TaxInputsRequest {
+        private Integer joinMonth;
+        private Boolean probation;
+        private Integer probEndMonth;
     }
 
     // ─── Account + Holding (설정 저장) ─────────────────────────
@@ -52,9 +78,13 @@ public class InvestDto {
     public static class AccountRequest {
         private Long id;       // null = 신규
         private String name;
-        private String type;   // PENSION, GENERAL, IRP
+        private String type;   // PENSION, IRP, ISA, GENERAL
         private Float targetPct;
         private Integer sortOrder;
+        private Integer monthlyAmount; // 매달 납입금 (null = 월 투자금 × targetPct)
+        private String purpose;        // RETIRE / HOUSE / WEDDING / OTHER / null(미정)
+        private String targetDate;     // 'YYYY-MM' / null(미정)
+        private Boolean active;        // false = 계좌 끄기 (null = 기존 값 유지)
         private List<HoldingRequest> holdings;
     }
 
@@ -78,6 +108,11 @@ public class InvestDto {
         private String type;
         private Float targetPct;
         private Integer sortOrder;
+        private Integer monthlyAmount;
+        private String purpose;
+        private String targetDate;
+        private Boolean active;           // 계좌 사용 여부 (꺼지면 납입·추천 제외)
+        private String linkedBudgetLabel; // 최신 달 예산 항목에 연결돼 있으면 그 항목명 (월 납입금은 예산 설정이 기준), 없으면 null
         private List<HoldingResponse> holdings;
     }
 
@@ -112,6 +147,10 @@ public class InvestDto {
         private String name;
         private String type;
         private Float targetPct;
+        private Integer contribution;     // 이번 달 납입금 (계좌 monthlyAmount 또는 월 투자금 × targetPct)
+        private String purpose;
+        private String targetDate;
+        private Boolean active;           // false = 꺼진 계좌 (납입 0, 리밸런싱 추천 제외 — 평가금액은 합계에 포함)
         private Integer accountPlannedAmt;
         private Integer accountActualAmt;
         private List<DashboardHolding> holdings;
@@ -120,9 +159,11 @@ public class InvestDto {
     @Getter @Builder
     public static class DashboardResponse {
         private String yearMonth;
-        private Integer monthlyBudget;
+        private Integer monthlyBudget;    // 계좌 납입금 합계
         private Float rebalanceThreshold;
         private Integer pensionLimit;
+        private Boolean allowSell;
+        private String strategyPreset;
         private Integer totalPlanned;
         private Integer totalActual;
         private Integer pensionYtdActual; // 연간 연금 납입 누계

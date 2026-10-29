@@ -5,10 +5,14 @@ import com.dailo.app.dto.MonthlyBudgetRequestDto;
 import com.dailo.app.dto.MonthlyBudgetResponseDto;
 import com.dailo.app.entity.AllocationInputMode;
 import com.dailo.app.entity.BudgetAllocationItem;
+import com.dailo.app.entity.InvestAccount;
+import com.dailo.app.entity.Savings;
 import com.dailo.app.entity.Member;
 import com.dailo.app.entity.MonthlyBudget;
 import com.dailo.app.repository.BudgetAllocationItemRepository;
 import com.dailo.app.repository.FixedCostRepository;
+import com.dailo.app.repository.InvestAccountRepository;
+import com.dailo.app.repository.SavingsRepository;
 import com.dailo.app.repository.MemberRepository;
 import com.dailo.app.repository.MonthlyBudgetRepository;
 import lombok.RequiredArgsConstructor;
@@ -32,6 +36,8 @@ public class MonthlyBudgetService {
     private final MemberRepository memberRepository;
     private final FixedCostRepository fixedCostRepository;
     private final BudgetAllocationItemRepository budgetAllocationItemRepository;
+    private final InvestAccountRepository investAccountRepository;
+    private final SavingsRepository savingsRepository;
 
     private static double safe(Double v) { return v != null ? v : 0.0; }
 
@@ -89,6 +95,8 @@ public class MonthlyBudgetService {
             }
 
             items.add(BudgetAllocationItem.builder()
+                    .investAccountId(ownedInvestAccountId(budget.getMember().getId(), reqItem.getInvestAccountId()))
+                    .savingsId(ownedSavingsId(budget.getMember().getId(), reqItem.getInvestAccountId(), reqItem.getSavingsId()))
                     .monthlyBudget(budget)
                     .label(reqItem.getLabel())
                     .rate(rate)
@@ -147,6 +155,7 @@ public class MonthlyBudgetService {
         List<BudgetAllocationItem> savedItems = items.isEmpty()
                 ? Collections.emptyList()
                 : budgetAllocationItemRepository.saveAll(items);
+        syncInvestContributions(memberId, saved, savedItems);
 
         return MonthlyBudgetResponseDto.from(saved, savedItems);
     }
@@ -226,6 +235,7 @@ public class MonthlyBudgetService {
         List<BudgetAllocationItem> savedItems = items.isEmpty()
                 ? Collections.emptyList()
                 : budgetAllocationItemRepository.saveAll(items);
+        syncInvestContributions(memberId, budget, savedItems);
 
         return MonthlyBudgetResponseDto.from(budget, savedItems);
     }
@@ -244,6 +254,41 @@ public class MonthlyBudgetService {
     private void validateOwnership(Long memberId, MonthlyBudget budget) {
         if (!budget.getMember().getId().equals(memberId)) {
             throw new IllegalArgumentException("월별 예산을 찾을 수 없습니다: " + budget.getId());
+        }
+    }
+
+    // 투자 계좌 id는 본인 계좌만 (다른 회원 계좌 id면 400)
+    private Long ownedInvestAccountId(Long memberId, Long accountId) {
+        if (accountId == null) return null;
+        return investAccountRepository.findById(accountId)
+                .filter(a -> a.getMemberId().equals(memberId))
+                .map(InvestAccount::getId)
+                .orElseThrow(() -> new IllegalArgumentException("투자 계좌를 찾을 수 없습니다: " + accountId));
+    }
+
+    // 적금·청약 id도 본인 것만. 한 항목은 투자 계좌나 적금 중 하나에만 연결
+    private Long ownedSavingsId(Long memberId, Long investAccountId, Long savingsId) {
+        if (savingsId == null) return null;
+        if (investAccountId != null) throw new IllegalArgumentException("한 항목은 투자 계좌나 적금 중 하나에만 연결할 수 있어요");
+        return savingsRepository.findById(savingsId)
+                .filter(s -> s.getMemberId().equals(memberId))
+                .map(Savings::getId)
+                .orElseThrow(() -> new IllegalArgumentException("적금을 찾을 수 없습니다: " + savingsId));
+    }
+
+    // 예산 분배 → 투자 계좌 월 납입금·적금 월 납입액 (기준을 하나로). 최신 정산월 예산일 때만 반영 — 지난 달을 고쳐도 지금 납입금은 안 바뀜
+    private void syncInvestContributions(Long memberId, MonthlyBudget budget, List<BudgetAllocationItem> items) {
+        boolean latest = monthlyBudgetRepository.findByMemberIdOrderBySettleMonthDesc(memberId).stream()
+                .findFirst().map(b -> b.getId().equals(budget.getId())).orElse(false);
+        if (!latest) return;
+        for (BudgetAllocationItem item : items) {
+            if (item.getSavingsId() != null) {
+                savingsRepository.findById(item.getSavingsId())
+                        .ifPresent(s -> s.updateMonthlyAmount((long) (item.getBudgetAmount() != null ? item.getBudgetAmount() : 0)));
+            }
+            if (item.getInvestAccountId() == null) continue;
+            investAccountRepository.findById(item.getInvestAccountId())
+                    .ifPresent(acc -> acc.updateMonthlyAmount(item.getBudgetAmount() != null ? item.getBudgetAmount() : 0));
         }
     }
 }

@@ -23,6 +23,8 @@ export interface AllocationItemResponseDto {
   budgetAmount: number;
   sortOrder: number;
   inputMode: AllocationInputMode; // 입력창을 %입력 vs 금액입력으로 분기 렌더링하는 근거
+  investAccountId?: number | null; // 연결된 투자 계좌 — 최신 달 저장 시 이 금액이 계좌 월 납입금이 됨
+  savingsId?: number | null;       // 연결된 적금·청약 — 최신 달 저장 시 이 금액이 월 납입액이 됨
 }
 
 export interface AllocationItemRequestDto {
@@ -114,6 +116,17 @@ export interface EmergencyHistory {
 }
 
 // 현금 자산(Cash Asset) — 비상금 개념 폐지 후 신규 도입
+// 내 계좌 > 현금 계좌 — 켜진 계좌 잔액 합계가 그 정산월 현금 자산(cash_asset)으로 기록됨
+export interface CashAccount {
+  id: number;
+  name: string;
+  bank: string | null;
+  balance: number;
+  active: boolean;
+  sortOrder: number | null;
+  memo: string | null;
+}
+
 export interface CashAssetEntry {
   id: number;
   settleMonth: string;
@@ -128,7 +141,8 @@ export interface MonthlyReport {
   extraIncomeTotal: number;
   availableAmount: number;
   allocationTotal: number; // 가변 예산 분배 항목(allocationItems) budgetAmount 합계
-  livingBudget: number;
+  allocationItems?: AllocationItemResponseDto[]; // 그 달 분배 항목 (금액은 그 달 가용금액 기준)
+  livingBudget: number;   // '생활비' 항목 금액 (없으면 레거시 고정 비율)
   livingCarryover: number;
   livingExpenseTotal: number;
   livingBalance: number;

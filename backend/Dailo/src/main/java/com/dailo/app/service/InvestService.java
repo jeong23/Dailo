@@ -24,6 +24,8 @@ public class InvestService {
     private final InvestDiaryRepository diaryRepo;
     private final ApplicationEventPublisher eventPublisher;
     private final InvestThemeRepository themeRepo;
+    private final MonthlyBudgetRepository monthlyBudgetRepo;
+    private final BudgetAllocationItemRepository allocationItemRepo;
 
     // ─── Setting ───────────────────────────────────────────────
 
@@ -34,6 +36,7 @@ public class InvestService {
                         .monthlyBudget(0)
                         .rebalanceThreshold(5.0f)
                         .pensionLimit(6_000_000)
+                        .allowSell(true)
                         .build());
     }
 
@@ -47,19 +50,49 @@ public class InvestService {
                     .rebalanceThreshold(req.getRebalanceThreshold() != null ? req.getRebalanceThreshold() : 5.0f)
                     .pensionLimit(req.getPensionLimit() != null ? req.getPensionLimit() : 6_000_000)
                     .build());
+            setting.updateStrategy(req.getAllowSell(), normalizePreset(req.getStrategyPreset()));
         } else {
             setting.update(
                     req.getMonthlyBudget(),
                     req.getRebalanceThreshold() != null ? req.getRebalanceThreshold() : setting.getRebalanceThreshold(),
                     req.getPensionLimit() != null ? req.getPensionLimit() : setting.getPensionLimit()
             );
+            setting.updateStrategy(req.getAllowSell(), normalizePreset(req.getStrategyPreset()));
         }
         return InvestDto.SettingResponse.from(setting);
+    }
+
+    // 최신 정산월 예산에서 투자 계좌에 연결된 항목 → {계좌 id: 항목명}. 이 계좌들의 월 납입금은 예산 설정이 기준
+    private Map<Long, String> budgetLinkedLabels(Long memberId) {
+        Map<Long, String> out = new HashMap<>();
+        monthlyBudgetRepo.findByMemberIdOrderBySettleMonthDesc(memberId).stream().findFirst().ifPresent(b ->
+                allocationItemRepo.findByMonthlyBudgetIdOrderBySortOrderAsc(b.getId()).forEach(i -> {
+                    if (i.getInvestAccountId() != null) out.merge(i.getInvestAccountId(), i.getLabel(), (x, y) -> x + "·" + y);
+                }));
+        return out;
+    }
+
+    // 세액공제 계산기 입력 — 설정 행이 없으면 기본값으로 만들고 입력만 채움
+    @Transactional
+    public InvestDto.SettingResponse saveTaxInputs(Long memberId, InvestDto.TaxInputsRequest req) {
+        int join = monthOrThrow(req.getJoinMonth() != null ? req.getJoinMonth() : 1, "입사월");
+        boolean probation = Boolean.TRUE.equals(req.getProbation());
+        Integer probEnd = probation ? monthOrThrow(req.getProbEndMonth() != null ? req.getProbEndMonth() : 3, "수습 종료월") : req.getProbEndMonth();
+        InvestSetting setting = settingRepo.findByMemberId(memberId).orElseGet(() -> settingRepo.save(InvestSetting.builder()
+                .memberId(memberId).monthlyBudget(0).rebalanceThreshold(5.0f).pensionLimit(6_000_000).build()));
+        setting.updateTaxInputs(join, probation, probEnd);
+        return InvestDto.SettingResponse.from(setting);
+    }
+
+    private static int monthOrThrow(int m, String label) {
+        if (m < 1 || m > 12) throw new IllegalArgumentException(label + "은 1~12월이어야 해요");
+        return m;
     }
 
     // ─── Accounts + Holdings ───────────────────────────────────
 
     public List<InvestDto.AccountResponse> getAccounts(Long memberId) {
+        Map<Long, String> linked = budgetLinkedLabels(memberId);
         return accountRepo.findByMemberIdOrderBySortOrderAsc(memberId).stream()
                 .map(acc -> {
                     List<InvestDto.HoldingResponse> holdings = holdingRepo
@@ -75,6 +108,9 @@ public class InvestService {
                     return InvestDto.AccountResponse.builder()
                             .id(acc.getId()).name(acc.getName()).type(acc.getType())
                             .targetPct(acc.getTargetPct()).sortOrder(acc.getSortOrder())
+                            .monthlyAmount(acc.getMonthlyAmount()).purpose(acc.getPurpose()).targetDate(acc.getTargetDate())
+                            .active(acc.isOn())
+                            .linkedBudgetLabel(linked.get(acc.getId()))
                             .holdings(holdings)
                             .build();
                 })
@@ -99,6 +135,8 @@ public class InvestService {
                         .targetPct(ar.getTargetPct()).sortOrder(ar.getSortOrder())
                         .build());
             }
+            account.updatePlan(nonNegativeOrNull(ar.getMonthlyAmount()), normalizePurpose(ar.getPurpose()), normalizeYearMonth(ar.getTargetDate()));
+            account.updateActive(ar.getActive());
             keptAccountIds.add(account.getId());
 
             if (ar.getHoldings() != null) {
@@ -166,6 +204,34 @@ public class InvestService {
                 .orElseThrow(() -> new IllegalArgumentException("테마를 찾을 수 없습니다: " + themeId));
     }
 
+    private static Integer nonNegativeOrNull(Integer v) {
+        if (v == null) return null;
+        if (v < 0) throw new IllegalArgumentException("납입금은 0원 이상이어야 해요");
+        return v;
+    }
+
+    private static final Set<String> PURPOSES = Set.of("RETIRE", "HOUSE", "WEDDING", "OTHER");
+    private static final Set<String> PRESETS = Set.of("LIQUIDITY", "TAX", "EQUAL", "CUSTOM");
+
+    private static String normalizePurpose(String v) {
+        if (v == null || v.isBlank()) return null;
+        if (!PURPOSES.contains(v)) throw new IllegalArgumentException("알 수 없는 계좌 목적이에요: " + v);
+        return v;
+    }
+
+    private static String normalizePreset(String v) {
+        if (v == null || v.isBlank()) return null;
+        if (!PRESETS.contains(v)) throw new IllegalArgumentException("알 수 없는 전략이에요: " + v);
+        return v;
+    }
+
+    // 'YYYY-MM' (월 01~12)만 허용
+    private static String normalizeYearMonth(String v) {
+        if (v == null || v.isBlank()) return null;
+        if (!v.matches("\\d{4}-(0[1-9]|1[0-2])")) throw new IllegalArgumentException("사용 예정 월은 YYYY-MM 형식이어야 해요: " + v);
+        return v;
+    }
+
     private static Integer positiveOrNull(Integer v) {
         return v != null && v > 0 ? v : null;
     }
@@ -213,7 +279,7 @@ public class InvestService {
         int totalPlanned = 0, totalActual = 0;
         for (InvestAccount acc : accounts) {
             for (InvestHolding h : holdingsByAccount.getOrDefault(acc.getId(), Collections.emptyList())) {
-                int planned = (int) Math.round(budget * (acc.getTargetPct() / 100.0) * (h.getTargetPct() / 100.0));
+                int planned = (int) Math.round(acc.contribution(budget) * (h.getTargetPct() / 100.0));
                 float overallPct = acc.getTargetPct() * h.getTargetPct() / 100f;
                 InvestMonthlyRecord rec = recordMap.get(h.getId());
                 if (rec == null) {
@@ -242,7 +308,7 @@ public class InvestService {
             List<InvestDto.DashboardHolding> dashHoldings = new ArrayList<>();
 
             for (InvestHolding h : holdings) {
-                int planned = (int) Math.round(budget * (acc.getTargetPct() / 100.0) * (h.getTargetPct() / 100.0));
+                int planned = (int) Math.round(acc.contribution(budget) * (h.getTargetPct() / 100.0));
                 float overallPct = acc.getTargetPct() * h.getTargetPct() / 100f;
                 InvestMonthlyRecord rec = recordMap.get(h.getId());
                 int actual = rec.getActualAmt() != null ? rec.getActualAmt() : 0;
@@ -252,7 +318,7 @@ public class InvestService {
                 float curPct = (totalEvalAmt > 0 && evalAmt != null)
                         ? evalAmt * 100f / totalEvalAmt
                         : overallPct;
-                boolean rebalanceNeeded = Math.abs(curPct - overallPct) > threshold;
+                boolean rebalanceNeeded = acc.isOn() && Math.abs(curPct - overallPct) > threshold;
 
                 // 손익 계산
                 Integer purchaseAmt = null, profitAmt = null;
@@ -285,6 +351,9 @@ public class InvestService {
             dashAccounts.add(InvestDto.DashboardAccount.builder()
                     .id(acc.getId()).name(acc.getName()).type(acc.getType())
                     .targetPct(acc.getTargetPct())
+                    .contribution(acc.contribution(budget))
+                    .purpose(acc.getPurpose()).targetDate(acc.getTargetDate())
+                    .active(acc.isOn())
                     .accountPlannedAmt(accPlanned).accountActualAmt(accActual)
                     .holdings(dashHoldings)
                     .build());
@@ -294,14 +363,26 @@ public class InvestService {
         String yearPrefix = yearMonth.substring(0, 4);
         int pensionYtd = recordRepo.sumPensionYtdActual(memberId, yearPrefix);
 
+        int contributionTotal = accounts.stream().mapToInt(a -> a.contribution(budget)).sum();
         return InvestDto.DashboardResponse.builder()
-                .yearMonth(yearMonth).monthlyBudget(budget)
+                .yearMonth(yearMonth).monthlyBudget(contributionTotal)
                 .rebalanceThreshold(threshold).pensionLimit(pensionLimit)
+                .allowSell(setting == null || setting.isSellAllowed())
+                .strategyPreset(setting != null ? setting.getStrategyPreset() : null)
                 .totalPlanned(totalPlanned).totalActual(totalActual)
                 .pensionYtdActual(pensionYtd)
                 .accounts(dashAccounts)
                 .themes(themeRepo.findByMemberIdOrderBySortOrderAsc(memberId).stream().map(InvestDto.ThemeDto::from).toList())
                 .build();
+    }
+
+    @Transactional
+    public void setAccountActive(Long memberId, Long accountId, Boolean active) {
+        if (active == null) throw new IllegalArgumentException("active 값이 필요해요");
+        accountRepo.findById(accountId)
+                .filter(a -> a.getMemberId().equals(memberId)) // 다른 회원 계좌 방지 — not-found와 같은 메시지
+                .orElseThrow(() -> new IllegalArgumentException("계좌를 찾을 수 없습니다: " + accountId))
+                .updateActive(active);
     }
 
     @Transactional

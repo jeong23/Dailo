@@ -35,4 +35,10 @@ public class AllocationItemRequestDto {
     // 프론트(parseNumber)는 '-' 부호를 제거해 음수를 막지만 API 직접 호출 시 우회 가능하므로 서버측에도 하한 검증 필요
     @Min(value = 0, message = "금액은 0 이상이어야 합니다.")
     private Integer amount;
+
+    // 연결할 투자 계좌 id (본인 계좌만, null = 연결 없음)
+    private Long investAccountId;
+
+    // 연결할 적금·청약 id (본인 것만, null = 연결 없음) — investAccountId와 함께 오면 400
+    private Long savingsId;
 }

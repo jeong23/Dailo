@@ -7,8 +7,8 @@ import com.dailo.app.dto.DashboardSummaryDto;
 import com.dailo.app.dto.EmergencyHistoryDto;
 import com.dailo.app.dto.MonthlyReportDto;
 import com.dailo.app.entity.AllocationInputMode;
+import com.dailo.app.entity.BudgetAllocationItem;
 import com.dailo.app.entity.MonthlyBudget;
-import com.dailo.app.repository.AllocationTotalProjection;
 import com.dailo.app.repository.BudgetAllocationItemRepository;
 import com.dailo.app.repository.DailyExpenseRepository;
 import com.dailo.app.repository.FixedCostRepository;
@@ -42,46 +42,28 @@ public class DashboardService {
         Integer fixedCostTotal = fixedCostRepository.sumActiveByMemberId(budget.getMember().getId());
 
         // 기타 수입 (표시용만 - 가용금액 계산에서 제외)
-        Integer extraIncomeTotal = incomeRepository.sumBySettleMonth(month);
+        Integer extraIncomeTotal = incomeRepository.sumByMemberIdAndSettleMonth(memberId, month);
 
         // 가용금액 및 분배 실시간 계산 (실수령액 - 고정비)
         Integer availableAmount = Math.max(budget.getNetSalary() - fixedCostTotal, 0);
-        Integer livingBudget     = (int)(availableAmount * budget.getLivingRate());
         Integer isaAmount        = (int)(availableAmount * budget.getIsaRate());
         Integer pensionAmount    = (int)(availableAmount * budget.getPensionRate());
-        Integer emergencyBudget  = (int)(availableAmount * budget.getEmergencyRate());
         Integer discretionaryBudget = (int)(availableAmount * budget.getDiscretionaryRate());
 
-        // 가변 개수 분배 항목 — inputMode에 따라 재계산 분기 (MonthlyBudgetService.buildAllocationItems()와 반드시 동일 원칙 유지)
-        // - RATE: rate는 저장된 값(스냅샷)을 쓰되 금액은 실시간 availableAmount로 재계산 (living/isa 등과 동일 원칙), Math.round()로 반올림
-        // - AMOUNT: 사용자가 입력한 금액 그대로 (재계산 절대 금지) — available이 바뀌어도 금액은 고정
-        final Integer availableAmountFinal = availableAmount;
-        List<AllocationItemResponseDto> allocationItems = budgetAllocationItemRepository
-                .findByMonthlyBudgetIdOrderBySortOrderAsc(budget.getId()).stream()
-                .map(item -> {
-                    boolean isAmountMode = item.getInputMode() == AllocationInputMode.AMOUNT;
-                    Integer itemBudgetAmount = isAmountMode
-                            ? (item.getBudgetAmount() != null ? item.getBudgetAmount() : 0)
-                            : (int) Math.round(availableAmountFinal * (item.getRate() != null ? item.getRate() : 0.0));
-                    return AllocationItemResponseDto.builder()
-                            .id(item.getId())
-                            .label(item.getLabel())
-                            .rate(item.getRate())
-                            .budgetAmount(itemBudgetAmount)
-                            .sortOrder(item.getSortOrder())
-                            .inputMode(item.getInputMode())
-                            .build();
-                })
-                .collect(Collectors.toList());
+        List<AllocationItemResponseDto> allocationItems = liveItems(
+                budgetAllocationItemRepository.findByMonthlyBudgetIdOrderBySortOrderAsc(budget.getId()), availableAmount);
+        // 생활비·비상금 예산 = 같은 이름의 분배 항목 금액 (없으면 레거시 고정 비율 — 2026-08 이전 달)
+        Integer livingBudget     = labeledAmount(allocationItems, LIVING, (int)(availableAmount * budget.getLivingRate()));
+        Integer emergencyBudget  = labeledAmount(allocationItems, EMERGENCY, (int)(availableAmount * budget.getEmergencyRate()));
 
         Integer allocationTotal = allocationItems.stream()
                 .mapToInt(AllocationItemResponseDto::getBudgetAmount)
                 .sum();
 
         // 지출 집계
-        Integer livingExpenseTotal   = dailyExpenseRepository.sumLivingExpense(month);
-        Integer cardExpenseTotal     = dailyExpenseRepository.sumCardExpense(month);
-        Integer emergencyExpenseTotal = dailyExpenseRepository.sumEmergencyExpense(month);
+        Integer livingExpenseTotal   = dailyExpenseRepository.sumLivingExpense(memberId, month);
+        Integer cardExpenseTotal     = dailyExpenseRepository.sumCardExpense(memberId, month);
+        Integer emergencyExpenseTotal = dailyExpenseRepository.sumEmergencyExpense(memberId, month);
 
         // 계산값
         Integer livingBalance = livingBudget + budget.getLivingCarryover() - livingExpenseTotal;
@@ -113,13 +95,13 @@ public class DashboardService {
     }
 
     @Transactional(readOnly = true)
-    public List<DailyStatsDto> getDailyStats(String month) {
-        return dailyExpenseRepository.findDailyStatsBySettleMonth(month);
+    public List<DailyStatsDto> getDailyStats(Long memberId, String month) {
+        return dailyExpenseRepository.findDailyStatsBySettleMonth(memberId, month);
     }
 
     @Transactional(readOnly = true)
-    public List<CategoryStatsDto> getCategoryStats(String month) {
-        return dailyExpenseRepository.findCategoryStatsBySettleMonth(month);
+    public List<CategoryStatsDto> getCategoryStats(Long memberId, String month) {
+        return dailyExpenseRepository.findCategoryStatsBySettleMonth(memberId, month);
     }
 
     @Transactional(readOnly = true)
@@ -135,7 +117,7 @@ public class DashboardService {
             Integer fixedCostTotal   = budget.getFixedCostTotal() != null ? budget.getFixedCostTotal() : 0;
             Integer availableAmount  = Math.max(budget.getNetSalary() - fixedCostTotal, 0);
             Integer emergencyBudget  = (int)(availableAmount * budget.getEmergencyRate());
-            Integer emergencyExpense = dailyExpenseRepository.sumEmergencyExpense(month);
+            Integer emergencyExpense = dailyExpenseRepository.sumEmergencyExpense(memberId, month);
             Integer emergencyNet     = emergencyBudget - emergencyExpense;
 
             cumulative += emergencyNet;
@@ -159,27 +141,28 @@ public class DashboardService {
             return Collections.emptyList();
         }
 
-        // N+1 방지: budgetIds를 모아 IN절 집계 쿼리 한 번만 호출 후 Map으로 그룹핑 (루프 안에서는 lookup만)
+        // N+1 방지: budgetIds를 모아 IN절로 분배 항목 한 번에 조회 후 Map으로 그룹핑 (루프 안에서는 lookup만)
         List<Long> budgetIds = budgets.stream().map(MonthlyBudget::getId).collect(Collectors.toList());
-        Map<Long, Integer> allocationTotalByBudgetId = budgetAllocationItemRepository
-                .sumBudgetAmountGroupByMonthlyBudgetIdIn(budgetIds).stream()
-                .collect(Collectors.toMap(AllocationTotalProjection::getMonthlyBudgetId, AllocationTotalProjection::getTotal));
+        Map<Long, List<BudgetAllocationItem>> itemsByBudgetId = budgetAllocationItemRepository
+                .findByMonthlyBudgetIdIn(budgetIds).stream()
+                .sorted(java.util.Comparator.comparing(i -> i.getSortOrder() != null ? i.getSortOrder() : 0))
+                .collect(Collectors.groupingBy(i -> i.getMonthlyBudget().getId()));
 
         return budgets.stream().map(budget -> {
             String month = budget.getSettleMonth();
-            Integer allocationTotal = allocationTotalByBudgetId.getOrDefault(budget.getId(), 0);
-
             Integer fixedCostTotal   = budget.getFixedCostTotal() != null ? budget.getFixedCostTotal() : 0;
-            Integer extraIncomeTotal = incomeRepository.sumBySettleMonth(month);
+            Integer extraIncomeTotal = incomeRepository.sumByMemberIdAndSettleMonth(memberId, month);
             Integer availableAmount  = Math.max(budget.getNetSalary() - fixedCostTotal, 0);
-            Integer livingBudget     = (int)(availableAmount * budget.getLivingRate());
+            List<AllocationItemResponseDto> items = liveItems(itemsByBudgetId.getOrDefault(budget.getId(), List.of()), availableAmount);
+            Integer allocationTotal  = items.stream().mapToInt(AllocationItemResponseDto::getBudgetAmount).sum();
+            Integer livingBudget     = labeledAmount(items, LIVING, (int)(availableAmount * budget.getLivingRate()));
             Integer isaAmount        = (int)(availableAmount * budget.getIsaRate());
             Integer pensionAmount    = (int)(availableAmount * budget.getPensionRate());
-            Integer emergencyBudget  = (int)(availableAmount * budget.getEmergencyRate());
+            Integer emergencyBudget  = labeledAmount(items, EMERGENCY, (int)(availableAmount * budget.getEmergencyRate()));
 
-            Integer livingExpenseTotal   = dailyExpenseRepository.sumLivingExpense(month);
-            Integer emergencyExpenseTotal = dailyExpenseRepository.sumEmergencyExpense(month);
-            Integer cardExpenseTotal     = dailyExpenseRepository.sumCardExpense(month);
+            Integer livingExpenseTotal   = dailyExpenseRepository.sumLivingExpense(memberId, month);
+            Integer emergencyExpenseTotal = dailyExpenseRepository.sumEmergencyExpense(memberId, month);
+            Integer cardExpenseTotal     = dailyExpenseRepository.sumCardExpense(memberId, month);
 
             Integer livingCarryover = budget.getLivingCarryover() != null ? budget.getLivingCarryover() : 0;
             Integer livingBalance   = livingBudget + livingCarryover - livingExpenseTotal;
@@ -195,6 +178,7 @@ public class DashboardService {
                     .extraIncomeTotal(extraIncomeTotal)
                     .availableAmount(availableAmount)
                     .allocationTotal(allocationTotal)
+                    .allocationItems(items)
                     .livingBudget(livingBudget)
                     .livingCarryover(livingCarryover)
                     .livingExpenseTotal(livingExpenseTotal)
@@ -208,5 +192,30 @@ public class DashboardService {
                     .cardAchievementRate(cardAchievementRate)
                     .build();
         }).collect(Collectors.toList());
+    }
+
+    private static final String LIVING = "생활비";
+    private static final String EMERGENCY = "비상금";
+
+    // 분배 항목 금액을 그 달 가용금액 기준으로 — MonthlyBudgetService.buildAllocationItems()와 반드시 동일 원칙
+    //  RATE: 저장된 rate × 실시간 가용금액(반올림) / AMOUNT: 입력 금액 그대로 (재계산 금지)
+    private static List<AllocationItemResponseDto> liveItems(List<BudgetAllocationItem> items, int available) {
+        return items.stream().map(item -> {
+            boolean isAmountMode = item.getInputMode() == AllocationInputMode.AMOUNT;
+            int amount = isAmountMode
+                    ? (item.getBudgetAmount() != null ? item.getBudgetAmount() : 0)
+                    : (int) Math.round(available * (item.getRate() != null ? item.getRate() : 0.0));
+            return AllocationItemResponseDto.builder()
+                    .id(item.getId()).label(item.getLabel()).rate(item.getRate())
+                    .budgetAmount(amount).sortOrder(item.getSortOrder()).inputMode(item.getInputMode())
+                    .investAccountId(item.getInvestAccountId()).savingsId(item.getSavingsId())
+                    .build();
+        }).collect(Collectors.toList());
+    }
+
+    // 이름이 같은 분배 항목 금액 — 고정 5칸(생활비 비율 등)이 0인 새 달은 이게 기준. 항목이 없으면 레거시 값
+    private static int labeledAmount(List<AllocationItemResponseDto> items, String label, int legacy) {
+        return items.stream().filter(i -> label.equals(i.getLabel() != null ? i.getLabel().trim() : null))
+                .mapToInt(AllocationItemResponseDto::getBudgetAmount).findFirst().orElse(legacy);
     }
 }

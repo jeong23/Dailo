@@ -22,9 +22,10 @@ public class IncomeService {
     private final MemberRepository memberRepository;
 
     @Transactional
-    public IncomeResponseDto create(IncomeRequestDto request) {
-        Member member = memberRepository.findById(request.getMemberId())
-                .orElseThrow(() -> new IllegalArgumentException("회원을 찾을 수 없습니다: " + request.getMemberId()));
+    // 회원은 로그인 정보로만 정함 — 요청 body의 memberId는 무시 (남의 이름으로 등록 방지)
+    public IncomeResponseDto create(Long memberId, IncomeRequestDto request) {
+        Member member = memberRepository.findById(memberId)
+                .orElseThrow(() -> new IllegalArgumentException("회원을 찾을 수 없습니다: " + memberId));
 
         Income income = Income.builder()
                 .member(member)
@@ -38,16 +39,15 @@ public class IncomeService {
         return IncomeResponseDto.from(incomeRepository.save(income));
     }
 
-    public List<IncomeResponseDto> findBySettleMonth(String settleMonth) {
-        return incomeRepository.findBySettleMonthOrderByIncomeDateDesc(settleMonth).stream()
+    public List<IncomeResponseDto> findBySettleMonth(Long memberId, String settleMonth) {
+        return incomeRepository.findByMemberIdAndSettleMonthOrderByIncomeDateDesc(memberId, settleMonth).stream()
                 .map(IncomeResponseDto::from)
                 .collect(Collectors.toList());
     }
 
     @Transactional
-    public IncomeResponseDto update(Long id, IncomeRequestDto request) {
-        Income income = incomeRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("수입을 찾을 수 없습니다: " + id));
+    public IncomeResponseDto update(Long memberId, Long id, IncomeRequestDto request) {
+        Income income = findOwned(memberId, id);
 
         income.update(
                 request.getAmount(),
@@ -61,10 +61,17 @@ public class IncomeService {
     }
 
     @Transactional
-    public void delete(Long id) {
-        if (!incomeRepository.existsById(id)) {
+    public void delete(Long memberId, Long id) {
+        incomeRepository.delete(findOwned(memberId, id));
+    }
+
+    // 다른 회원 수입 수정·삭제 방지 (IDOR) — 존재 여부가 드러나지 않게 같은 메시지
+    private Income findOwned(Long memberId, Long id) {
+        Income income = incomeRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("수입을 찾을 수 없습니다: " + id));
+        if (!income.getMember().getId().equals(memberId)) {
             throw new IllegalArgumentException("수입을 찾을 수 없습니다: " + id);
         }
-        incomeRepository.deleteById(id);
+        return income;
     }
 }

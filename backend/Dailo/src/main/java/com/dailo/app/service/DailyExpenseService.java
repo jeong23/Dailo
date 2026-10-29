@@ -25,9 +25,8 @@ public class DailyExpenseService {
     private final CategoryRepository categoryRepository;
 
     @Transactional
-    public DailyExpenseResponseDto create(DailyExpenseRequestDto request) {
-        MonthlyBudget monthlyBudget = monthlyBudgetRepository.findById(request.getMonthlyBudgetId())
-                .orElseThrow(() -> new IllegalArgumentException("월별 예산을 찾을 수 없습니다: " + request.getMonthlyBudgetId()));
+    public DailyExpenseResponseDto create(Long memberId, DailyExpenseRequestDto request) {
+        MonthlyBudget monthlyBudget = findOwnedBudget(memberId, request.getMonthlyBudgetId());
 
         Category category = categoryRepository.findById(request.getCategoryId())
                 .orElseThrow(() -> new IllegalArgumentException("카테고리를 찾을 수 없습니다: " + request.getCategoryId()));
@@ -47,28 +46,26 @@ public class DailyExpenseService {
         return DailyExpenseResponseDto.from(dailyExpenseRepository.save(expense));
     }
 
-    public DailyExpenseResponseDto findById(Long id) {
-        DailyExpense expense = dailyExpenseRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("지출을 찾을 수 없습니다: " + id));
-        return DailyExpenseResponseDto.from(expense);
+    public DailyExpenseResponseDto findById(Long memberId, Long id) {
+        return DailyExpenseResponseDto.from(findOwned(memberId, id));
     }
 
-    public List<DailyExpenseResponseDto> findByMonthlyBudgetId(Long monthlyBudgetId) {
+    public List<DailyExpenseResponseDto> findByMonthlyBudgetId(Long memberId, Long monthlyBudgetId) {
+        findOwnedBudget(memberId, monthlyBudgetId);
         return dailyExpenseRepository.findByMonthlyBudgetIdOrderByExpenseDateDescCreatedAtDesc(monthlyBudgetId).stream()
                 .map(DailyExpenseResponseDto::from)
                 .collect(Collectors.toList());
     }
 
-    public List<DailyExpenseResponseDto> findBySettleMonth(String settleMonth) {
-        return dailyExpenseRepository.findBySettleMonthOrderByExpenseDateDescCreatedAtDesc(settleMonth).stream()
+    public List<DailyExpenseResponseDto> findBySettleMonth(Long memberId, String settleMonth) {
+        return dailyExpenseRepository.findByMonthlyBudgetMemberIdAndSettleMonthOrderByExpenseDateDescCreatedAtDesc(memberId, settleMonth).stream()
                 .map(DailyExpenseResponseDto::from)
                 .collect(Collectors.toList());
     }
 
     @Transactional
-    public DailyExpenseResponseDto update(Long id, DailyExpenseRequestDto request) {
-        DailyExpense expense = dailyExpenseRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("지출을 찾을 수 없습니다: " + id));
+    public DailyExpenseResponseDto update(Long memberId, Long id, DailyExpenseRequestDto request) {
+        DailyExpense expense = findOwned(memberId, id);
 
         Category category = categoryRepository.findById(request.getCategoryId())
                 .orElseThrow(() -> new IllegalArgumentException("카테고리를 찾을 수 없습니다: " + request.getCategoryId()));
@@ -87,10 +84,27 @@ public class DailyExpenseService {
     }
 
     @Transactional
-    public void delete(Long id) {
-        if (!dailyExpenseRepository.existsById(id)) {
+    public void delete(Long memberId, Long id) {
+        dailyExpenseRepository.delete(findOwned(memberId, id));
+    }
+
+    // 지출 소유자 = 연결된 월별 예산의 회원. 다른 회원 것이면 없는 것과 같은 메시지 (IDOR — 존재 여부 숨김)
+    private DailyExpense findOwned(Long memberId, Long id) {
+        DailyExpense expense = dailyExpenseRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("지출을 찾을 수 없습니다: " + id));
+        if (!expense.getMonthlyBudget().getMember().getId().equals(memberId)) {
             throw new IllegalArgumentException("지출을 찾을 수 없습니다: " + id);
         }
-        dailyExpenseRepository.deleteById(id);
+        return expense;
+    }
+
+    // 남의 monthlyBudgetId로 지출을 등록하거나 목록을 보는 것 방지
+    private MonthlyBudget findOwnedBudget(Long memberId, Long monthlyBudgetId) {
+        MonthlyBudget budget = monthlyBudgetRepository.findById(monthlyBudgetId)
+                .orElseThrow(() -> new IllegalArgumentException("월별 예산을 찾을 수 없습니다: " + monthlyBudgetId));
+        if (!budget.getMember().getId().equals(memberId)) {
+            throw new IllegalArgumentException("월별 예산을 찾을 수 없습니다: " + monthlyBudgetId);
+        }
+        return budget;
     }
 }

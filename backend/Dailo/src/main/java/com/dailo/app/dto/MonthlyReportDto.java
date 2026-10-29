@@ -16,7 +16,8 @@ public class MonthlyReportDto {
     private Integer fixedCostTotal;
     private Integer extraIncomeTotal;
     private Integer availableAmount;
-    private Integer allocationTotal; // 가변 예산 분배 항목(budget_allocation_item) budgetAmount 합계 — N+1 방지 위해 IN절 집계 쿼리로 조회
+    private Integer allocationTotal; // 가변 예산 분배 항목(budget_allocation_item) budgetAmount 합계
+    private java.util.List<AllocationItemResponseDto> allocationItems; // 그 달 분배 항목 (리포트가 고정 5칸 대신 이걸 표시)
 
     // 생활비
     private Integer livingBudget;

@@ -225,7 +225,11 @@ public class QuoteService {
             if (data instanceof QuoteDto.Status st) lastMarketOpen = st.marketOpen();
             try {
                 emitter.send(SseEmitter.event().name(event).data(data, MediaType.APPLICATION_JSON));
-            } catch (IOException | IllegalStateException e) {
+            } catch (IOException e) {
+                // 브라우저가 이미 끊음 (탭 닫기·새로고침·페이지 이동) — 컨테이너가 정리하므로 complete() 하지 않음
+                //  끊긴 연결에 complete()를 부르면 AsyncRequestNotUsableException이 '서버 오류' ERROR 로그로 찍혔음
+                subscribers.remove(this);
+            } catch (IllegalStateException e) {
                 drop();
             }
         }
@@ -233,7 +237,9 @@ public class QuoteService {
         synchronized void heartbeat() {
             try {
                 emitter.send(SseEmitter.event().comment("ping"));
-            } catch (IOException | IllegalStateException e) {
+            } catch (IOException e) {
+                subscribers.remove(this); // 끊긴 연결 — complete() 하지 않음 (send 참고)
+            } catch (IllegalStateException e) {
                 drop();
             }
         }

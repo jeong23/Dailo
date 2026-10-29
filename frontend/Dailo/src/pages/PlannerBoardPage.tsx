@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api/axios';
 import { handleListKeyDown, startListOnFocus, isBlankList } from '../utils/listTextarea';
+import { useServerNote } from '../hooks/useServerNote';
 
 interface Big3Item {
   content: string;
@@ -28,10 +29,9 @@ export const PlannerBoardPage = () => {
   const [entries, setEntries] = useState<Record<string, DayEntry>>({});
   const [loading, setLoading] = useState(false);
 
-  // 월간 메모 (localStorage)
-  const memoKey = `plannerGoals-${year}-${String(month).padStart(2, '0')}`;
-  const [memo, setMemo] = useState('');
-  const [memoSaved, setMemoSaved] = useState(false);
+  // 월간 메모 — 서버 저장 (예전 localStorage 'plannerGoals-YYYY-MM'은 처음 열 때 옮김). 글머리 기호만 남은 메모는 빈 값으로
+  const ymKey = `${year}-${String(month).padStart(2, '0')}`;
+  const { memo, setMemo, saved: memoSaved } = useServerNote(`planner-${ymKey}`, `plannerGoals-${ymKey}`, v => (isBlankList(v) ? '' : v));
 
   const fetchBoard = useCallback(async (y: number, m: number) => {
     setLoading(true);
@@ -48,23 +48,6 @@ export const PlannerBoardPage = () => {
   }, []);
 
   useEffect(() => { fetchBoard(year, month); }, [year, month, fetchBoard]);
-
-  // 월 바뀌면 메모 로드
-  useEffect(() => {
-    setMemo(localStorage.getItem(memoKey) || '');
-    setMemoSaved(false);
-  }, [memoKey]);
-
-  // 메모 자동저장
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      // 글머리 기호만 남은 메모는 빈 값으로 저장
-      const value = isBlankList(memo) ? '' : memo;
-      localStorage.setItem(memoKey, value);
-      if (value) setMemoSaved(true);
-    }, 600);
-    return () => clearTimeout(timer);
-  }, [memo, memoKey]);
 
   const moveMonth = (delta: number) => {
     setYm(prev => {
@@ -261,7 +244,7 @@ export const PlannerBoardPage = () => {
         </div>
         <textarea
           value={memo}
-          onChange={e => { setMemo(e.target.value); setMemoSaved(false); }}
+          onChange={e => setMemo(e.target.value)}
           onKeyDown={handleListKeyDown}
           onFocus={startListOnFocus}
           onBlur={() => { if (memo && isBlankList(memo)) setMemo(''); }}

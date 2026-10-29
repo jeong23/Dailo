@@ -3,11 +3,13 @@
 ## 파일 구조
 - **계산 로직**: `frontend/Dailo/src/utils/taxCalc.ts` — 순수 함수, 두 페이지에서 공유
 - **계산기 UI**: `src/pages/BudgetSettingsPage.tsx` 하단 — 실수령액 자동 연동, 결과 읽기 전용
-- **요약 카드**: `src/pages/InvestSettingsPage.tsx` 상단 — localStorage에서 결과 읽어 표시
+- **요약 카드**: `src/pages/InvestSettingsPage.tsx` 기본 설정 탭 — 최신 월별 예산 netSalary + 서버 입력값으로 직접 계산
+- **'세액공제 우선' 프리셋**: `utils/strategyPresets.ts` splitContribution(..., taxCaps) — 요약 카드의 pensionMonthly/irpMonthly를 한도로 씀
 
-## localStorage 키 (`taxCalc.ts` 상수)
-- `taxCalcInputs`: `{ isProbation, probEndMonth, joinMonth }` — 입력값 유지
-- `taxCalcResult`: `TaxCalcResult` 전체 객체 — 투자설정 요약 카드가 읽음
+## 저장 (2026-10-29 회원별 서버로 이전)
+- 입력값: `invest_setting.tax_join_month / tax_probation / tax_prob_end_month` — `PUT /api/invest/setting/tax-inputs` {joinMonth, probation, probEndMonth}, GET /invest/setting 응답에 포함
+- 결과는 저장하지 않음 — 필요한 화면에서 매번 계산 (예전 localStorage `taxCalcResult`는 기기별이라 다른 기기·다른 회원에게 틀린 값이 보였음)
+- 예전 localStorage `taxCalcInputs`는 서버 값이 없을 때 한 번 읽어 서버로 옮기고 삭제 (BudgetSettingsPage)
 
 ## 입력값 (BudgetSettingsPage)
 - 실수령액: 이미 입력된 `netSalary` 상태 자동 사용 (중복 입력 없음)

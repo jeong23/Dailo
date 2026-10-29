@@ -163,7 +163,7 @@ export function housingSummary(h: HousingInput, today: string) {
   };
 }
 
-/** 자산 배분 '적금' 칸에 들어갈 지금 쌓인 돈 — 종류에 맞게 (적금은 정부기여금 포함) */
+/** 자산 현황 '적금' 칸에 들어갈 지금 쌓인 돈 — 종류에 맞게 (적금은 정부기여금 포함) */
 export function currentPrincipal(s: SavingsInput & HousingInput & { kind?: string | null }, today: string): number {
   return s.kind === 'HOUSING' ? housingSummary(s, today).principal : savingsSummary(s, today).current;
 }

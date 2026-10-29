@@ -526,7 +526,7 @@ export const RunningPage = () => {
       {/* ── 탭 ── */}
       <div className="bg-white dark:bg-dark-card border-b border-slate-200 dark:border-dark-border px-4 pt-4 pb-0">
         <div className="flex items-center justify-between mb-4">
-          <h1 className="text-2xl font-bold dark:text-dark-text">활동</h1>
+          <h1 className="text-2xl font-bold dark:text-dark-text">운동 기록</h1>
           <button
             onClick={() => { setGoalForm({ targetCount: goal?.targetCount ?? 12, targetDistanceKm: goal?.targetDistanceKm != null ? String(goal.targetDistanceKm) : '' }); setShowGoalModal(true); }}
             className="text-sm text-primary-500 font-semibold"

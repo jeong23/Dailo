@@ -64,9 +64,7 @@ dailo                      # /Users/user/Desktop/workspace/Dailo 로 이동
   ```
 
 ## 다음 작업 후보
-- [ ] 🔴 [Critical/보안] DailyExpense 지출 집계 쿼리에 memberId 필터 없음 — 다른 회원 지출 데이터 노출 (IDOR) [backend]
-  - 2026-08-03 security-expert + qa-tester 점검에서 발견 및 실측 재현됨 (member13으로 조회했는데 member1의 실제 지출액이 그대로 응답됨)
-  - 원인: `DailyExpense` 엔티티에 member(FK) 컬럼 자체가 없음. `DailyExpenseRepository`의 `sumLivingExpense`/`sumCardExpense`/`sumEmergencyExpense`/`findDailyStatsBySettleMonth`/`findCategoryStatsBySettleMonth` 전부 `WHERE settleMonth = :month`만으로 집계 — settle_month는 회원 간 유니크하지 않아 같은 달에 예산을 등록한 모든 회원의 지출이 합산되어 노출됨
-  - 영향 범위: `DashboardService.getSummary()`의 livingExpenseTotal/cardExpenseTotal/emergencyExpenseTotal/livingBalance/cardAchievementRate, `getMonthlyReport()` 동일 필드, `DashboardController.getDailyStats()`/`getCategoryStats()`(현재 `@AuthenticationPrincipal`조차 안 받음)
-  - 수정 방향: `DailyExpense`에 `member`(FK) 컬럼 추가 → 위 5개 쿼리 전부 `AND e.member.id = :memberId` 조건 추가, `DashboardController`의 두 엔드포인트에 `@AuthenticationPrincipal CustomUserDetails` 추가. 기존 로우 마이그레이션 필요(단일/소수 사용자 운영 중이면 현재 로우를 소유 회원 id로 일괄 채우면 됨)
+- [x] ~~🔴 DailyExpense 지출 집계 IDOR~~ — 2026-10-29 수정: member 컬럼 추가 대신 monthlyBudget.member로 소유자 판정, 지출·수입·습관·러닝·대시보드 통계 전부 회원 범위로 (backend CLAUDE.md 'IDOR 회원 범위 규칙')
+- [ ] 카테고리(category)는 전 회원 공용 + CategoryController 인증 사용자 누구나 생성·수정·삭제 가능 — 런칭 전 회원별 카테고리 or 관리자 전용으로 결정 필요 [backend]
+- [ ] 런칭 전 법률 검토: 계좌별 매수 수량 안내가 투자자문/유사투자자문에 해당하는지 (현재는 사용자가 넣은 종목·규칙만 계산, 상품 추천 없음) [공통]
 - [ ] N+1 쿼리 개선 (getMonthlyReport/getEmergencyHistory — 월 수 × 2 쿼리 발생) [backend]

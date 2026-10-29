@@ -8,7 +8,7 @@ import { THEME_COLORS } from '../utils/themeDefaults';
 import { currentPrincipal, toYmd } from '../utils/savings';
 import { LIQUIDITY_DISCLAIMER, accountTypeLabel, liquidityOf } from '../utils/accountLiquidity';
 
-// 자산 배분 — 전체 자산을 칸(현금·투자·부동산·적금 …)으로 나눠 목표 비중 대비 현재를 본다.
+// 자산 현황 (/assets, 옛 /allocation) — 전체 자산을 칸(현금·투자·부동산·적금 …)으로 모아 보고, 맨 아래 '목표 배분'에서 목표 비중 대비 현재를 본다.
 //  CASH: 현금 자산 페이지 최신 잔액 / INVEST: 투자 현황 평가금액 합계(시세 반영) / SAVINGS: 적금 현재 원금 합계 / MANUAL: 직접 입력
 //  투자 칸 안은 테마 비중(투자 설정 > 테마)으로 한 번 더 나눠 보여줌
 //  꺼낼 수 있는 돈 / 묶인 돈: 현금·적금·일반·ISA vs 연금저축·IRP (계좌 종류로 판단 — utils/accountLiquidity), 직접 입력 칸은 제외
@@ -114,8 +114,8 @@ export const AllocationPage = () => {
     <div className="space-y-5 max-w-3xl">
       <div className="flex items-end justify-between gap-3 flex-wrap">
         <div>
-          <p className="text-xs font-medium text-slate-400 dark:text-slate-500 mb-1">현금 · 투자 · 부동산 · 적금</p>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-dark-text">자산 배분</h1>
+          <p className="text-xs font-medium text-slate-400 dark:text-slate-500 mb-1">현금 · 투자 · 부동산 · 적금 — 내 돈이 지금 어디에 얼마</p>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-dark-text">자산 현황</h1>
         </div>
         <button onClick={() => setEditing(buckets.map(b => ({ ...b })))}
           className="h-11 px-4 rounded-full bg-white dark:bg-dark-card shadow-[0_1px_8px_rgba(0,0,0,0.06)] dark:shadow-none text-sm font-medium text-slate-600 dark:text-slate-300 hover:text-primary-600">
@@ -202,8 +202,12 @@ export const AllocationPage = () => {
             </section>
           )}
 
-          {/* 칸별 상세: 현재 vs 목표, 얼마나 옮겨야 하는지 */}
+          {/* 목표 배분 — 칸별 현재 vs 목표, 얼마나 옮겨야 하는지 */}
           <section className="space-y-3">
+            <div className="flex items-end justify-between gap-2 px-1 pt-2">
+              <h2 className="text-base font-semibold text-slate-800 dark:text-dark-text">목표 배분</h2>
+              <p className="text-xs text-slate-400">목표 대비 모자람·넘침</p>
+            </div>
             {buckets.map((b, i) => {
               const amount = amountOf(b);
               const cur = total > 0 ? (amount / total) * 100 : 0;
@@ -234,7 +238,7 @@ export const AllocationPage = () => {
                   </div>
                   {missing && (
                     <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
-                      {b.kind === 'CASH' ? <>현금 자산 기록이 없어요 — <Link to="/emergency" className="underline">현금 자산</Link>에서 입력</>
+                      {b.kind === 'CASH' ? <>현금 자산 기록이 없어요 — <Link to="/cash" className="underline">현금 자산</Link>에서 입력</>
                         : b.kind === 'SAVINGS' ? <>등록된 적금이 없어요 — <Link to="/savings" className="underline">적금</Link>에서 추가</>
                         : <>금액이 비어 있어요 — 위의 '목표·금액 수정'에서 입력</>}
                     </p>
@@ -261,12 +265,12 @@ export const AllocationPage = () => {
                           <Link to="/invest" className="mt-2 inline-block text-xs font-medium text-primary-500 min-h-[32px] leading-8">투자 현황에서 리밸런싱 →</Link>
                         </>
                       ) : (
-                        <p className="text-xs text-slate-400">투자 안 비중은 <Link to="/invest/settings" className="underline">투자 설정 &gt; 테마</Link>에서 나눌 수 있어요</p>
+                        <p className="text-xs text-slate-400">투자 안 비중은 <Link to="/accounts?tab=invest" className="underline">내 계좌 &gt; 투자 &gt; 테마</Link>에서 나눌 수 있어요</p>
                       )}
                     </div>
                   )}
                   {b.kind === 'CASH' && (
-                    <Link to="/emergency" className="mt-2 inline-block text-xs font-medium text-primary-500 min-h-[32px] leading-8">현금 자산 →</Link>
+                    <Link to="/cash" className="mt-2 inline-block text-xs font-medium text-primary-500 min-h-[32px] leading-8">현금 자산 →</Link>
                   )}
                   {b.kind === 'SAVINGS' && (
                     <Link to="/savings" className="mt-2 inline-block text-xs font-medium text-primary-500 min-h-[32px] leading-8">적금 →</Link>

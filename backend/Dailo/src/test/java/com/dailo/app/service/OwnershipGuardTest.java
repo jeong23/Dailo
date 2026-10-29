@@ -28,7 +28,7 @@ class OwnershipGuardTest {
             mock(InvestSettingRepository.class), mock(InvestAccountRepository.class),
             mock(InvestHoldingRepository.class), recordRepo, diaryRepo,
             mock(org.springframework.context.ApplicationEventPublisher.class),
-            mock(InvestThemeRepository.class));
+            mock(InvestThemeRepository.class), mock(MonthlyBudgetRepository.class), mock(BudgetAllocationItemRepository.class));
 
     private final WorkoutLogRepository logRepo = mock(WorkoutLogRepository.class);
     private final WorkoutSetRepository setRepo = mock(WorkoutSetRepository.class);

@@ -4,12 +4,15 @@ import jakarta.persistence.*;
 import lombok.*;
 
 @Entity
-@Table(name = "running_goal", uniqueConstraints = @UniqueConstraint(columnNames = {"year", "month"}))
+@Table(name = "running_goal", uniqueConstraints = @UniqueConstraint(name = "uk_running_goal_member_ym", columnNames = {"member_id", "year", "month"}))
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @AllArgsConstructor
 @Builder
 public class RunningGoal extends BaseEntity {
+
+    @Column(nullable = false)
+    private Long memberId;
 
     @Column(nullable = false)
     private Integer year;

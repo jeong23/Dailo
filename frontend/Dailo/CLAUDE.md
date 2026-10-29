@@ -29,16 +29,17 @@ src/
 | /fixed-costs | FixedCostPage | 고정비 관리 |
 | /savings | SavingsPage | 적금·주택청약 (쌓이는 돈 — 고정비와 분리) |
 | /report | ReportPage | 월별 정산 리포트 |
-| /emergency | EmergencyPage | 비상금 누적 흐름 |
-| /settings | BudgetSettingsPage | 월별 예산 설정 |
+| /cash | EmergencyPage | 현금 자산 (달별 추이). 옛 /emergency는 리다이렉트 — 파일명만 옛 이름 |
+| /settings | BudgetSettingsPage | 예산 설정 (사이드바 가계부 그룹) |
 | /todo | TodoPage | 일일 플래너 (SIMOL 다이어리 구조) |
 | /planner-board | PlannerBoardPage | 월간 플래너 보드 (달력 뷰) |
 | /running | RunningPage | 운동 기록 (NRC 스타일) |
 | /habits | HabitPage | 습관 트래커 |
-| /allocation | AllocationPage | 자산 배분 (현금·투자·부동산·적금 목표 vs 현재) |
+| /assets | AllocationPage | 자산 현황 (현금·투자·부동산·적금 합계 + 목표 배분). 옛 /allocation은 리다이렉트 |
 | /invest | InvestDashboardPage | 투자 현황 |
 | /invest/diary | InvestDiaryPage | 투자일기 |
-| /invest/settings | InvestSettingsPage | 투자 설정 |
+| /accounts | MyAccountsPage | 내 계좌 — 현금·적금/청약·투자 계좌 등록·관리 한곳 (?tab=cash/savings/invest) |
+| /invest/settings | → /accounts?tab=invest | 리다이렉트 (InvestSettingsPage는 내 계좌 투자 탭에 embedded) |
 
 ## 핵심 유틸 (src/utils/format.ts)
 - formatNumber(value): 숫자 → "1,000,000" 콤마 포맷
@@ -115,11 +116,13 @@ src/
   - TIME_BOX_SLOT(텍스트 입력)과 TIME_BOX_BLOCK(블록)은 동일 셀에 공존
   - 블록 생성: 클릭으로 시작점 선택(파란 하이라이트) → Shift+클릭으로 끝점 선택 → 블록 생성
   - 블록 삭제: 블록 내 ✕ 버튼
-  - 블록 렌더링: time.jpeg 참고 디자인 — 3열(시간 | 30mins | 30mins), 블록은 colSpan=2+rowSpan=N
+  - 시간 범위 05~다음날 04시(2026-10-29): 자정 이후는 같은 플랜 날짜에 hour=24..28로 저장, 라벨은 hourLabel()로 24 / 01~04 — 0~4로 저장하면 정렬·slotToIndex가 깨짐
+  - 블록 렌더링: time.jpeg 참고 3열(시간 | 30mins | 30mins)을 **CSS grid**로 — table 아님. 30분 단위 블록은 blockPieces()로 앞 반 칸 / 꽉 찬 시간들 / 뒤 반 칸 조각으로 나눠 그림, 입력은 가장 큰 조각에만
   - 블록 색상: 내용 없음=회색, 내용+미완료=빨강 border+배경, 완료=초록 border+배경
-  - 블록은 시간 단위(hour-level)로만 병합 가능 — 30분 단위 병합은 HTML table 구조상 불가
-  - slotToIndex(hour, slot) = (hour - 5) * 2 + slot
-  - getCoveringBlock(hour, slot): 해당 슬롯을 덮는 블록 탐색
+  - 선택: 데스크탑 Shift+클릭 → 시작, 다른 칸 클릭 → 생성(호버 미리보기, Esc 취소) / '＋ 블록 만들기' 모드(폰·데스크탑) = 드래그 또는 시작·끝 탭
+    → 모드 중 칸은 touch-none(스크롤은 시간 열), move/up은 window에서 받고 data-slot-idx + elementFromPoint로 판정, 기존 블록과 겹치면 생성 거부
+    → 탭으로 생성 직후 따라오는 click이 완료 토글로 처리되지 않게 suppressClickUntil
+  - slotToIndex(hour, slot) = (hour - 5) * 2 + slot / indexToSlot은 역변환
 - 미래 시각화 = `components/VisionBoard.tsx` 보드 (2026-10): 회원별 보드 하나(날짜 무관), 사진 최대 20장 자유 배치
   → 업로드는 shrinkImage(긴 변 1920px JPEG, GIF·1MB 미만은 원본) → upload-image → POST /vision-board, 여러 장 선택 가능
   → 위치·크기는 보드 대비 %(보드 aspect 4:3 고정) — 폭이 달라도 같은 배치. 크기 조절은 오른쪽 아래 ●, 사진 비율 유지
@@ -199,7 +202,15 @@ src/
 - 표 ↔ 카드 리스트 전환은 **lg** 기준(`lg:hidden` / `hidden lg:block`) — md 기준이면 폴드 펼침 화면에서 표가 너무 좁음
 - TodoPage: min-w-[800px] 금지 — 1열(모바일) → 2열+TimeBox 전체폭(md) → 3열(xl), 터치 기기는 Shift 대신 두 번째 칸 탭으로 블록 생성
 
+## 공통 UI (2026-10-29 정리)
+- 알림은 전부 useToast() + <Toast /> — alert() 금지 (confirm은 삭제 확인에만)
+- 달별 메모는 서버: hooks/useServerNote(key, legacyKey) — GET/PUT /notes/{budget|planner}-YYYY-MM, 예전 localStorage 값은 처음 열 때 옮기고 지움
+- 이름 통일: 메뉴 = 페이지 제목 (지출 / 수입, 예산 설정, 현금 자산, 운동 기록, 월간 플래너, 오늘 플래너)
+- 홈 '투자 납입' 카드: 실적 = 지출 '투자' 분류 합계, 계획 = 투자 계좌에 연결된 예산 항목 합계
+
 ## 사이드바 규칙
+- 그룹(2026-10-29): 가계부(대시보드·지출/수입·고정비·리포트·예산 설정 — 돈의 흐름) / 자산(자산 현황·현금 자산·적금·청약·투자 현황·투자일기 — 쌓인 돈, 보기 전용) / Daily. 등록·수정은 하단 '내 계좌'
+  → '자산 현황'은 /assets 이름 — 홈 대시보드 제목은 'N월 예산 현황' (같은 이름 쓰지 말 것)
 - Layout.tsx: 상단 «/» 버튼으로 전체 slim 모드(w-14, 아이콘만) ↔ 전체(w-56) 토글
 - 그룹: 가계부(대시보드·지출/수입·고정비·리포트·현금 자산) / 투자(투자 현황·투자일기) / Daily — 그룹 헤더 클릭으로 접기/펼치기
   → 투자 설정은 사이드바에 없음: 투자 현황 헤더 ⚙️ 설정 버튼으로 진입, /invest/settings에선 '투자 현황'을 활성 표시 + 상단 '← 투자 현황' 링크
@@ -279,11 +290,37 @@ src/
     **살 수 있는 테마가 적은 계좌부터** 1주씩, 전체 기준 부족 비율이 가장 큰 테마의 그 계좌 종목을 매수, 목표 채운 테마는 안 삼, 못 쓴 돈은 '남는 돈'
     (라운드 로빈이면 선택지 많은 연금이 원자재를 먼저 채워 ISA 돈이 35만원 남았음 — 순서 바꾸지 말 것)
   → 중복 종목코드·현재가 없는 보유 종목이 있으면 계산 안 하고 blockers로 안내
+  → '매도 없이 납입금으로만' 토글(localStorage 'themeAllowSell') = rebalanceByTheme(..., { sell: false }) — 주식 테마 매도 생략, 현금성 '사용'은 유지
   → 테마 없으면 예전 계좌 단위 추천(rebalancePlan) 그대로
 - 계좌 종류 PENSION/IRP/ISA/GENERAL — 라벨·인출 조건 문구는 `utils/accountLiquidity.ts` 단일 소스(세법 바뀌면 여기만), 페이지에 TYPE_LABEL 다시 만들지 말 것
   → 연금저축·IRP = 55세까지 묶인 돈, ISA·일반 = 꺼낼 수 있는 돈. 화면엔 LIQUIDITY_DISCLAIMER(참고용) 같이 표시
 - 금액 줄(예수금·MMF·펀드): 종목코드 없이 manualValue — 평균단가만 있고 코드·수량 없는 줄은 불러올 때·저장할 때 manualValue로 옮김(priceOnlyToAmount), 계좌 단위 리밸런싱에선 제외
 - 자산 배분 페이지: CASH=현금 자산 최신 잔액(/cash-assets 마지막), INVEST=투자 평가금액(시세 /invest/quotes 반영), MANUAL=직접 입력. 목표 대비 부족/초과 금액, 투자 칸 아래 테마 비중
+
+## 투자 전략·납입 정책 (2026-10-29)
+- 사실(계좌·종목) / 전략(납입·목표·매도) / 계산(rebalance*) 분리. 전략은 서버 저장 — localStorage 'themeAllowSell'은 폐기
+- 계좌 납입금: acc.monthlyAmount (비우면 월 투자금 × 계좌 %). 대시보드는 응답의 acc.contribution 사용 — monthlyBudget × targetPct 직접 계산 금지
+- 프리셋 `utils/strategyPresets.ts` (테스트 __tests__/strategyPresets.test.ts): 질문 3개 → recommendPreset, splitContribution(LIQUIDITY=ISA 전부 / TAX=연금 50만→IRP 25만→ISA / EQUAL=계좌 %)
+  → 적용은 폼 값만 바꿈(저장바로 저장). 종목·상품은 추천하지 않음
+- 비중 맞출 때 팔기도 하기(allowSell): 투자 설정 스위치 + 대시보드 토글 둘 다 /invest/setting 저장. rebalancePlan·rebalanceByTheme 둘 다 { sell } 옵션
+- 계좌 목적·쓸 날짜 `utils/goalRisk.ts`: 날짜 있는 비노후 계좌만 남은 개월별 위험자산 상한(36개월 초과 없음 / 60 / 40 / 20%) 넘으면 대시보드 안내(참고용)
+- 예산 설정 항목마다 '투자 계좌' 연결 select — 최신 달 저장 시 서버가 계좌 납입금 동기화
+  → 연결이 하나도 없는 달은 항목명으로 자동 연결 제안(utils/accountLink.ts suggestLinks — IRP→ISA→연금 순 매칭), 달마다 한 번
+  → 투자 설정에서 연동 계좌(GET /invest/accounts linkedBudgetLabel)는 월 납입금 읽기 전용 + 예산 설정 링크, 프리셋은 연동 안 된 계좌만 나눔
+- 세액공제 계산기 입력은 회원별 서버 저장(PUT /invest/setting/tax-inputs) — localStorage taxCalcResult 읽기 금지 (docs/tax-calc.md '저장')
+  → '세액공제 우선' 프리셋은 회원 연봉 기준 추천액(pensionMonthly/irpMonthly)까지만 연금·IRP에, 없을 때만 법정 한도 50만/25만
+
+## 내 계좌 (/accounts, 2026-10-29)
+- 계좌 등록·수정은 여기 한곳 — 다른 화면(현금 자산·적금·투자 현황·자산 배분)은 보여주기만. 사이드바 하단 '내 계좌'(설정 위)
+  → 탭: 현금(components/CashAccountsPanel) / 적금·청약(<SavingsPage embedded />) / 투자(<InvestSettingsPage embedded />). embedded면 페이지 제목 숨김
+  → /savings 단독 화면은 보기 전용: 카드·추가 버튼 누르면 /accounts?tab=savings로. 투자 설정 링크는 모두 /accounts?tab=invest
+- 현금 계좌: GET/POST/PUT/DELETE /cash-accounts, PATCH /cash-accounts/{id}/active — 변경 API는 ?settleMonth=getCurrentSettleMonth() 필수
+  → 서버가 그 달 cash_asset.balance = 켜진 계좌 합계로 맞춤 → 현금 자산 추이·자산 배분 CASH 칸은 그대로 cash_asset을 읽음
+  → 계좌가 0개면 예전 방식(현금 자산 화면 직접 입력). 계좌가 있으면 EmergencyPage 입력 폼 대신 '현금 계좌 관리 →' 안내
+  → 계좌 0개 + 기록 있음이면 최신 잔액을 '기본 현금' 계좌로 가져오기 버튼 (자동 생성 안 함 — 다 지운 사용자에게 다시 생기면 안 됨)
+- 예산 항목 연결: 투자 계좌(investAccountId) 또는 적금·청약(savingsId) 중 하나 — select 값 'invest:ID' / 'savings:ID'
+  → 최신 달 저장 시 적금 monthlyAmount도 예산 금액으로 바뀜(원금 = 월납 × 회차 계산이라 과거 회차 원금도 같이 바뀜 — 금액이 바뀐 적금은 paidOverride/잔액 확인)
+  → suggestLinks(items, accounts, savings): 적금 이름 포함 매칭 먼저, '청약' 항목 → 주택청약, 그다음 투자 계좌 규칙
 
 ## SavingsPage 규칙 (적금)
 - 고정비(사라지는 돈)와 분리 — 적금은 자산. 자산 배분 SAVINGS 칸 금액 = 적금 현재 원금 합계(만기 지나도 삭제 전까지 포함)
@@ -306,6 +343,11 @@ src/
 - 백엔드 POST /invest/diary는 날짜 기준 upsert → 수정 중 날짜를 바꾸면 저장 후 옛 id DELETE 필요, 같은 날짜 기존 기록은 폼에서 덮어쓰기 경고
 
 ## InvestSettingsPage 규칙
+- 계좌 사용 토글(active, 2026-10-29): 끄면 카드 흐리게 + 안내, 납입금 0·프리셋 분배 제외. 투자 현황에선 회색 배지·맨 아래·입력 버튼 숨김
+  → 스위치는 투자 설정·투자 현황 둘 다, **저장바 없이 바로 저장** PATCH /invest/accounts/{id}/active (새 계좌만 저장바로)
+  → 정렬 offLast(안정 정렬) — 설정은 토글 즉시 옮기고 그 카드로 스크롤 + savedSnapshot의 같은 계좌도 바꿔 다른 미저장 변경은 유지
+  → 계좌 모드 plans·테마 모드 themeAccounts에서 제외 — 단 종목은 themeHoldings에 남겨 테마 비중엔 포함 (rebalanceByTheme은 accounts에 없는 계좌 종목을 매매 안 함)
+  → 예산 설정 자동 연결도 꺼진 계좌 제외, select에 '(꺼짐 — 납입 0원)' 표시
 - 탭 구조: '기본 설정' / '계좌 & 종목' — activeTab state로 전환
   → 기본 설정 탭: 월 투자금/리밸런싱 기준/연금 세액공제 한도(설정 행 리스트) + 세액공제 추천 카드
   → 계좌 & 종목 탭: 계좌 비중바 + 계좌 카드(종류 세그먼트, 비중, 종목 비중바, 균등 분배)
@@ -333,9 +375,10 @@ src/
 - 비율 input: type="number" step={1}, onChange에서 Math.floor() 적용 (소수 입력 방지)
 - DashboardService / MonthlyBudgetService: 계산 시 entity의 rate 값 사용 (하드코딩 금지)
 
-## allocationLabels.ts
-- 예산 분배 항목명(생활비/ISA/연금저축/비상금/자유재량) localStorage 관리
-- getAllocationLabels() / setAllocationLabels() 사용 — BudgetSettingsPage에서 편집 가능
+## 예산 항목 이름 (2026-10-29)
+- allocationLabels.ts(localStorage 고정 5칸 이름)는 삭제 — 항목 이름은 서버 allocationItems.label이 단일 소스
+- 리포트는 그 달 allocationItems를 그대로 표시('생활비'는 생활비 칸), 항목 없는 옛 달만 ISA/연금 고정 칸
+- 생활비·비상금 예산 = 같은 이름 항목 금액 (서버 DashboardService.labeledAmount) — 레거시 비율 0인 달도 맞게
 
 ## UI 디자인 시스템 (Toss/Banksalad 스타일)
 적용 파일: Layout.tsx, App.tsx(Dashboard), ExpensesPage, FixedCostPage, ReportPage, EmergencyPage, BudgetSettingsPage
@@ -372,8 +415,8 @@ src/
 - `rounded-3xl shadow-2xl` — 테두리 없음
 
 ## 과거 실수 기록
-- TimeBox Block 디자인: time.jpeg 참고 — 3열(시간|30mins|30mins), 블록=colSpan2+rowSpan N
-  30분 단위 병합(8:30~9:00)은 HTML table 구조상 구현 불가 → 시간 단위로만 가능
+- TimeBox Block: 예전 table(rowSpan) 렌더링은 30분 경계 블록을 1시간으로 그렸음(저장은 30분 단위였는데 화면만 틀림)
+  → CSS grid + blockPieces 조각 렌더링으로 해결 (2026-10-29)
 - flex 자식에 overflow-auto 줘도 스크롤 안 되는 경우: min-h-0 누락 (min-height:auto 기본값)
   → `flex-1 min-h-0 overflow-auto` 조합 필수
 - category.name으로 접근 시 undefined → categoryName 필드 사용

@@ -89,6 +89,25 @@ com.dailo.app
 - 로그인 응답(AuthDto.LoginResponse): token, memberId, name, salaryDay 포함
 - 로그인 후 프론트 localStorage: token, memberId, memberName, salaryDay 저장
 
+## IDOR 회원 범위 규칙 (2026-10-29)
+- daily_expense엔 member 컬럼이 없음 → 소유자 = monthlyBudget.member. 월 기준 쿼리는 `e.monthlyBudget.member.id = :memberId` 필수
+  → settleMonth는 회원 간 유니크가 아님 — memberId 빠지면 같은 달 다른 회원 지출이 합산·노출됨 (실제 재현됐던 버그)
+- DailyExpense/Income/Habit: {id} 조회·수정·삭제는 서비스 findOwned(memberId, id) — 다른 회원이면 not-found와 같은 메시지
+  → 지출 등록·예산별 목록은 findOwnedBudget으로 monthlyBudgetId 소유 확인, 수입 등록은 body memberId 무시하고 로그인 회원
+- running_record/running_goal: member_id 추가 (이관 docs/migrations/2026-10-29_running_member_scope.sql), unique(member_id, year, month)
+- 테스트: LedgerOwnershipGuardTest / OwnershipGuardTest / PlannerOwnershipGuardTest
+- 남은 것: category는 전 회원 공용 (루트 CLAUDE.md 다음 작업 후보)
+
+## 투자 납입·전략 (2026-10-29)
+- invest_account.monthly_amount = 매달 이 계좌 납입금 (null이면 예전 방식 월 투자금 × targetPct) — InvestAccount.contribution(budget)
+  → 대시보드 plannedAmt·DashboardAccount.contribution·DashboardResponse.monthlyBudget(= 계좌 납입금 합계)이 모두 이 값 기준
+- invest_account.active(Boolean, null=사용) — 꺼진 계좌는 contribution()=0, rebalanceNeeded=false. 평가금액은 합계에 그대로. AccountRequest.active null이면 기존 값 유지
+  → 단독 변경 PATCH /api/invest/accounts/{id}/active {active} — 소유자 아니면 not-found와 같은 메시지
+- invest_account.purpose(RETIRE/HOUSE/WEDDING/OTHER) / target_date('YYYY-MM') — null = 미정, 서버에서 형식 검증
+- invest_setting.allow_sell(null=true) / strategy_preset(LIQUIDITY/TAX/EQUAL/CUSTOM) — updateStrategy는 null이면 기존 값 유지
+- GET /invest/accounts 의 linkedBudgetLabel = 최신 정산월 예산에서 그 계좌에 연결된 항목명 (InvestService.budgetLinkedLabels)
+- budget_allocation_item.invest_account_id: 예산 항목 ↔ 투자 계좌. **최신 정산월 예산** 저장 때만 그 금액을 계좌 monthly_amount로 동기화 (syncInvestContributions)
+
 ## 플래너 관련 규칙
 - 플래너 4개 테이블(daily_plan/todo_item/time_box_slot/time_box_block)은 회원별 — 모든 조회·upsert는 로그인 memberId 조건 포함
   → date 기준 upsert(플랜, 슬롯)도 findByMemberIdAnd... 로 찾음 (memberId 빼면 다른 회원 같은 날짜 행을 덮어씀)
@@ -164,6 +183,8 @@ com.dailo.app
   → pollNaver는 RuntimeException까지 잡아야 함 — scheduleWithFixedDelay는 예외 한 번에 이후 실행이 멈춤
 - 웹소켓 상태는 KisClient의 단일 스레드 scheduler에서만 변경 (리스너 콜백은 scheduler로 넘겨서 처리)
 - 실시간 가격은 DB에 저장하지 않음 (InvestMonthlyRecord.currentPrice는 수동 입력값 그대로)
+- SSE 전송 IOException(브라우저가 끊음)이면 구독자만 제거하고 emitter.complete() 호출 금지 — 끊긴 연결에 complete()하면 AsyncRequestNotUsableException이 '서버 오류' ERROR로 찍힘
+  → GlobalExceptionHandler가 AsyncRequestNotUsableException은 debug 로그만 (응답 못 씀)
 
 ## RunningRecord 규칙
 - duration 입력: 프론트에서 "MM:SS" 문자열로 받아 durationSeconds(int)로 저장
@@ -231,3 +252,16 @@ com.dailo.app
 - 회차·원금·만기 수령액은 저장하지 않음(프론트 utils/savings.ts 계산). AssetBucket kind에 SAVINGS 추가
   → getBuckets: 예전 기본값으로 만든 '적금'(MANUAL, 금액 없음) 칸은 SAVINGS로 자동 전환
 
+
+## 현금 계좌·예산 연결 확대 (2026-10-29)
+- cash_account(member_id, name, bank, balance BIGINT, active, sort_order, memo) — CashAccountService가 변경마다 syncMonth(memberId, settleMonth)
+  → cash_asset(그 달) balance = 켜진 계좌 합계, memo·livingSurplusApplied 유지. 계좌 0개면 cash_asset 안 건드림
+  → 정산월은 프론트 salaryDay(localStorage) 기준이라 서버가 계산 못 함 — 변경 API는 ?settleMonth 필수, 형식 틀리면 400
+- budget_allocation_item.savings_id — investAccountId와 동시 지정 400, 본인 적금만. 최신 달 저장 시 Savings.updateMonthlyAmount
+
+## 생활비 예산·메모 (2026-10-29)
+- DashboardService.getSummary/getMonthlyReport: 생활비·비상금 예산 = 같은 이름 분배 항목 금액(labeledAmount), 없으면 레거시 비율
+  → 2026-09부터 레거시 rate가 0이라 livingBalance가 '-지출'로 나왔음 (현금 자산 잉여금 반영까지 틀림). 분배 항목 금액 계산은 liveItems 한 곳
+  → MonthlyReportDto.allocationItems 추가 (IN절 한 번 조회 후 그룹핑)
+- 레거시 고정 5칸 rate는 프론트가 더 이상 안 보냄 — 생성 0 / 수정 시 기존 값 유지. 컬럼 삭제는 옛 달 스냅샷 때문에 보류
+- member_note(member_id, note_key, content TEXT) — 키는 (budget|planner)-YYYY-MM만, 5000자, 빈 내용이면 삭제

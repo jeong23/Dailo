@@ -31,14 +31,18 @@ public class DashboardController {
     }
 
     @GetMapping("/daily-stats")
-    public ResponseEntity<ApiResponse<List<DailyStatsDto>>> getDailyStats(@RequestParam String month) {
-        List<DailyStatsDto> response = dashboardService.getDailyStats(month);
+    public ResponseEntity<ApiResponse<List<DailyStatsDto>>> getDailyStats(
+            @AuthenticationPrincipal CustomUserDetails user,
+            @RequestParam String month) {
+        List<DailyStatsDto> response = dashboardService.getDailyStats(user.getMemberId(), month);
         return ResponseEntity.ok(ApiResponse.ok(response));
     }
 
     @GetMapping("/category-stats")
-    public ResponseEntity<ApiResponse<List<CategoryStatsDto>>> getCategoryStats(@RequestParam String month) {
-        List<CategoryStatsDto> response = dashboardService.getCategoryStats(month);
+    public ResponseEntity<ApiResponse<List<CategoryStatsDto>>> getCategoryStats(
+            @AuthenticationPrincipal CustomUserDetails user,
+            @RequestParam String month) {
+        List<CategoryStatsDto> response = dashboardService.getCategoryStats(user.getMemberId(), month);
         return ResponseEntity.ok(ApiResponse.ok(response));
     }
 

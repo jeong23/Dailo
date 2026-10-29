@@ -81,4 +81,27 @@ describe('rebalanceByTheme', () => {
     expect(r.actions.find(a => a.holdingId === 20)?.amount).toBe(100_000);
     expect(r.actions.find(a => a.holdingId === 10)?.amount).toBe(100_000);
   });
+
+  it('sell=false면 넘친 테마도 팔지 않고 납입금을 모자란 테마에만', () => {
+    const holdings: TRHolding[] = [
+      { id: 10, accountId: 1, themeId: 1, value: 300_000, price: 25_000 },
+      { id: 11, accountId: 1, themeId: 2, value: 600_000, price: 10_000 }, // AI 60% (목표 30)
+      { id: 12, accountId: 1, themeId: 3, value: 100_000, price: null },
+    ];
+    const r = rebalanceByTheme(themes, holdings, [{ id: 1, budget: 200_000 }], 5, { sell: false });
+    expect(r.actions.some(a => a.side === 'SELL')).toBe(false);
+    expect(r.actions.some(a => a.side === 'BUY' && a.themeId === 2)).toBe(false);
+    expect(sum(r.actions.map(a => a.amount)) + r.leftover[1]).toBe(200_000);
+  });
+
+  it('accounts에 없는 계좌(꺼진 계좌) 종목은 비중엔 들어가고 매매는 안 함', () => {
+    const holdings: TRHolding[] = [
+      { id: 10, accountId: 1, themeId: 1, value: 0, price: 10_000 },
+      { id: 20, accountId: 2, themeId: 2, value: 900_000, price: 10_000 }, // 꺼진 연금 계좌 — AI 과다
+    ];
+    const r = rebalanceByTheme(themes, holdings, [{ id: 1, budget: 100_000 }], 5);
+    expect(r.actions.some(a => a.accountId === 2)).toBe(false);
+    expect(r.themes.find(t => t.id === 2)?.value).toBe(900_000);
+    expect(r.actions.every(a => a.accountId === 1 && a.side !== 'SELL')).toBe(true);
+  });
 });

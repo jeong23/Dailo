@@ -115,5 +115,18 @@ export function calcTaxOptimization(
   };
 }
 
+// 계산기 입력은 회원별로 서버(invest_setting.tax_*)에 저장 — PUT /invest/setting/tax-inputs
+//  실수령액은 최신 월별 예산 netSalary. 아래 localStorage 키는 예전 값을 서버로 한 번 옮길 때만 읽음
+export interface TaxInputs { joinMonth: number; probation: boolean; probEndMonth: number }
+export const DEFAULT_TAX_INPUTS: TaxInputs = { joinMonth: 1, probation: false, probEndMonth: 3 };
+
+/** 설정 응답 → 계산기 입력 (서버에 없으면 null) */
+export const taxInputsFromSetting = (s: { taxJoinMonth?: number | null; taxProbation?: boolean | null; taxProbEndMonth?: number | null } | null | undefined): TaxInputs | null =>
+  s && s.taxJoinMonth != null
+    ? { joinMonth: s.taxJoinMonth, probation: !!s.taxProbation, probEndMonth: s.taxProbEndMonth ?? 3 }
+    : null;
+
+/** @deprecated 예전 브라우저 저장 키 — 서버 이관용으로만 읽음 */
 export const TAX_CALC_RESULT_KEY = 'taxCalcResult';
+/** @deprecated 예전 브라우저 저장 키 — 서버 이관용으로만 읽음 */
 export const TAX_CALC_INPUTS_KEY = 'taxCalcInputs';

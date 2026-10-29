@@ -43,9 +43,8 @@ public class HabitService {
     }
 
     @Transactional
-    public HabitDto.Response update(Long id, HabitDto.Request request) {
-        Habit habit = habitRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("습관을 찾을 수 없습니다: " + id));
+    public HabitDto.Response update(Long memberId, Long id, HabitDto.Request request) {
+        Habit habit = findOwned(memberId, id);
         habit.update(
                 request.getName(),
                 request.getEmoji(),
@@ -56,9 +55,8 @@ public class HabitService {
     }
 
     @Transactional
-    public void delete(Long id) {
-        Habit habit = habitRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("습관을 찾을 수 없습니다: " + id));
+    public void delete(Long memberId, Long id) {
+        Habit habit = findOwned(memberId, id);
         habitLogRepository.deleteByHabitId(id);
         habitRepository.delete(habit);
     }
@@ -74,7 +72,8 @@ public class HabitService {
 
     // 월간 그리드용 토글 (0 → 1, 1+ → 0)
     @Transactional
-    public void toggleLog(Long habitId, LocalDate logDate) {
+    public void toggleLog(Long memberId, Long habitId, LocalDate logDate) {
+        findOwned(memberId, habitId);
         habitLogRepository.findByHabitIdAndLogDate(habitId, logDate)
                 .ifPresentOrElse(
                         habitLogRepository::delete,
@@ -92,7 +91,8 @@ public class HabitService {
 
     // 오늘 카운트 +1
     @Transactional
-    public void incrementLog(Long habitId, LocalDate logDate) {
+    public void incrementLog(Long memberId, Long habitId, LocalDate logDate) {
+        findOwned(memberId, habitId);
         habitLogRepository.findByHabitIdAndLogDate(habitId, logDate)
                 .ifPresentOrElse(
                         log -> { log.increment(); habitLogRepository.save(log); },
@@ -110,7 +110,8 @@ public class HabitService {
 
     // 오늘 카운트 -1 (0이면 삭제)
     @Transactional
-    public void decrementLog(Long habitId, LocalDate logDate) {
+    public void decrementLog(Long memberId, Long habitId, LocalDate logDate) {
+        findOwned(memberId, habitId);
         habitLogRepository.findByHabitIdAndLogDate(habitId, logDate)
                 .ifPresent(log -> {
                     if (log.getCount() <= 1) {
@@ -120,5 +121,15 @@ public class HabitService {
                         habitLogRepository.save(log);
                     }
                 });
+    }
+
+    // 다른 회원 습관 수정·삭제·체크 방지 (IDOR) — 존재 여부가 드러나지 않게 같은 메시지
+    private Habit findOwned(Long memberId, Long id) {
+        Habit habit = habitRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("습관을 찾을 수 없습니다: " + id));
+        if (!habit.getMemberId().equals(memberId)) {
+            throw new IllegalArgumentException("습관을 찾을 수 없습니다: " + id);
+        }
+        return habit;
     }
 }

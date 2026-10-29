@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import api, { getStoredMemberId } from '../api/axios';
 import { useEscapeKey } from '../hooks/useEscapeKey';
+import { Toast, useToast } from '../components/Toast';
 
 interface Habit {
   id: number;
@@ -40,6 +41,7 @@ const DeleteIcon = () => (
 );
 
 export const HabitPage = () => {
+  const { toast, show } = useToast();
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
@@ -184,7 +186,7 @@ export const HabitPage = () => {
       setShowModal(false);
       fetchHabits();
     } catch {
-      alert('저장 실패');
+      show('저장 실패', 'error');
     }
   };
 
@@ -279,6 +281,7 @@ export const HabitPage = () => {
 
   return (
     <div className="space-y-6">
+      <Toast toast={toast} />
       {/* 헤더 */}
       <div className="flex items-start justify-between">
         <div>

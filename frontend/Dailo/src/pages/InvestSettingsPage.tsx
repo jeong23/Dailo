@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../api/axios';
-import { TAX_CALC_RESULT_KEY, TaxCalcResult } from '../utils/taxCalc';
+import { DEFAULT_TAX_INPUTS, TaxCalcResult, calcTaxOptimization, taxInputsFromSetting } from '../utils/taxCalc';
 import { Toast, useToast } from '../components/Toast';
 import { AvgPriceBasis, avgPriceFromReturn } from '../utils/avgPrice';
 import { duplicateCodes, mergeDuplicates } from '../utils/mergeHoldings';
 import { ACCOUNT_TYPES, liquidityOf } from '../utils/accountLiquidity';
+import { PRESETS, PresetAnswers, StrategyPreset, defaultPurpose, recommendPreset, splitContribution } from '../utils/strategyPresets';
+import { PURPOSE_OPTIONS } from '../utils/goalRisk';
 import { DEFAULT_THEMES, THEME_COLORS, guessThemeIndex } from '../utils/themeDefaults';
 
 interface Holding {
@@ -15,7 +17,19 @@ interface Holding {
 }
 // 투자 테마: 투자 자산 전체 대비 목표 % (합계 100). cash = 현금성(금액으로 평가)
 interface ThemeRow { key: string; id?: number; name: string; targetPct: number; cash: boolean }
-interface Account { id?: number; name: string; type: string; targetPct: number; sortOrder: number; holdings: Holding[]; }
+interface Account {
+  id?: number; name: string; type: string; targetPct: number; sortOrder: number; holdings: Holding[];
+  monthlyAmount?: number | null;   // 매달 납입금 (null = 월 투자금 × 계좌 %)
+  purpose?: string | null;         // RETIRE / HOUSE / WEDDING / OTHER / null(미정)
+  targetDate?: string | null;      // 'YYYY-MM' / null(미정)
+  linkedBudgetLabel?: string | null; // 예산 설정 항목에 연결됨 → 월 납입금은 예산 설정이 기준 (여기선 읽기 전용)
+  active?: boolean;                // false = 꺼진 계좌 — 납입금 0, 리밸런싱 추천 제외 (보유 자산은 합계에 포함)
+}
+interface Strategy { allowSell: boolean; preset: StrategyPreset | null }
+
+// 꺼진 계좌는 아래로 — 안정 정렬이라 나머지는 원래 순서 유지 (투자 현황도 같은 규칙)
+const offLast = <T extends { active?: boolean }>(list: T[]): T[] =>
+  [...list].sort((a, b) => Number(a.active === false) - Number(b.active === false));
 
 // 계좌/종목 비중 막대 색 — 대시보드 도넛과 같은 팔레트
 const SEGMENT_COLORS = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#f43f5e', '#06b6d4', '#84cc16', '#ec4899', '#64748b'];
@@ -107,7 +121,8 @@ const AvgPriceCalc = ({ shares, initialValue, onApply, onClose }: {
   );
 };
 
-export const InvestSettingsPage = () => {
+// embedded: '내 계좌'(/accounts) 투자 탭 안에서 쓸 때 — 페이지 제목·뒤로 링크 숨김
+export const InvestSettingsPage = ({ embedded = false }: { embedded?: boolean }) => {
   const [calcKey, setCalcKey] = useState<string | null>(null);   // 평균단가 계산 패널이 열린 종목 (ai-hi)
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [budgetInput, setBudgetInput] = useState('');
@@ -118,25 +133,18 @@ export const InvestSettingsPage = () => {
   const [savedSnapshot, setSavedSnapshot] = useState('');
   const [activeTab, setActiveTab] = useState<'basic' | 'themes' | 'accounts'>('basic');
   const [themes, setThemes] = useState<ThemeRow[]>([]);
+  const [strategy, setStrategy] = useState<Strategy>({ allowSell: true, preset: null });
+  const [quiz, setQuiz] = useState<PresetAnswers | null>(null); // 전략 질문 패널 (null = 닫힘)
   const { toast, show } = useToast();
 
-  // 세액공제 추천 요약 — 설정 페이지에서 계산된 결과를 localStorage에서 읽어옴
-  const [taxSummary, setTaxSummary] = useState<TaxCalcResult | null>(() => {
-    try { return JSON.parse(localStorage.getItem(TAX_CALC_RESULT_KEY) || 'null'); } catch { return null; }
-  });
+  // 세액공제 추천 — 회원의 최신 실수령액(월별 예산) + 서버에 저장된 계산기 입력으로 여기서 직접 계산
+  const [taxSummary, setTaxSummary] = useState<TaxCalcResult | null>(null);
 
-  useEffect(() => {
-    const onStorage = () => {
-      try { setTaxSummary(JSON.parse(localStorage.getItem(TAX_CALC_RESULT_KEY) || 'null')); } catch {}
-    };
-    window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
-  }, []);
-
-  const snapshotOf = (b: string, p: string, t: string, a: Account[], th: ThemeRow[]) => JSON.stringify({ b, p, t, a, th });
+  const snapshotOf = (b: string, p: string, t: string, a: Account[], th: ThemeRow[], st: Strategy) => JSON.stringify({ b, p, t, a, th, st });
 
   // 서버 응답 → 화면 상태 (종목의 themeId를 themeKey로)
-  const withThemeKeys = (list: Account[]): Account[] => list.map(acc => ({
+  // 꺼진 계좌는 아래로 (안정 정렬 — 나머지는 저장 순서 유지)
+  const withThemeKeys = (list: Account[]): Account[] => offLast(list).map(acc => ({
     ...acc, holdings: acc.holdings.map(h => ({ ...priceOnlyToAmount(h), themeKey: h.themeId ? `id:${h.themeId}` : null })),
   }));
   const toThemeRows = (list: { id: number; name: string; targetPct: number; cash: boolean }[]): ThemeRow[] =>
@@ -145,23 +153,54 @@ export const InvestSettingsPage = () => {
   useEffect(() => {
     Promise.allSettled([api.get('/invest/setting'), api.get('/invest/accounts'), api.get('/invest/themes')]).then(([sRes, aRes, tRes]) => {
       let b = '', p = '6,000,000', t = '5', a: Account[] = [], th: ThemeRow[] = [];
+      let st: Strategy = { allowSell: true, preset: null };
       if (sRes.status === 'fulfilled' && sRes.value.data.data) {
         const s = sRes.value.data.data;
         b = s.monthlyBudget ? s.monthlyBudget.toLocaleString() : '';
         p = s.pensionLimit ? s.pensionLimit.toLocaleString() : '6,000,000';
         t = s.rebalanceThreshold != null ? String(s.rebalanceThreshold) : '5';
+        st = { allowSell: s.allowSell !== false, preset: s.strategyPreset ?? null };
       }
       if (aRes.status === 'fulfilled') a = withThemeKeys(aRes.value.data.data || []);
       if (tRes.status === 'fulfilled') th = toThemeRows(tRes.value.data.data || []);
-      setBudgetInput(b); setPensionInput(p); setThresholdInput(t); setAccounts(a); setThemes(th);
-      setSavedSnapshot(snapshotOf(b, p, t, a, th));
+      setBudgetInput(b); setPensionInput(p); setThresholdInput(t); setAccounts(a); setThemes(th); setStrategy(st);
+      setSavedSnapshot(snapshotOf(b, p, t, a, th, st));
       setLoaded(true);
+      const taxInputs = (sRes.status === 'fulfilled' && taxInputsFromSetting(sRes.value.data.data)) || DEFAULT_TAX_INPUTS;
+      api.get('/monthly-budgets/mine').then(r => {
+        const latest = (r.data.data || [])[0]; // 정산월 내림차순
+        setTaxSummary(latest?.netSalary ? calcTaxOptimization(latest.netSalary, taxInputs.probation, taxInputs.joinMonth) : null);
+      }).catch(() => setTaxSummary(null));
     });
   }, []);
 
   const accountPctSum = accounts.reduce((s, a) => s + (a.targetPct || 0), 0);
   const budget = parseNum(budgetInput);
-  const dirty = loaded && snapshotOf(budgetInput, pensionInput, thresholdInput, accounts, themes) !== savedSnapshot;
+  const dirty = loaded && snapshotOf(budgetInput, pensionInput, thresholdInput, accounts, themes, strategy) !== savedSnapshot;
+  // 계좌 이번 달 납입금: 꺼진 계좌 0 > 직접 정한 금액 > 월 투자금 × 계좌 %
+  const isOn = (acc: Account) => acc.active !== false;
+  const contributionOf = (acc: Account) => !isOn(acc) ? 0 : acc.monthlyAmount ?? Math.round(budget * ((acc.targetPct || 0) / 100));
+  const contributionTotal = accounts.reduce((s, a) => s + contributionOf(a), 0);
+  const linkedAccounts = accounts.filter(a => a.linkedBudgetLabel && isOn(a));
+  const linkedTotal = linkedAccounts.reduce((s, a) => s + (a.monthlyAmount ?? 0), 0);
+
+  // 프리셋 적용: 월 투자금을 규칙대로 계좌별 납입금으로 나누고, 매도 허용·빈 계좌 목적을 채움 (저장바로 저장해야 반영)
+  //  예산 설정과 연동된 계좌는 금액을 건드리지 않음 — 다음 예산 저장 때 덮어써지므로 기준은 예산 설정 하나
+  const applyPreset = (preset: StrategyPreset, allowSell: boolean) => {
+    // 꺼진 계좌도 금액을 나누지 않음 — 켜면 예전 납입금이 그대로 돌아옴
+    const free = accounts.map((a, i) => ({ a, i })).filter(x => !x.a.linkedBudgetLabel && isOn(x.a));
+    if (preset !== 'CUSTOM' && free.length > 0) {
+      const split = splitContribution(preset, free.map(x => ({ id: x.i, type: x.a.type, targetPct: x.a.targetPct })), budget,
+        taxSummary && { pensionMonthly: taxSummary.pensionMonthly, irpMonthly: taxSummary.irpMonthly });
+      setAccounts(prev => prev.map((a, i) => ({ ...a, monthlyAmount: i in split ? split[i] : a.monthlyAmount })));
+    }
+    setAccounts(prev => prev.map(a => ({ ...a, purpose: a.purpose ?? defaultPurpose(a.type) })));
+    setStrategy({ allowSell, preset });
+    setQuiz(null);
+    show(linkedAccounts.length > 0
+      ? `'${PRESETS[preset].name}'을 적용했어요 — 예산 설정과 연동된 계좌 금액은 그대로예요. 저장을 눌러야 반영돼요`
+      : `'${PRESETS[preset].name}'을 적용했어요 — 저장을 눌러야 반영돼요`);
+  };
   const useThemes = themes.length > 0;   // 테마가 있으면 계좌 안 종목 %는 안 씀 (리밸런싱은 테마 기준)
   const themeSum = themes.reduce((s, t) => s + (t.targetPct || 0), 0);
   const themeOf = (h: Holding) => themes.find(t => t.key === h.themeKey) ?? null;
@@ -232,6 +271,32 @@ export const InvestSettingsPage = () => {
     show('한 줄로 합쳤어요 — 저장을 눌러야 반영돼요');
   };
 
+  // 계좌 켜기/끄기는 저장바를 거치지 않고 바로 저장 (투자 현황 스위치와 같은 API)
+  //  저장된 스냅샷의 그 계좌도 같이 바꿔서, 다른 미저장 변경사항은 그대로 '변경 있음'으로 남김
+  //  카드가 위/아래로 옮겨가므로 옮겨간 자리로 스크롤
+  const toggleActive = async (ai: number) => {
+    const acc = accounts[ai];
+    const next = acc.active === false;
+    const flip = (list: Account[]) => offLast(list.map(a => (a === acc || (acc.id != null && a.id === acc.id) ? { ...a, active: next } : a)));
+    if (acc.id == null) { setAccounts(flip); return; } // 새 계좌는 저장바로 같이 저장
+    setAccounts(flip);
+    try {
+      await api.patch(`/invest/accounts/${acc.id}/active`, { active: next });
+      setSavedSnapshot(prev => {
+        try {
+          const snap = JSON.parse(prev);
+          snap.a = offLast((snap.a as Account[]).map(a => (a.id === acc.id ? { ...a, active: next } : a)));
+          return JSON.stringify(snap);
+        } catch { return prev; }
+      });
+      show(next ? `'${acc.name.replace(/\t/g, ' ')}' 계좌를 켰어요` : `'${acc.name.replace(/\t/g, ' ')}' 계좌를 껐어요 — 맨 아래로 옮겼어요`);
+      requestAnimationFrame(() => document.getElementById(`acc-${acc.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
+    } catch (e: any) {
+      setAccounts(prev => offLast(prev.map(a => (a.id === acc.id ? { ...a, active: !next } : a))));
+      show(e?.response?.data?.message || '계좌 상태를 바꾸지 못했어요', 'error');
+    }
+  };
+
   const updateAccount = (i: number, key: keyof Account, value: any) => {
     setAccounts(prev => prev.map((a, idx) => idx === i ? { ...a, [key]: value } : a));
   };
@@ -286,6 +351,8 @@ export const InvestSettingsPage = () => {
         monthlyBudget: parseNum(budgetInput),
         rebalanceThreshold: threshold,
         pensionLimit: parseNum(pensionInput),
+        allowSell: strategy.allowSell,
+        strategyPreset: strategy.preset,
       });
       // 테마 먼저 저장 → 새 테마 id를 받아 종목에 연결 (응답은 보낸 순서 그대로)
       const tr = await api.post('/invest/themes', themes.map((t, i) => ({ id: t.id ?? null, name: t.name.trim(), targetPct: t.targetPct, cash: t.cash, sortOrder: i })));
@@ -312,7 +379,7 @@ export const InvestSettingsPage = () => {
       const savedAccounts: Account[] = withThemeKeys(r.data.data || []);
       setAccounts(savedAccounts);
       setThemes(savedThemes);
-      setSavedSnapshot(snapshotOf(budgetInput, pensionInput, thresholdInput, savedAccounts, savedThemes));
+      setSavedSnapshot(snapshotOf(budgetInput, pensionInput, thresholdInput, savedAccounts, savedThemes, strategy));
       show('저장했어요');
     } catch (e: any) {
       show(e?.response?.data?.message || '저장에 실패했어요', 'error');
@@ -329,13 +396,13 @@ export const InvestSettingsPage = () => {
 
   return (
     <div className="space-y-5 max-w-3xl">
-      <div>
+      {!embedded && <div>
         <Link to="/invest" className="inline-flex items-center gap-1 -ml-1 mb-1 min-h-[32px] px-1 text-xs font-medium text-slate-400 dark:text-slate-500 hover:text-primary-600 dark:hover:text-primary-400">
           ← 투자 현황
         </Link>
         <p className="text-xs font-medium text-slate-400 dark:text-slate-500 mb-1">적립식 투자 설정</p>
         <h1 className="text-2xl font-bold text-slate-900 dark:text-dark-text">투자 설정</h1>
-      </div>
+      </div>}
 
       {/* 탭 */}
       <div className="flex gap-1 bg-slate-100 dark:bg-slate-800 rounded-xl p-1">
@@ -357,12 +424,77 @@ export const InvestSettingsPage = () => {
       {/* ── 기본 설정 탭 ── */}
       {activeTab === 'basic' && (
         <div className="space-y-4">
+          {/* 투자 전략: 프리셋 = 납입 정책 + 매도 허용 + 계좌 목적을 한 번에 채우는 출발점 */}
+          <section className={`${CARD} p-4 sm:p-5 space-y-3`}>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-slate-800 dark:text-dark-text">투자 전략</p>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  {strategy.preset ? `${PRESETS[strategy.preset].name} — ${PRESETS[strategy.preset].summary}` : '아직 고르지 않았어요 — 질문 3개로 골라보세요'}
+                </p>
+              </div>
+              {!quiz && (
+                <button onClick={() => setQuiz({ bigSpendIn5y: false, preferTaxCredit: false, sellWhenLosing: strategy.allowSell })}
+                  className="shrink-0 h-11 sm:h-9 px-3.5 rounded-full bg-primary-50 dark:bg-primary-900/20 text-xs font-semibold text-primary-600 dark:text-primary-400">질문으로 고르기</button>
+              )}
+            </div>
+            {quiz && (() => {
+              const rec = recommendPreset(quiz);
+              // 컴포넌트로 만들면 렌더마다 새 타입이라 다시 마운트됨 → 함수 호출로 JSX만 반환
+              const question = (k: keyof PresetAnswers, label: string) => (
+                <div key={k} className="flex items-center justify-between gap-3">
+                  <p className="text-sm text-slate-700 dark:text-slate-200 min-w-0">{label}</p>
+                  <div className="flex gap-1 shrink-0">
+                    {[true, false].map(v => (
+                      <button key={String(v)} type="button" onClick={() => setQuiz(q => q && { ...q, [k]: v })}
+                        className={`h-11 sm:h-9 w-14 rounded-xl text-xs font-medium ${quiz[k] === v ? 'bg-primary-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'}`}>
+                        {v ? '네' : '아니요'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+              return (
+                <div className="rounded-xl bg-slate-50 dark:bg-dark-bg p-3 space-y-3">
+                  {question('bigSpendIn5y', '5년 안에 결혼·집처럼 큰돈 쓸 계획이 있나요?')}
+                  {question('preferTaxCredit', '출금 자유보다 연금 세액공제가 더 중요한가요?')}
+                  {question('sellWhenLosing', '손실 중인 종목도 팔아서 비중을 맞출까요?')}
+                  <div className="pt-2 border-t border-slate-200/70 dark:border-dark-border/60">
+                    <p className="text-sm font-semibold text-slate-900 dark:text-dark-text">추천: {PRESETS[rec.preset].name}</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{PRESETS[rec.preset].summary} · {rec.allowSell ? '비중 맞출 때 팔기도 함' : '팔지 않고 새 납입금으로만 맞춤'}</p>
+                    <div className="mt-2 flex gap-2 flex-wrap">
+                      <button onClick={() => applyPreset(rec.preset, rec.allowSell)} disabled={budget <= 0 && rec.preset !== 'CUSTOM'}
+                        className="h-11 sm:h-9 px-4 rounded-full bg-primary-600 hover:bg-primary-700 disabled:opacity-40 text-white text-xs font-semibold">적용</button>
+                      <button onClick={() => setQuiz(null)} className="h-11 sm:h-9 px-4 rounded-full bg-slate-100 dark:bg-slate-800 text-xs font-medium text-slate-500">닫기</button>
+                    </div>
+                    {budget <= 0 && <p className="mt-1.5 text-[11px] text-amber-600 dark:text-amber-400">아래 '월 투자금'을 먼저 입력해주세요 — 이 금액을 계좌별로 나눠요</p>}
+                  </div>
+                </div>
+              );
+            })()}
+            <div className="flex gap-1.5 flex-wrap">
+              {(Object.keys(PRESETS) as StrategyPreset[]).map(id => (
+                <button key={id} type="button" onClick={() => applyPreset(id, id === 'CUSTOM' ? strategy.allowSell : PRESETS[id].allowSell)}
+                  disabled={budget <= 0 && id !== 'CUSTOM'}
+                  className={`h-11 sm:h-9 px-3 rounded-full text-xs font-medium disabled:opacity-40 ${
+                    strategy.preset === id ? 'bg-primary-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
+                  }`}>{PRESETS[id].name}</button>
+              ))}
+            </div>
+            <p className="text-[11px] text-slate-400">프리셋은 출발점이에요 — 적용 후 계좌별 납입금·매도 허용을 따로 바꿀 수 있어요. 종목은 추천하지 않아요.</p>
+          </section>
+
           <section className={`${CARD} divide-y divide-slate-100 dark:divide-dark-border/60`}>
             {/* 설정 행: 왼쪽 라벨·설명 / 오른쪽 입력 (토스 설정 화면 구조) */}
             <div className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-6">
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-slate-800 dark:text-dark-text">월 투자금</p>
-                <p className="text-xs text-slate-400 mt-0.5">매달 계좌 비중대로 나눠서 납입할 금액</p>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  {linkedAccounts.length > 0
+                    ? <>예산 설정 연동 {linkedTotal.toLocaleString()}원 ({linkedAccounts.map(a => a.linkedBudgetLabel).join(', ')}) · 이 칸은 연동 안 된 계좌에 나눌 금액</>
+                    : '전략을 적용할 때 계좌별로 나눌 총액'}
+                  {contributionTotal > 0 && contributionTotal !== budget ? ` · 지금 계좌 납입금 합계 ${contributionTotal.toLocaleString()}원` : ''}
+                </p>
               </div>
               <div className={`${FIELD} sm:w-56`}>
                 <input type="text" inputMode="numeric" value={budgetInput} placeholder="1,000,000"
@@ -388,6 +520,20 @@ export const InvestSettingsPage = () => {
                   <span className="text-xs text-slate-400 ml-1">%</span>
                 </div>
               </div>
+            </div>
+            <div className="p-4 sm:p-5 flex items-center gap-4">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-slate-800 dark:text-dark-text">비중 맞출 때 팔기도 하기</p>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  켜면: 목표 비중보다 많아진 종목을 일부 팔아서 모자란 종목을 사요 (예: 목표 20%인데 60%면 40%p만큼 매도 추천)
+                </p>
+                <p className="text-xs text-slate-400">끄면: 아무것도 팔지 않고 매달 새로 넣는 돈으로만 모자란 종목을 사요 — 손실 확정이 싫을 때</p>
+              </div>
+              <button type="button" role="switch" aria-checked={strategy.allowSell} aria-label="비중 맞출 때 팔기도 하기"
+                onClick={() => setStrategy(s => ({ ...s, allowSell: !s.allowSell }))}
+                className={`relative w-12 h-7 shrink-0 rounded-full transition-colors ${strategy.allowSell ? 'bg-primary-600' : 'bg-slate-300 dark:bg-slate-600'}`}>
+                <span className={`absolute top-1 left-1 w-5 h-5 rounded-full bg-white shadow transition-transform ${strategy.allowSell ? 'translate-x-5' : ''}`} />
+              </button>
             </div>
             <div className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-6">
               <div className="flex-1 min-w-0">
@@ -549,22 +695,38 @@ export const InvestSettingsPage = () => {
 
           {accounts.map((acc, ai) => {
             const holdingSum = acc.holdings.reduce((s, h) => s + (h.targetPct || 0), 0);
-            const accAmount = budget * ((acc.targetPct || 0) / 100);
+            const accAmount = contributionOf(acc);
             const color = SEGMENT_COLORS[ai % SEGMENT_COLORS.length];
+            const on = isOn(acc);
+            const dim = on ? '' : 'opacity-50';
 
             return (
-              <section key={acc.id ?? `new-${ai}`} className={`${CARD} overflow-hidden`}>
-                <div className="h-1" style={{ background: color }} />
+              <section key={acc.id ?? `new-${ai}`} id={acc.id != null ? `acc-${acc.id}` : undefined} className={`${CARD} overflow-hidden scroll-mt-4`}>
+                <div className="h-1" style={{ background: on ? color : '#94a3b8' }} />
                 <div className="p-4 sm:p-5 space-y-3">
-                  {/* 계좌명 + 삭제 */}
+                  {/* 계좌명 + 사용 토글 + 삭제 */}
                   <div className="flex items-center gap-2">
-                    <div className={`${FIELD} flex-1`}>
+                    <div className={`${FIELD} flex-1 ${dim}`}>
                       <input type="text" value={acc.name} placeholder="계좌 이름 (예: KB증권 연금저축)"
                         onChange={e => updateAccount(ai, 'name', e.target.value)} className={`${FIELD_INPUT} font-semibold`} />
                     </div>
+                    <button type="button" role="switch" aria-checked={on} aria-label={`${acc.name || '계좌'} 사용`}
+                      onClick={() => toggleActive(ai)}
+                      className="h-11 shrink-0 flex items-center gap-1.5 px-1">
+                      <span className={`text-xs font-medium ${on ? 'text-primary-600 dark:text-primary-400' : 'text-slate-400'}`}>{on ? '사용' : '꺼짐'}</span>
+                      <span className={`relative w-12 h-7 rounded-full transition-colors ${on ? 'bg-primary-600' : 'bg-slate-300 dark:bg-slate-600'}`}>
+                        <span className={`absolute top-1 left-1 w-5 h-5 rounded-full bg-white shadow transition-transform ${on ? 'translate-x-5' : ''}`} />
+                      </span>
+                    </button>
                     <button onClick={() => removeAccount(ai)} aria-label="계좌 삭제"
                       className="w-11 h-11 shrink-0 rounded-xl text-slate-300 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 text-xl transition-colors">×</button>
                   </div>
+                  {!on && (
+                    <p className="rounded-xl bg-slate-100 dark:bg-slate-800/60 px-3 py-2.5 text-xs text-slate-500 dark:text-slate-400">
+                      꺼진 계좌예요 — 이번 달 할 일·납입금(0원)·리밸런싱 추천에서 빠져요. 이미 가진 자산은 평가금액 합계에 그대로 들어가요
+                    </p>
+                  )}
+                  <div className={`space-y-3 ${dim}`}>
 
                   {/* 계좌 종류 + 비중 */}
                   <div className="flex items-center gap-2 flex-wrap">
@@ -582,15 +744,51 @@ export const InvestSettingsPage = () => {
                         className={`${FIELD_INPUT} text-right`} />
                       <span className="text-xs text-slate-400 ml-1">%</span>
                     </div>
-                    {budget > 0 && (
-                      <span className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">월 {Math.round(accAmount).toLocaleString()}원</span>
+                  </div>
+                  {/* 납입 정책: 매달 이 계좌에 넣는 돈. 비우면 월 투자금 × 계좌 % */}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {acc.linkedBudgetLabel ? (
+                      // 예산 설정이 기준 — 여기서 고치면 다음 예산 저장 때 덮어써지므로 읽기 전용
+                      <Link to="/settings" className={`${FIELD} flex-1 min-w-[180px] justify-between hover:ring-2 hover:ring-primary-500/40`}>
+                        <span className="text-xs text-slate-400 mr-2 shrink-0">월 납입금</span>
+                        <span className="min-w-0 truncate text-sm tabular-nums text-slate-900 dark:text-dark-text">
+                          {(acc.monthlyAmount ?? 0).toLocaleString()}원
+                          <span className="ml-1.5 text-[11px] text-primary-500">예산 '{acc.linkedBudgetLabel}' 연동 →</span>
+                        </span>
+                      </Link>
+                    ) : (
+                    <label className={`${FIELD} flex-1 min-w-[180px]`}>
+                      <span className="text-xs text-slate-400 mr-2 shrink-0">월 납입금</span>
+                      <input type="text" inputMode="numeric"
+                        placeholder={Math.round(budget * ((acc.targetPct || 0) / 100)).toLocaleString()}
+                        value={acc.monthlyAmount != null ? acc.monthlyAmount.toLocaleString() : ''}
+                        onChange={e => { const d = e.target.value.replace(/[^0-9]/g, ''); updateAccount(ai, 'monthlyAmount', d === '' ? null : parseInt(d, 10)); }}
+                        className={`${FIELD_INPUT} text-right`} />
+                      <span className="text-xs text-slate-400 ml-1">원</span>
+                    </label>
+                    )}
+                    <label className={`${FIELD} w-32 shrink-0`}>
+                      <span className="sr-only">계좌 목적</span>
+                      <select value={acc.purpose ?? ''} onChange={e => updateAccount(ai, 'purpose', e.target.value || null)}
+                        className={`${FIELD_INPUT} cursor-pointer`}>
+                        <option value="">목적 미정</option>
+                        {PURPOSE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      </select>
+                    </label>
+                    {acc.purpose && acc.purpose !== 'RETIRE' && (
+                      <label className={`${FIELD} w-40 shrink-0`}>
+                        <span className="text-xs text-slate-400 mr-2 shrink-0">쓸 때</span>
+                        <input type="month" value={acc.targetDate ?? ''} onChange={e => updateAccount(ai, 'targetDate', e.target.value || null)}
+                          className={`${FIELD_INPUT} text-right`} />
+                      </label>
                     )}
                   </div>
                   <p className="text-[11px] text-slate-400 dark:text-slate-500">{liquidityOf(acc.type).label} — {liquidityOf(acc.type).note}</p>
+                  </div>
                 </div>
 
                 {/* 종목 */}
-                <div className="border-t border-slate-100 dark:border-dark-border/60 bg-slate-50/50 dark:bg-slate-800/10 p-4 sm:p-5 space-y-3">
+                <div className={`${dim} border-t border-slate-100 dark:border-dark-border/60 bg-slate-50/50 dark:bg-slate-800/10 p-4 sm:p-5 space-y-3`}>
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2 min-w-0">
                       <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">종목 {acc.holdings.length}개</p>

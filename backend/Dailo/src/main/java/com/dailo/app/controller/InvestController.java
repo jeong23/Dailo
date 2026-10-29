@@ -34,6 +34,13 @@ public class InvestController {
         return ResponseEntity.ok(ApiResponse.ok(investService.saveSetting(user.getMemberId(), req)));
     }
 
+    @PutMapping("/setting/tax-inputs")
+    public ResponseEntity<ApiResponse<InvestDto.SettingResponse>> saveTaxInputs(
+            @AuthenticationPrincipal CustomUserDetails user,
+            @RequestBody InvestDto.TaxInputsRequest req) {
+        return ResponseEntity.ok(ApiResponse.ok(investService.saveTaxInputs(user.getMemberId(), req)));
+    }
+
     // ─── Accounts ──────────────────────────────────────────────
     @GetMapping("/accounts")
     public ResponseEntity<ApiResponse<List<InvestDto.AccountResponse>>> getAccounts(
@@ -46,6 +53,16 @@ public class InvestController {
             @AuthenticationPrincipal CustomUserDetails user,
             @RequestBody List<InvestDto.AccountRequest> req) {
         return ResponseEntity.ok(ApiResponse.ok(investService.saveAccounts(user.getMemberId(), req)));
+    }
+
+    // 계좌 켜기/끄기만 바로 저장 (투자 현황·설정 스위치) — 나머지 설정은 POST /accounts 저장바로
+    @PatchMapping("/accounts/{id}/active")
+    public ResponseEntity<ApiResponse<Void>> setAccountActive(
+            @AuthenticationPrincipal CustomUserDetails user,
+            @PathVariable Long id,
+            @RequestBody InvestDto.ActiveRequest req) {
+        investService.setAccountActive(user.getMemberId(), id, req.getActive());
+        return ResponseEntity.ok(ApiResponse.ok(null));
     }
 
     // ─── Dashboard ─────────────────────────────────────────────

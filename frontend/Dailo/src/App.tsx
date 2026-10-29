@@ -15,7 +15,7 @@ import { PlannerBoardPage } from './pages/PlannerBoardPage';
 import { RunningPage } from './pages/RunningPage';
 import { HabitPage } from './pages/HabitPage';
 import { InvestDashboardPage } from './pages/InvestDashboardPage';
-import { InvestSettingsPage } from './pages/InvestSettingsPage';
+import { MyAccountsPage } from './pages/MyAccountsPage';
 import { InvestDiaryPage } from './pages/InvestDiaryPage';
 import { DisplaySettingsPage } from './pages/DisplaySettingsPage';
 import { AllocationPage } from './pages/AllocationPage';
@@ -26,6 +26,7 @@ import { BudgetType, DailyExpense, Category, DashboardSummary, DailyStats, Categ
 import api from './api/axios';
 import { formatNumber, parseNumber, getCurrentSettleMonth } from './utils/format';
 import { useEscapeKey } from './hooks/useEscapeKey';
+import { Toast, useToast } from './components/Toast';
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4'];
 
@@ -134,6 +135,7 @@ const DailyBarTooltip = ({ active, payload, label, expenses }: any) => {
 };
 
 const DashboardHome = () => {
+  const { toast, show } = useToast();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState(getCurrentSettleMonth());
 
@@ -230,6 +232,9 @@ const DashboardHome = () => {
   const livingExpenses = expenses.filter(e => e.budgetType === '생활비').reduce((sum, e) => sum + e.amount, 0);
   const emergencyExpenses = expenses.filter(e => e.budgetType === '비상금').reduce((sum, e) => sum + e.amount, 0);
   const investExpenses = expenses.filter(e => e.budgetType === '투자').reduce((sum, e) => sum + e.amount, 0);
+  // 이번 달 투자 계획 = 예산 분배 항목 중 투자 계좌에 연결된 금액 합계 (내 계좌 > 투자의 월 납입금과 같은 기준)
+  const investPlanned = (summary?.allocationItems ?? []).filter(i => i.investAccountId != null).reduce((t, i) => t + (i.budgetAmount || 0), 0);
+  const investRate = investPlanned > 0 ? Math.round((investExpenses / investPlanned) * 100) : 0;
   // 가변 예산 분배 항목(allocationItems)의 라벨을 budgetType으로 쓴 지출 합계 — 항목별 소진율 표시용
   const allocationItemSpent = (label: string) =>
     expenses.filter(e => e.budgetType === label).reduce((sum, e) => sum + e.amount, 0);
@@ -311,13 +316,13 @@ const DashboardHome = () => {
 
     try {
       await api.post('/daily-expenses', requestData);
-      alert('저장되었습니다!');
+      show('저장되었습니다!');
       setIsModalOpen(false);
       resetForm();
       fetchData();
     } catch (error) {
       console.error('저장 실패:', error);
-      alert('저장 실패');
+      show('저장 실패', 'error');
     }
   };
 
@@ -332,6 +337,7 @@ const DashboardHome = () => {
 
   return (
     <div className="relative space-y-8">
+      <Toast toast={toast} />
       {/* 헤더 */}
       <div className="flex justify-between items-end">
         <div>
@@ -339,7 +345,7 @@ const DashboardHome = () => {
             {new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' })}
           </p>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-dark-text">
-            {selectedMonth.split('-')[1]}월 자산 현황
+            {selectedMonth.split('-')[1]}월 예산 현황
           </h1>
         </div>
         <select
@@ -381,7 +387,7 @@ const DashboardHome = () => {
       )}
 
       {/* 상단 요약 카드 */}
-      {/* 폰(폴드 커버)에선 위 2개는 전체 폭, 카드 실적·주식 투자는 2열로 붙여 스크롤 줄임 */}
+      {/* 폰(폴드 커버)에선 위 2개는 전체 폭, 카드 실적·투자 납입은 2열로 붙여 스크롤 줄임 */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-4">
         {/* 가용금액 */}
         <div className="col-span-2 sm:col-span-1 p-5 sm:p-6 bg-white dark:bg-dark-card rounded-2xl shadow-[0_1px_8px_rgba(0,0,0,0.06)] dark:shadow-none">
@@ -460,14 +466,23 @@ const DashboardHome = () => {
           )}
         </div>
 
-        {/* 주식 투자 */}
+        {/* 투자 납입 */}
         <div className="min-w-0 p-4 sm:p-6 bg-white dark:bg-dark-card rounded-2xl shadow-[0_1px_8px_rgba(0,0,0,0.06)] dark:shadow-none cursor-pointer hover:shadow-md transition-shadow" onClick={() => setDetailModalType('투자')}>
-          <p className="text-xs font-medium text-slate-400 dark:text-slate-500">주식 투자</p>
+          <p className="text-xs font-medium text-slate-400 dark:text-slate-500">투자 납입</p>
           <p className="text-2xl sm:text-3xl font-bold mt-2 tabular-nums truncate text-violet-500">
             {investExpenses.toLocaleString()}
             <span className="text-base sm:text-lg font-medium ml-0.5">원</span>
           </p>
-          <p className="text-xs text-slate-400 mt-2">이번 달 투자 지출</p>
+          {investPlanned > 0 ? (
+            <>
+              <div className="mt-2 w-full bg-slate-100 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden">
+                <div className="h-full rounded-full bg-violet-500" style={{ width: `${Math.min(investRate, 100)}%` }} />
+              </div>
+              <p className="text-xs text-slate-400 mt-1.5 tabular-nums truncate">계획 {investPlanned.toLocaleString()}원 · {investRate}%</p>
+            </>
+          ) : (
+            <p className="text-xs text-slate-400 mt-2 truncate">예산에 연결된 투자 계좌 없음</p>
+          )}
         </div>
       </div>
 
@@ -909,17 +924,20 @@ function App() {
                 <Route path="/settings" element={<BudgetSettingsPage />} />
                 <Route path="/fixed-costs" element={<FixedCostPage />} />
                 <Route path="/report" element={<ReportPage />} />
-                <Route path="/emergency" element={<EmergencyPage />} />
+                <Route path="/cash" element={<EmergencyPage />} />
+                <Route path="/emergency" element={<Navigate to="/cash" replace />} />
                 <Route path="/todo" element={<TodoPage />} />
                 <Route path="/planner-board" element={<PlannerBoardPage />} />
                 <Route path="/running" element={<RunningPage />} />
                 <Route path="/habits" element={<HabitPage />} />
                 <Route path="/invest" element={<InvestDashboardPage />} />
                 <Route path="/invest/records" element={<Navigate to="/invest" replace />} />
-                <Route path="/invest/settings" element={<InvestSettingsPage />} />
+                <Route path="/invest/settings" element={<Navigate to="/accounts?tab=invest" replace />} />
+                <Route path="/accounts" element={<MyAccountsPage />} />
                 <Route path="/invest/diary" element={<InvestDiaryPage />} />
                 <Route path="/preferences" element={<DisplaySettingsPage />} />
-                <Route path="/allocation" element={<AllocationPage />} />
+                <Route path="/assets" element={<AllocationPage />} />
+                <Route path="/allocation" element={<Navigate to="/assets" replace />} />
                 <Route path="/savings" element={<SavingsPage />} />
               </Routes>
             </Layout>

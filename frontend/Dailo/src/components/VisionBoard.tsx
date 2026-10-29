@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import api from '../api/axios';
 import { shrinkImage } from '../utils/imageResize';
+import { Toast, useToast } from './Toast';
 
 // 미래 시각화 보드 — 사진 여러 장을 보드 안에서 자유롭게 옮기고 크기 조절
 // 회원별 보드 하나(날짜 무관). 위치·크기는 보드 대비 % → 폰·폴드·PC에서 같은 배치 (보드 4:3 고정)
@@ -45,6 +46,7 @@ interface Drag {
 }
 
 export const VisionBoard = ({ title, legacyUrl }: { title: React.ReactNode; legacyUrl?: string }) => {
+  const { toast, show } = useToast();
   const [items, setItems] = useState<VisionItem[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -100,7 +102,7 @@ export const VisionBoard = ({ title, legacyUrl }: { title: React.ReactNode; lega
     e.target.value = ''; // 같은 사진을 다시 골라도 onChange가 발화하도록
     const room = MAX_ITEMS - itemsRef.current.length;
     if (picked.length === 0) return;
-    if (room <= 0) { alert(`사진은 ${MAX_ITEMS}장까지 올릴 수 있어요.`); return; }
+    if (room <= 0) { show(`사진은 ${MAX_ITEMS}장까지 올릴 수 있어요.`, 'error'); return; }
     const files = picked.slice(0, room);
     const errors: string[] = [];
     setProgress({ done: 0, total: files.length });
@@ -118,11 +120,11 @@ export const VisionBoard = ({ title, legacyUrl }: { title: React.ReactNode; lega
     }
     setProgress(null);
     if (picked.length > room) errors.push(`${MAX_ITEMS}장을 넘는 ${picked.length - room}장은 올리지 않았어요`);
-    if (errors.length) alert(errors.join('\n'));
+    if (errors.length) show(errors.join('\n'), 'error');
   };
 
   const importLegacy = () => {
-    if (legacyUrl) addFromUrl(legacyUrl, 0).catch((err: any) => alert(err?.response?.data?.message || '가져오지 못했어요'));
+    if (legacyUrl) addFromUrl(legacyUrl, 0).catch((err: any) => show(err?.response?.data?.message || '가져오지 못했어요', 'error'));
   };
 
   const removeItem = (id: number) => {
@@ -191,6 +193,7 @@ export const VisionBoard = ({ title, legacyUrl }: { title: React.ReactNode; lega
 
   return (
     <div>
+      <Toast toast={toast} />
       <div className="flex items-center justify-between gap-2">
         {title}
         {items.length > 0 && (

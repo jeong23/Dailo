@@ -9,6 +9,8 @@
 //    현금성 테마가 가장 모자라면 1만원 단위로 현금으로 남김
 //    목표를 이미 채운 테마는 사지 않음 → 1주 가격이 커서 못 쓴 돈은 '남는 돈'(다음 달로)
 // 3) 매도한 테마는 같은 달에 다시 사지 않음
+// accounts에 없는 계좌(꺼진 계좌)의 종목은 테마 비중에만 들어가고 사고팔지 않음
+// sell=false: 주식 테마는 팔지 않고 납입금으로만 맞춤 (손실 중이라 팔기 싫을 때) — 넘치는 현금성 '사용'은 그대로
 
 export interface TRTheme { id: number; targetPct: number; cash: boolean }
 export interface TRHolding {
@@ -34,7 +36,7 @@ export interface TRResult { actions: TRAction[]; themes: TRThemeResult[]; leftov
 
 const CASH_UNIT = 10_000;
 
-export function rebalanceByTheme(themes: TRTheme[], holdings: TRHolding[], accounts: TRAccount[], threshold: number): TRResult {
+export function rebalanceByTheme(themes: TRTheme[], holdings: TRHolding[], accounts: TRAccount[], threshold: number, { sell = true }: { sell?: boolean } = {}): TRResult {
   const themeIds = new Set(themes.map(t => t.id));
   const hs = holdings.filter(h => h.themeId !== null && themeIds.has(h.themeId)).map(h => ({ ...h, value: Math.max(h.value, 0) }));
   const totalWeight = themes.reduce((s, t) => s + Math.max(t.targetPct, 0), 0);
@@ -57,6 +59,7 @@ export function rebalanceByTheme(themes: TRTheme[], holdings: TRHolding[], accou
   // 1) 밴드를 넘은 테마 덜어내기
   if (current > 0 && totalWeight > 0) {
     for (const t of themes) {
+      if (!sell && !t.cash) continue;
       const pct = (valueOf[t.id] / current) * 100;
       if (pct - w(t) * 100 <= threshold) continue;
       let excess = valueOf[t.id] - target(t);
@@ -64,6 +67,7 @@ export function rebalanceByTheme(themes: TRTheme[], holdings: TRHolding[], accou
       const members = hs.filter(h => h.themeId === t.id).sort((a, b) => b.value - a.value);
       for (const h of members) {
         if (excess <= 0) break;
+        if (!(h.accountId in cash)) continue; // 꺼진 계좌 — 비중엔 넣되 매매 안 함
         let amount: number;
         let shares: number | null = null;
         if (t.cash || !h.price || h.price <= 0) {

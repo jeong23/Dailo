@@ -13,6 +13,10 @@ import java.time.LocalDate;
 @Builder
 public class RunningRecord extends BaseEntity {
 
+    // 회원별 기록 — 날짜 upsert도 memberId와 같이 찾음 (2026-10-29 이관: docs/migrations/2026-10-29_running_member_scope.sql)
+    @Column(nullable = false)
+    private Long memberId;
+
     @Column(nullable = false)
     private LocalDate runDate;
 

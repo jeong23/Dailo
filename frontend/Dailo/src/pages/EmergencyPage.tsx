@@ -2,16 +2,21 @@ import React, { useState, useEffect } from 'react';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine
 } from 'recharts';
+import { Link } from 'react-router-dom';
 import api from '../api/axios';
 import { CashAssetEntry } from '../types';
 import { formatSignedNumber, parseSignedNumber, getCurrentSettleMonth } from '../utils/format';
+import { Toast, useToast } from '../components/Toast';
 
 const currentSettleMonth = getCurrentSettleMonth();
 
 export const EmergencyPage = () => {
+  const { toast, show } = useToast();
   const [history, setHistory] = useState<CashAssetEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [livingBalance, setLivingBalance] = useState<number | null>(null);
+  // 내 계좌 > 현금 계좌가 있으면 이번 달 잔액은 계좌 합계로 자동 기록 → 직접 입력 폼 대신 안내
+  const [cashAccountCount, setCashAccountCount] = useState(0);
 
   // 입력폼 상태 (현재 정산월 기록)
   const [formBalance, setFormBalance] = useState('');
@@ -24,7 +29,9 @@ export const EmergencyPage = () => {
     return Promise.allSettled([
       api.get('/cash-assets'),
       api.get(`/dashboard/summary?month=${currentSettleMonth}`),
-    ]).then(([historyRes, summaryRes]) => {
+      api.get('/cash-accounts'),
+    ]).then(([historyRes, summaryRes, accountsRes]) => {
+      setCashAccountCount(accountsRes.status === 'fulfilled' ? (accountsRes.value.data.data || []).length : 0);
       if (historyRes.status === 'fulfilled') {
         const list: CashAssetEntry[] = historyRes.value.data.data || [];
         setHistory(list);
@@ -94,12 +101,12 @@ export const EmergencyPage = () => {
       };
       if (surplusApplied !== null) body.livingSurplusApplied = surplusApplied;
       await api.post('/cash-assets', body);
-      alert('저장되었습니다!');
+      show('저장되었습니다!');
       setSurplusApplied(null);
       await fetchAll();
     } catch (error) {
       console.error('현금 자산 저장 실패:', error);
-      alert('저장 실패');
+      show('저장 실패', 'error');
     } finally {
       setSaving(false);
     }
@@ -107,9 +114,10 @@ export const EmergencyPage = () => {
 
   return (
     <div className="space-y-6">
+      <Toast toast={toast} />
       <div>
-        <p className="text-xs font-medium text-slate-400 dark:text-slate-500 mb-1">현금 자산 추적</p>
-        <h1 className="text-2xl font-bold text-slate-900 dark:text-dark-text">현금 자산 현황</h1>
+        <p className="text-xs font-medium text-slate-400 dark:text-slate-500 mb-1">통장에 있는 돈 · 달마다 추이</p>
+        <h1 className="text-2xl font-bold text-slate-900 dark:text-dark-text">현금 자산</h1>
       </div>
 
       {/* 요약 카드 */}
@@ -168,8 +176,26 @@ export const EmergencyPage = () => {
         </div>
       </div>
 
-      {/* 이번 달 생활비 잉여금 반영 + 현금 자산 입력 */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {/* 현금 계좌가 있으면: 이번 달 잔액 = 계좌 합계 (내 계좌에서 관리) */}
+      {cashAccountCount > 0 && (
+        <div className="bg-white dark:bg-dark-card rounded-2xl shadow-[0_1px_8px_rgba(0,0,0,0.06)] dark:shadow-none p-6 flex flex-col sm:flex-row sm:items-center gap-4">
+          <div className="flex-1 min-w-0">
+            <h3 className="text-lg font-semibold mb-1 dark:text-dark-text">이번 달 잔액은 현금 계좌 합계로 기록돼요</h3>
+            <p className="text-sm text-slate-500 dark:text-dark-muted">
+              {currentSettleMonth} · 현금 계좌 {cashAccountCount}개 — 통장 잔액을 고치면 여기 추이도 바로 바뀌어요
+            </p>
+            {livingBalance !== null && (
+              <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
+                이번 달 생활비 잉여금 <span className={`font-semibold tabular-nums ${livingBalance < 0 ? 'text-red-500' : 'text-emerald-500'}`}>{sign(livingBalance)}{fmt(livingBalance)}원</span> — 남은 돈이 들어간 통장의 잔액을 고쳐 주세요
+              </p>
+            )}
+          </div>
+          <Link to="/accounts?tab=cash" className="shrink-0 h-11 px-5 inline-flex items-center justify-center rounded-full bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium">현금 계좌 관리 →</Link>
+        </div>
+      )}
+
+      {/* 이번 달 생활비 잉여금 반영 + 현금 자산 입력 (현금 계좌가 없을 때 — 예전 방식) */}
+      {cashAccountCount === 0 && <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* 잉여금 반영 카드 */}
         <div className="bg-white dark:bg-dark-card rounded-2xl shadow-[0_1px_8px_rgba(0,0,0,0.06)] dark:shadow-none p-6">
           <h3 className="text-lg font-semibold mb-1 dark:text-dark-text">이번 달 생활비 잉여금 반영</h3>
@@ -238,7 +264,7 @@ export const EmergencyPage = () => {
             </button>
           </div>
         </div>
-      </div>
+      </div>}
 
       {/* 월별 상세 */}
       <div className="bg-white dark:bg-dark-card rounded-2xl shadow-[0_1px_8px_rgba(0,0,0,0.06)] dark:shadow-none overflow-hidden">

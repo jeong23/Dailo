@@ -33,13 +33,15 @@ public class HabitController {
 
     @PutMapping("/{id}")
     public ResponseEntity<ApiResponse<HabitDto.Response>> update(
+            @AuthenticationPrincipal CustomUserDetails userDetails,
             @PathVariable Long id, @RequestBody HabitDto.Request request) {
-        return ResponseEntity.ok(ApiResponse.ok(habitService.update(id, request)));
+        return ResponseEntity.ok(ApiResponse.ok(habitService.update(userDetails.getMemberId(), id, request)));
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<ApiResponse<Void>> delete(@PathVariable Long id) {
-        habitService.delete(id);
+    public ResponseEntity<ApiResponse<Void>> delete(
+            @AuthenticationPrincipal CustomUserDetails userDetails, @PathVariable Long id) {
+        habitService.delete(userDetails.getMemberId(), id);
         return ResponseEntity.ok(ApiResponse.ok(null));
     }
 
@@ -54,22 +56,25 @@ public class HabitController {
 
     // 월간 그리드 토글 (0↔1)
     @PostMapping("/logs")
-    public ResponseEntity<ApiResponse<Void>> toggleLog(@RequestBody HabitDto.LogRequest request) {
-        habitService.toggleLog(request.getHabitId(), request.getLogDate());
+    public ResponseEntity<ApiResponse<Void>> toggleLog(
+            @AuthenticationPrincipal CustomUserDetails userDetails, @RequestBody HabitDto.LogRequest request) {
+        habitService.toggleLog(userDetails.getMemberId(), request.getHabitId(), request.getLogDate());
         return ResponseEntity.ok(ApiResponse.ok(null));
     }
 
     // 카운트 +1
     @PostMapping("/logs/increment")
-    public ResponseEntity<ApiResponse<Void>> incrementLog(@RequestBody HabitDto.LogRequest request) {
-        habitService.incrementLog(request.getHabitId(), request.getLogDate());
+    public ResponseEntity<ApiResponse<Void>> incrementLog(
+            @AuthenticationPrincipal CustomUserDetails userDetails, @RequestBody HabitDto.LogRequest request) {
+        habitService.incrementLog(userDetails.getMemberId(), request.getHabitId(), request.getLogDate());
         return ResponseEntity.ok(ApiResponse.ok(null));
     }
 
     // 카운트 -1
     @PostMapping("/logs/decrement")
-    public ResponseEntity<ApiResponse<Void>> decrementLog(@RequestBody HabitDto.LogRequest request) {
-        habitService.decrementLog(request.getHabitId(), request.getLogDate());
+    public ResponseEntity<ApiResponse<Void>> decrementLog(
+            @AuthenticationPrincipal CustomUserDetails userDetails, @RequestBody HabitDto.LogRequest request) {
+        habitService.decrementLog(userDetails.getMemberId(), request.getHabitId(), request.getLogDate());
         return ResponseEntity.ok(ApiResponse.ok(null));
     }
 }

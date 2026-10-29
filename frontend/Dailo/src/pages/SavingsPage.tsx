@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import api from '../api/axios';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 import { Toast, useToast } from '../components/Toast';
@@ -8,7 +8,7 @@ import {
 } from '../utils/savings';
 
 // 적금 — 매달 붓는 정기적금. 고정비(사라지는 돈)와 달리 쌓이는 자산이라 따로 관리하고,
-// 현재 원금 합계는 자산 배분의 '적금' 칸에 자동으로 들어감.
+// 현재 원금 합계는 자산 현황의 '적금' 칸에 자동으로 들어감.
 // 주택청약종합저축(kind=HOUSING)은 만기 없이 계속 넣는 통장 — 잔액·청약 인정 금액·예치금·1순위·소득공제를 보여줌.
 
 interface Savings {
@@ -44,7 +44,10 @@ const emptyForm = (kind: Form['kind'] = 'SAVINGS'): Form => ({
 const optNum = (v: string) => (v.trim() === '' ? null : parseInt(v.replace(/,/g, ''), 10));
 const housingInput = (s: Savings) => ({ ...s, ratePct: s.ratePct ?? 0 });
 
-export const SavingsPage = () => {
+// embedded = '내 계좌 > 적금·청약' 탭 — 등록·수정은 여기서만. /savings 단독 화면은 보기 전용 (누르면 내 계좌로)
+export const SavingsPage = ({ embedded = false }: { embedded?: boolean }) => {
+  const navigate = useNavigate();
+  const MANAGE = '/accounts?tab=savings';
   const [list, setList] = useState<Savings[]>([]);
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState<Form | null>(null);
@@ -132,22 +135,28 @@ export const SavingsPage = () => {
   };
 
   const set = (p: Partial<Form>) => setForm(f => f && { ...f, ...p });
+  const startAdd = (kind?: 'HOUSING') => (embedded ? setForm(emptyForm(kind)) : navigate(MANAGE));
+  const openCard = (sv: Savings) => (embedded ? openEdit(sv) : navigate(MANAGE));
 
   return (
     <div className="space-y-5 max-w-3xl">
-      <div className="flex items-end justify-between gap-3 flex-wrap">
-        <div>
-          <p className="text-xs font-medium text-slate-400 dark:text-slate-500 mb-1">매달 쌓이는 돈 · 자산 배분 '적금'에 자동 반영</p>
+      <div className={`flex items-end gap-3 flex-wrap ${embedded ? 'justify-end' : 'justify-between'}`}>
+        {!embedded && <div>
+          <p className="text-xs font-medium text-slate-400 dark:text-slate-500 mb-1">매달 쌓이는 돈 · 자산 현황 '적금'에 자동 반영</p>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-dark-text">적금 · 청약</h1>
-        </div>
-        <div className="flex gap-2">
-          {housings.length === 0 && (
-            <button onClick={() => setForm(emptyForm('HOUSING'))}
-              className="rounded-full px-4 py-1.5 min-h-[44px] bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-sm font-semibold">+ 청약</button>
-          )}
-          <button onClick={() => setForm(emptyForm())}
-            className="rounded-full px-4 py-1.5 min-h-[44px] bg-primary-600 hover:bg-primary-700 text-white text-sm font-semibold">+ 적금 추가</button>
-        </div>
+        </div>}
+        {embedded ? (
+          <div className="flex gap-2">
+            {housings.length === 0 && (
+              <button onClick={() => startAdd('HOUSING')}
+                className="rounded-full px-4 py-1.5 min-h-[44px] bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-sm font-semibold">+ 청약</button>
+            )}
+            <button onClick={() => startAdd()}
+              className="rounded-full px-4 py-1.5 min-h-[44px] bg-primary-600 hover:bg-primary-700 text-white text-sm font-semibold">+ 적금 추가</button>
+          </div>
+        ) : (
+          <Link to={MANAGE} className="rounded-full px-4 py-1.5 min-h-[44px] inline-flex items-center bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-sm font-semibold">내 계좌에서 관리 →</Link>
+        )}
       </div>
 
       {/* 요약 */}
@@ -164,7 +173,7 @@ export const SavingsPage = () => {
             <p className="text-base font-bold tabular-nums text-emerald-600 dark:text-emerald-400 truncate mt-0.5">{fmt(maturityTotal)}원</p>
           </div>
         </div>
-        <Link to="/allocation" className="mt-3 inline-block text-xs font-medium text-primary-500 min-h-[32px] leading-8">자산 배분에서 보기 →</Link>
+        <Link to="/assets" className="mt-3 inline-block text-xs font-medium text-primary-500 min-h-[32px] leading-8">자산 현황에서 보기 →</Link>
       </section>
 
       {/* 목록 */}
@@ -176,15 +185,15 @@ export const SavingsPage = () => {
           <p className="font-semibold text-slate-700 dark:text-slate-200">등록된 적금이 없어요</p>
           <p className="text-sm text-slate-400 mt-1">월 납입액·시작일·기간·이율만 넣으면 회차와 만기 금액을 계산해요</p>
           <div className="mt-5 flex justify-center gap-2">
-            <button onClick={() => setForm(emptyForm('HOUSING'))} className="h-11 px-5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-sm font-medium">+ 주택청약</button>
-            <button onClick={() => setForm(emptyForm())} className="h-11 px-5 rounded-full bg-primary-600 text-white text-sm font-medium">+ 적금 추가</button>
+            <button onClick={() => startAdd('HOUSING')} className="h-11 px-5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-sm font-medium">+ 주택청약</button>
+            <button onClick={() => startAdd()} className="h-11 px-5 rounded-full bg-primary-600 text-white text-sm font-medium">+ 적금 추가</button>
           </div>
         </div>
       ) : (
         <ul className="space-y-3">
           {housings.map(({ s, h }) => (
             <li key={s.id}>
-              <button onClick={() => openEdit(s)} className={`${CARD} w-full text-left p-4 sm:p-5 hover:ring-2 hover:ring-primary-200 dark:hover:ring-primary-900/40 transition`}>
+              <button onClick={() => openCard(s)} className={`${CARD} w-full text-left p-4 sm:p-5 hover:ring-2 hover:ring-primary-200 dark:hover:ring-primary-900/40 transition`}>
                 <HousingCard s={s} h={h} />
               </button>
             </li>
@@ -194,7 +203,7 @@ export const SavingsPage = () => {
             const pct = (sum.paid / s.months) * 100;
             return (
               <li key={s.id}>
-                <button onClick={() => openEdit(s)} className={`${CARD} w-full text-left p-4 sm:p-5 hover:ring-2 hover:ring-primary-200 dark:hover:ring-primary-900/40 transition`}>
+                <button onClick={() => openCard(s)} className={`${CARD} w-full text-left p-4 sm:p-5 hover:ring-2 hover:ring-primary-200 dark:hover:ring-primary-900/40 transition`}>
                   <div className="flex items-center gap-2 min-w-0">
                     <p className="font-semibold text-slate-900 dark:text-dark-text truncate min-w-0 flex-1">
                       {s.name}{s.bank && <span className="text-xs font-normal text-slate-400 ml-1.5">{s.bank}</span>}

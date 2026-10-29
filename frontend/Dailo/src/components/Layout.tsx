@@ -16,16 +16,17 @@ const NAV_GROUPS = [
       { path: '/',               label: '대시보드',    icon: '📊' },
       { path: '/expenses',       label: '지출 / 수입', icon: '💳' },
       { path: '/fixed-costs',    label: '고정비',      icon: '📌' },
-      { path: '/savings',        label: '적금',        icon: '🏦' },
       { path: '/report',         label: '리포트',      icon: '📈' },
-      { path: '/emergency',      label: '현금 자산',    icon: '💰' },
+      { path: '/settings',       label: '예산 설정',    icon: '⚙️' },
     ],
   },
   {
-    // 투자 설정은 투자 현황 헤더의 ⚙️ 버튼으로 들어감 (사이드바에서 뺌)
-    label: '투자',
+    // 가계부 = 돈의 흐름, 자산 = 쌓인 돈 (보는 곳). 등록·수정은 하단 '내 계좌'
+    label: '자산',
     items: [
-      { path: '/allocation',     label: '자산 배분',   icon: '🧭' },
+      { path: '/assets',         label: '자산 현황',   icon: '🧭' },
+      { path: '/cash',           label: '현금 자산',    icon: '💰' },
+      { path: '/savings',        label: '적금 · 청약',  icon: '🏦' },
       { path: '/invest',         label: '투자 현황',   icon: '💹' },
       { path: '/invest/diary',   label: '투자일기',    icon: '📖' },
     ],
@@ -33,8 +34,8 @@ const NAV_GROUPS = [
   {
     label: 'Daily',
     items: [
-      { path: '/planner-board', label: '플래너 보드',   icon: '🗓️' },
-      { path: '/todo',          label: '오늘의 플래너', icon: '📅' },
+      { path: '/planner-board', label: '월간 플래너',   icon: '🗓️' },
+      { path: '/todo',          label: '오늘 플래너',   icon: '📅' },
       { path: '/running',       label: '운동 기록',     icon: '🏃' },
       { path: '/habits',        label: '습관 트래커',   icon: '✅' },
     ],
@@ -90,7 +91,7 @@ export const Layout = ({ children }: LayoutProps) => {
 
   const isActive = (path: string) => {
     if (path === '/') return location.pathname === '/';
-    if (path === '/invest') return location.pathname === '/invest' || location.pathname.startsWith('/invest/settings');
+    if (path === '/invest') return location.pathname === '/invest';
     return location.pathname.startsWith(path);
   };
 
@@ -203,21 +204,20 @@ export const Layout = ({ children }: LayoutProps) => {
           </p>
         )}
 
-        {/* 설정 링크 */}
+        {/* 내 계좌 — 현금·적금/청약·투자 계좌 등록·관리 한곳 */}
         <Link
-          to="/settings"
-          title={collapsed ? '설정' : undefined}
+          to="/accounts"
+          title={collapsed ? '내 계좌' : undefined}
           className={`flex items-center gap-2.5 w-full px-3 min-h-[40px] rounded-xl text-sm transition-colors ${
-            isActive('/settings')
+            isActive('/accounts')
               ? 'bg-primary-50 dark:bg-primary-900/20 text-primary-600 dark:text-primary-400'
               : 'text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'
           } ${collapsed ? 'justify-center' : ''}`}
         >
-          <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+          <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M5 10V8l7-4 7 4v2M6 10v7m4-7v7m4-7v7m4-7v7M4 20h16" />
           </svg>
-          {!collapsed && <span>설정</span>}
+          {!collapsed && <span>내 계좌</span>}
         </Link>
 
         {/* 화면 설정 (모드·색 테마) */}

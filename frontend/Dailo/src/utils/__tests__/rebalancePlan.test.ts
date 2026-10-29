@@ -49,4 +49,13 @@ describe('rebalancePlan', () => {
     expect(p[1].amount).toBe(600);
     expect(p[2].amount).toBe(400);
   });
+
+  it('sell=false면 밴드를 넘어도 팔지 않고 납입금만 가벼운 종목에', () => {
+    const r = rebalancePlan([
+      { id: 1, value: 800_000, weight: 50, price: 10_000 },
+      { id: 2, value: 200_000, weight: 50, price: 10_000 },
+    ], 100_000, 5, { sell: false });
+    expect(r.some(i => i.action === 'SELL')).toBe(false);
+    expect(r.find(i => i.id === 2)?.amount).toBe(100_000);
+  });
 });

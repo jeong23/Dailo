@@ -36,10 +36,11 @@ export const themeColor = (themes: ThemeInfo[], id: number | null) => {
 };
 
 export const ThemeTodo = ({
-  themes, holdings, accounts, plan, blockers, threshold, monthlyBudget, withContribution, onToggleContribution, onTrade, children,
+  themes, holdings, accounts, plan, blockers, threshold, monthlyBudget, withContribution, onToggleContribution, allowSell, onToggleSell, onTrade, children,
 }: {
   themes: ThemeInfo[]; holdings: ThemeHolding[]; accounts: ThemeAccount[]; plan: TRResult | null; blockers: Blocker[];
   threshold: number; monthlyBudget: number; withContribution: boolean; onToggleContribution: () => void;
+  allowSell: boolean; onToggleSell: () => void;
   onTrade: (holdingId: number, side: 'BUY' | 'SELL', shares: number | null) => void;
   children?: React.ReactNode; // 이번 달 체결 내역
 }) => {
@@ -61,14 +62,23 @@ export const ThemeTodo = ({
               : '테마 비중이 목표 안이에요'}
           </p>
         </div>
-        {monthlyBudget > 0 && (
-          <button onClick={onToggleContribution} aria-pressed={withContribution}
+        <div className="flex gap-2 flex-wrap">
+          {monthlyBudget > 0 && (
+            <button onClick={onToggleContribution} aria-pressed={withContribution}
+              className={`shrink-0 h-11 sm:h-9 px-3.5 rounded-full text-xs font-medium transition-colors ${
+                withContribution ? 'bg-primary-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
+              }`}>
+              {withContribution ? '✓ ' : ''}이번 달 납입금 {fmt(monthlyBudget)}원 포함
+            </button>
+          )}
+          {/* 끄면 무거운 테마도 팔지 않고 새 납입금으로만 비중을 맞춤 */}
+          <button onClick={onToggleSell} aria-pressed={!allowSell}
             className={`shrink-0 h-11 sm:h-9 px-3.5 rounded-full text-xs font-medium transition-colors ${
-              withContribution ? 'bg-primary-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
+              !allowSell ? 'bg-primary-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
             }`}>
-            {withContribution ? '✓ ' : ''}이번 달 납입금 {fmt(monthlyBudget)}원 포함
+            {!allowSell ? '✓ ' : ''}매도 없이 납입금으로만
           </button>
-        )}
+        </div>
       </div>
 
       {blockers.length > 0 && (
@@ -76,7 +86,7 @@ export const ThemeTodo = ({
           {blockers.map((b, i) => (
             <div key={i} className="flex items-center justify-between gap-3 rounded-lg bg-amber-50 dark:bg-amber-900/15 px-3 py-2">
               <p className="text-xs text-amber-700 dark:text-amber-400 min-w-0">{b.text}</p>
-              <Link to="/invest/settings" className="shrink-0 h-11 sm:h-9 px-3 inline-flex items-center rounded-full bg-amber-500 text-white text-xs font-medium">
+              <Link to="/accounts?tab=invest" className="shrink-0 h-11 sm:h-9 px-3 inline-flex items-center rounded-full bg-amber-500 text-white text-xs font-medium">
                 {b.kind === 'duplicate' ? '설정에서 합치기' : '설정 열기'}
               </Link>
             </div>
@@ -252,7 +262,7 @@ export const ThemeBreakdown = ({
       </ul>
       {unassigned.length > 0 && (
         <p className="mt-3 text-xs text-amber-600 dark:text-amber-400">
-          테마가 없는 종목 {unassigned.length}개는 비중 계산에서 빠져요: {unassigned.map(h => h.ticker).join(', ')} — <Link to="/invest/settings" className="underline">설정</Link>
+          테마가 없는 종목 {unassigned.length}개는 비중 계산에서 빠져요: {unassigned.map(h => h.ticker).join(', ')} — <Link to="/accounts?tab=invest" className="underline">설정</Link>
         </p>
       )}
     </section>

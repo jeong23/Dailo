@@ -83,7 +83,8 @@ const roundToTotal = (raw: number[], money: number): number[] => {
   return amounts;
 };
 
-export function rebalancePlan(items: AllocInput[], budget: number, threshold: number): PlanItem[] {
+// sell=false: 무거운 종목도 팔지 않고 납입금으로만 (사용자 설정 '비중 맞출 때 팔기도 하기' 끔)
+export function rebalancePlan(items: AllocInput[], budget: number, threshold: number, { sell = true }: { sell?: boolean } = {}): PlanItem[] {
   const totalWeight = items.reduce((s, i) => s + Math.max(i.weight, 0), 0);
   const w = (i: AllocInput) => (totalWeight > 0 ? Math.max(i.weight, 0) / totalWeight : 0);
   const value = (i: AllocInput) => Math.max(i.value, 0);
@@ -93,7 +94,7 @@ export function rebalancePlan(items: AllocInput[], budget: number, threshold: nu
 
   // 1) 밴드를 넘게 무거운 종목 → 목표 금액까지 매도 (가격 있으면 주 단위 내림)
   const sells = items.map(i => {
-    if (current <= 0 || totalWeight <= 0) return 0;
+    if (!sell || current <= 0 || totalWeight <= 0) return 0;
     if ((value(i) / current) * 100 - w(i) * 100 <= threshold) return 0;
     const excess = value(i) - after * w(i);
     if (excess <= 0) return 0;

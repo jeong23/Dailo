@@ -27,6 +27,7 @@ public class MonthlyBudgetRequestDto {
     private Integer cardGoal;
     private Integer livingCarryover;
     private Integer emergencyCumulative;
+    // 레거시 고정 5칸 비율 (2026-08 이전 달) — 프론트는 더 이상 안 보냄. null이면 생성 0 / 수정 시 기존 값 유지
     private Double livingRate;
     private Double isaRate;
     private Double pensionRate;

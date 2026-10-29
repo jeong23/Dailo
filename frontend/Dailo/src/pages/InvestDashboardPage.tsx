@@ -7,6 +7,7 @@ import { LiveQuote, QuoteStatus, useLiveQuotes } from '../hooks/useLiveQuotes';
 import { PlanItem, rebalancePlan } from '../utils/rebalance';
 import { duplicateCodes } from '../utils/mergeHoldings';
 import { LIQUIDITY_DISCLAIMER, LiquidityLevel, accountTypeLabel, liquidityOf } from '../utils/accountLiquidity';
+import { checkGoal, isSafeHolding, purposeLabel } from '../utils/goalRisk';
 import { rebalanceByTheme } from '../utils/themeRebalance';
 import { Blocker, ThemeBreakdown, ThemeTodo, themeColor } from '../components/invest/ThemePanels';
 import { Toast, useToast } from '../components/Toast';
@@ -24,6 +25,9 @@ interface DashHolding {
 }
 interface DashAccount {
   id: number; name: string; type: string; targetPct: number;
+  contribution: number;                       // 이번 달 납입금 (계좌 월 납입금 또는 월 투자금 × %)
+  purpose: string | null; targetDate: string | null;
+  active?: boolean;                           // false = 꺼진 계좌 — 납입 0·추천 제외, 평가금액은 합계에 포함
   accountPlannedAmt: number; accountActualAmt: number;
   holdings: DashHolding[];
 }
@@ -37,6 +41,7 @@ interface Dashboard {
   yearMonth: string; monthlyBudget: number; rebalanceThreshold: number;
   pensionLimit: number; totalPlanned: number; totalActual: number;
   pensionYtdActual: number; accounts: DashAccount[];
+  allowSell: boolean; strategyPreset: string | null;
   themes: { id: number; name: string; targetPct: number; cash: boolean; sortOrder: number }[];
 }
 
@@ -204,7 +209,7 @@ const PageHeader = ({ right }: { right?: React.ReactNode }) => (
     <div className="flex items-center gap-2 flex-wrap justify-end">
       {right}
       {/* 투자 설정 진입점 — 사이드바에서 빠졌으므로 여기서만 들어감 */}
-      <Link to="/invest/settings" aria-label="투자 설정" title="투자 설정"
+      <Link to="/accounts?tab=invest" aria-label="투자 설정" title="투자 설정"
         className="h-11 px-3.5 flex items-center gap-1.5 rounded-full bg-white dark:bg-dark-card shadow-[0_1px_8px_rgba(0,0,0,0.06)] dark:shadow-none text-sm font-medium text-slate-600 dark:text-slate-300 hover:text-primary-600 dark:hover:text-primary-400 transition-colors">
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
@@ -231,6 +236,37 @@ export const InvestDashboardPage = () => {
   const [savingRecord, setSavingRecord] = useState<Record<number, boolean>>({});
   // 리밸런싱 추천에 이번 달 납입금(월 투자금 × 계좌 비중)을 매수 재원으로 포함할지
   const [withContribution, setWithContribution] = useState(true);
+  // 테마 리밸런싱 매도 허용 — 기기별 선호라 localStorage (기본: 허용)
+  // 비중 맞출 때 팔기 — 회원 설정(서버). 토글은 낙관적 반영 후 저장, 실패 시 되돌림
+  const allowSell = data?.allowSell !== false;
+  const toggleAllowSell = async () => {
+    const next = !allowSell;
+    setData(d => d && { ...d, allowSell: next });
+    try {
+      const cur = (await api.get('/invest/setting')).data.data;
+      await api.post('/invest/setting', { ...cur, allowSell: next });
+    } catch {
+      setData(d => d && { ...d, allowSell: !next });
+      show('설정을 저장하지 못했어요', 'error');
+    }
+  };
+  // 계좌 켜기/끄기 — 바로 저장 후 다시 불러옴 (납입금·추천·정렬이 서버 계산값 기준이라). 실패 시 되돌림
+  const [togglingAcc, setTogglingAcc] = useState<number | null>(null);
+  const toggleAccount = async (acc: DashAccount) => {
+    const next = acc.active === false;
+    setTogglingAcc(acc.id);
+    setData(d => d && { ...d, accounts: d.accounts.map(a => (a.id === acc.id ? { ...a, active: next } : a)) });
+    try {
+      await api.patch(`/invest/accounts/${acc.id}/active`, { active: next });
+      await fetchData(ym, true);
+      show(next ? '계좌를 켰어요 — 이번 달 할 일에 다시 들어가요' : '계좌를 껐어요 — 납입·추천에서 빠지고 맨 아래로 옮겼어요');
+    } catch (e: any) {
+      setData(d => d && { ...d, accounts: d.accounts.map(a => (a.id === acc.id ? { ...a, active: !next } : a)) });
+      show(e?.response?.data?.message || '계좌 상태를 바꾸지 못했어요', 'error');
+    } finally {
+      setTogglingAcc(null);
+    }
+  };
   // 이번 달 체결 기록 + 체결 완료 시트
   const [trades, setTrades] = useState<Trade[]>([]);
   const [tradeSheet, setTradeSheet] = useState<TradeSheet | null>(null);
@@ -384,7 +420,7 @@ export const InvestDashboardPage = () => {
           <p className="text-4xl mb-3">💹</p>
           <p className="text-slate-700 dark:text-slate-200 font-semibold">아직 투자 계좌가 없어요</p>
           <p className="text-sm text-slate-400 mt-1">계좌와 종목 비중을 먼저 설정해주세요</p>
-          <button onClick={() => navigate('/invest/settings')} className="mt-5 px-5 h-11 bg-primary-600 text-white rounded-full text-sm font-medium">투자 설정하기 →</button>
+          <button onClick={() => navigate('/accounts?tab=invest')} className="mt-5 px-5 h-11 bg-primary-600 text-white rounded-full text-sm font-medium">투자 설정하기 →</button>
         </div>
       </div>
     );
@@ -418,20 +454,20 @@ export const InvestDashboardPage = () => {
   const holdingById: Record<number, DashHolding> = {};
   allHoldings.forEach(h => { holdingById[h.holdingId] = h; });
   const plans = isCurrentMonth
-    ? view.accounts.filter(a => a.holdings.length > 0).map(acc => {
+    ? view.accounts.filter(a => a.holdings.length > 0 && a.active !== false).map(acc => {
         const missing = acc.holdings.filter(h => (h.shares ?? 0) > 0 && h.evalAmt == null);
         const dupCodes = duplicateCodes(acc.holdings);
         // 이번 달 체결을 반영한 남은 현금 = 납입금 + 판 돈 − 산 돈 (체결 완료 후 같은 추천이 또 나오지 않게)
         const accTrades = trades.filter(t => t.accountId === acc.id);
         const net = accTrades.reduce((t, x) => t + (x.side === 'SELL' ? x.amount : -x.amount), 0);
-        const contribution = withContribution ? Math.round(view.monthlyBudget * acc.targetPct / 100) : 0;
+        const contribution = withContribution ? acc.contribution : 0;
         const accBudget = Math.max(contribution + net, 0);
         const stats = statsOf(acc.holdings);
         const items = missing.length === 0 && dupCodes.length === 0 && (stats.evalAmt > 0 || accBudget > 0)
           ? rebalancePlan(
               // 금액으로 입력한 예수금·펀드는 합계엔 들어가지만 매매 대상은 아님 (목표 0%라 '전량 매도'로 나옴)
               acc.holdings.filter(h => !(h.manualValue != null && !h.stockCode)).map(h => ({ id: h.holdingId, value: h.evalAmt ?? 0, weight: h.holdingTargetPct, price: h.currentPrice })),
-              accBudget, view.rebalanceThreshold)
+              accBudget, view.rebalanceThreshold, { sell: allowSell })
           : [];
         const actions = items.filter(i => i.action !== 'HOLD')
           .sort((x, y) => (x.action === y.action ? y.amount - x.amount : x.action === 'SELL' ? -1 : 1));
@@ -455,15 +491,16 @@ export const InvestDashboardPage = () => {
     holdingId: h.holdingId, accountId: acc.id, ticker: h.ticker, themeId: h.themeId,
     evalAmt: h.evalAmt, purchaseAmt: h.purchaseAmt, profitPct: h.profitPct, shares: h.shares, currentPrice: h.currentPrice,
   })));
-  const themeAccounts = view.accounts.map(acc => {
+  // 꺼진 계좌는 돈도 안 들어오고 매매도 안 함 — 종목 평가금액은 themeHoldings로 테마 비중에만 들어감
+  const themeAccounts = view.accounts.filter(acc => acc.active !== false).map(acc => {
     const net = trades.filter(t => t.accountId === acc.id).reduce((t, x) => t + (x.side === 'SELL' ? x.amount : -x.amount), 0);
-    const contribution = withContribution ? Math.round(view.monthlyBudget * acc.targetPct / 100) : 0;
+    const contribution = withContribution ? acc.contribution : 0;
     return { id: acc.id, name: acc.name, contribution, budget: Math.max(contribution + net, 0), tradeCount: trades.filter(t => t.accountId === acc.id).length };
   });
   const blockers: Blocker[] = [];
   if (themeMode) {
     view.accounts.forEach(acc => {
-      const dup = duplicateCodes(acc.holdings);
+      const dup = acc.active === false ? [] : duplicateCodes(acc.holdings);
       if (dup.length) blockers.push({ accountId: acc.id, kind: 'duplicate', text: `${acc.name}: 같은 종목이 두 줄 (${dup.join(', ')})` });
       const noPrice = acc.holdings.filter(h => (h.shares ?? 0) > 0 && h.evalAmt == null && !isCashTheme(h.themeId));
       if (noPrice.length) blockers.push({ accountId: acc.id, kind: 'price', text: `${acc.name}: 현재가 없는 종목 — ${noPrice.map(h => h.ticker).join(', ')} (종목코드를 넣으면 시세가 들어와요)` });
@@ -477,7 +514,7 @@ export const InvestDashboardPage = () => {
           price: isCashTheme(h.themeId) ? null : h.currentPrice,
         })),
         themeAccounts.map(a => ({ id: a.id, budget: a.budget })),
-        view.rebalanceThreshold)
+        view.rebalanceThreshold, { sell: allowSell })
     : null;
   const openTrade = (holdingId: number, side: 'BUY' | 'SELL', shares: number | null) => {
     const h = holdingById[holdingId];
@@ -524,7 +561,8 @@ export const InvestDashboardPage = () => {
       {themeMode && isCurrentMonth && (
         <ThemeTodo themes={themes} holdings={themeHoldings} accounts={themeAccounts} plan={themePlan} blockers={blockers}
           threshold={view.rebalanceThreshold} monthlyBudget={view.monthlyBudget}
-          withContribution={withContribution} onToggleContribution={() => setWithContribution(v => !v)} onTrade={openTrade}>
+          withContribution={withContribution} onToggleContribution={() => setWithContribution(v => !v)}
+          allowSell={allowSell} onToggleSell={toggleAllowSell} onTrade={openTrade}>
           {tradeHistory}
         </ThemeTodo>
       )}
@@ -581,7 +619,7 @@ export const InvestDashboardPage = () => {
                 {dupCodes.length > 0 ? (
                   <div className="mt-2 flex items-center justify-between gap-3 rounded-lg bg-amber-50 dark:bg-amber-900/15 px-3 py-2">
                     <p className="text-xs text-amber-700 dark:text-amber-400 min-w-0">같은 종목이 두 줄로 등록돼 있어 계산할 수 없어요 ({dupCodes.join(', ')})</p>
-                    <Link to="/invest/settings" className="shrink-0 h-11 sm:h-9 px-3 inline-flex items-center rounded-full bg-amber-500 text-white text-xs font-medium">설정에서 합치기</Link>
+                    <Link to="/accounts?tab=invest" className="shrink-0 h-11 sm:h-9 px-3 inline-flex items-center rounded-full bg-amber-500 text-white text-xs font-medium">설정에서 합치기</Link>
                   </div>
                 ) : missing.length > 0 ? (
                   <div className="mt-2 flex items-center justify-between gap-3 rounded-lg bg-amber-50 dark:bg-amber-900/15 px-3 py-2">
@@ -772,24 +810,61 @@ export const InvestDashboardPage = () => {
       )}
 
       {/* ── 계좌별 보유 종목 ── */}
-      {view.accounts.map(acc => {
+      {/* 꺼진 계좌는 맨 아래로 (정렬은 안정 정렬이라 나머지 순서 유지) */}
+      {[...view.accounts].sort((a, b) => Number(a.active === false) - Number(b.active === false)).map(acc => {
         const allPaid = acc.holdings.length > 0 && acc.holdings.every(h => h.isPaid);
         const st = statsOf(acc.holdings);
+        const off = acc.active === false;
 
         return (
           <section key={acc.id} className={`${CARD} overflow-hidden`}>
             <div className="px-4 sm:px-5 pt-4 pb-3 space-y-2">
               <div className="flex items-center gap-2 min-w-0">
-                <span className={`text-xs font-medium px-3 py-1 rounded-full shrink-0 ${TYPE_BADGE[acc.type] ?? TYPE_BADGE.GENERAL}`}>{accountTypeLabel(acc.type)}</span>
-                <h2 className="font-semibold text-slate-900 dark:text-dark-text truncate flex-1 min-w-0">{acc.name}</h2>
-                <button onClick={() => openSheet(acc)}
+                <span className={`text-xs font-medium px-3 py-1 rounded-full shrink-0 ${off ? 'bg-slate-100 dark:bg-slate-800 text-slate-400' : TYPE_BADGE[acc.type] ?? TYPE_BADGE.GENERAL}`}>{accountTypeLabel(acc.type)}</span>
+                <h2 className={`font-semibold truncate flex-1 min-w-0 ${off ? 'text-slate-400 dark:text-slate-500' : 'text-slate-900 dark:text-dark-text'}`}>{acc.name}</h2>
+                <button type="button" role="switch" aria-checked={!off} aria-label={`${acc.name} 사용`}
+                  onClick={() => toggleAccount(acc)} disabled={togglingAcc === acc.id}
+                  className="h-11 shrink-0 -my-1 flex items-center gap-1.5 px-1 disabled:opacity-50">
+                  <span className={`text-xs font-medium ${off ? 'text-slate-400' : 'text-primary-600 dark:text-primary-400'}`}>{off ? '꺼짐' : '사용'}</span>
+                  <span className={`relative w-11 h-6 rounded-full transition-colors ${off ? 'bg-slate-300 dark:bg-slate-600' : 'bg-primary-600'}`}>
+                    <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${off ? '' : 'translate-x-5'}`} />
+                  </span>
+                </button>
+                {!off && <button onClick={() => openSheet(acc)}
                   className="shrink-0 h-11 sm:h-9 px-4 -my-1 rounded-full bg-slate-100 dark:bg-slate-800 text-sm font-medium text-slate-700 dark:text-dark-text hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
                   입력
-                </button>
+                </button>}
               </div>
+              {off && (
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  꺼진 계좌예요 — 이번 달 할 일·납입·리밸런싱 추천에서 빠지고, 평가금액만 합계에 들어가요. 오른쪽 스위치로 다시 켤 수 있어요
+                </p>
+              )}
+              <div className={`space-y-2 ${off ? 'opacity-50' : ''}`}>
               <p className={`text-[11px] ${LIQUIDITY_TEXT[liquidityOf(acc.type).level]}`} title={LIQUIDITY_DISCLAIMER}>
                 <span className="font-semibold">{liquidityOf(acc.type).label}</span> · {liquidityOf(acc.type).note}
               </p>
+              {/* 계좌 목적·쓸 날짜 — 날짜가 가까운데 위험자산이 많으면 안내 (날짜 없으면 안내 안 함) */}
+              {acc.purpose && !off && (() => {
+                const g = checkGoal(acc.purpose, acc.targetDate,
+                  acc.holdings.map(h => ({ value: h.evalAmt ?? 0, safe: isSafeHolding(h, isCashTheme(h.themeId)) })));
+                return (
+                  <div className="space-y-1.5">
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 tabular-nums">
+                      목적 <span className="font-semibold">{purposeLabel(acc.purpose)}</span>
+                      {acc.purpose !== 'RETIRE' && (acc.targetDate
+                        ? <> · {acc.targetDate} 사용 예정{g && g.months >= 0 ? ` (${g.months}개월 남음)` : ''}</>
+                        : ' · 쓸 때 미정')}
+                    </p>
+                    {g?.over && (
+                      <p className="rounded-lg bg-amber-50 dark:bg-amber-900/15 px-3 py-2 text-xs text-amber-700 dark:text-amber-400" title={LIQUIDITY_DISCLAIMER}>
+                        쓸 날까지 {Math.max(g.months, 0)}개월 — 위험자산이 {g.riskyPct.toFixed(0)}%예요. 흔히 쓰는 기준은 {g.cap}% 이하예요.
+                        새 납입금을 채권·현금성 쪽으로 돌리는 걸 고려해 보세요. (참고용)
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
               {/* 계좌 총 평가금액 · 손익 */}
               <div className="flex items-end justify-between gap-3 flex-wrap pt-1">
                 <div className="min-w-0">
@@ -808,13 +883,17 @@ export const InvestDashboardPage = () => {
                 )}
               </div>
               <p className="text-xs text-slate-400 tabular-nums truncate">
-                {st.purchase > 0 && `원금 ${fmt(st.purchase)}원 · `}
-                {allPaid ? <span className="text-emerald-500 font-medium">✓ 납입 완료 </span> : '이달 납입 '}
-                {fmt(acc.accountActualAmt)} / {fmt(acc.accountPlannedAmt)}원
+                {st.purchase > 0 && `원금 ${fmt(st.purchase)}원${off ? '' : ' · '}`}
+                {!off && <>
+                  {allPaid ? <span className="text-emerald-500 font-medium">✓ 납입 완료 </span> : '이달 납입 '}
+                  {fmt(acc.accountActualAmt)} / {fmt(acc.accountPlannedAmt)}원
+                </>}
               </p>
+              </div>
             </div>
 
             {/* 데스크탑 컬럼 라벨 */}
+            <div className={off ? 'opacity-50' : ''}>
             <div className="hidden xl:flex items-center gap-4 px-5 py-2 bg-slate-50/80 dark:bg-slate-800/30 text-xs font-medium text-slate-400">
               <span className="flex-1">종목</span>
               <span className="w-20 text-right">보유 수량</span>
@@ -903,6 +982,7 @@ export const InvestDashboardPage = () => {
                 );
               })}
             </ul>
+            </div>
 
             {/* 계좌 합계 — 보유 종목 평가금액을 모두 더한 값 */}
             <div className="flex items-center justify-between gap-3 px-4 sm:px-5 py-3 border-t border-slate-100 dark:border-dark-border/60 bg-slate-50/80 dark:bg-slate-800/30">

@@ -3,6 +3,7 @@ import { DailyExpense, Category, BudgetType } from '../types';
 import api, { getStoredMemberId } from '../api/axios';
 import { formatNumber, parseNumber, getCurrentSettleMonth, getSettleMonthForDate } from '../utils/format';
 import { useEscapeKey } from '../hooks/useEscapeKey';
+import { Toast, useToast } from '../components/Toast';
 
 interface Income {
   id: number;
@@ -21,6 +22,7 @@ interface Income {
 const BASE_BUDGET_TYPES = ['생활비', '비상금', '투자'];
 
 export const ExpensesPage = () => {
+  const { toast, show } = useToast();
   const [activeTab, setActiveTab] = useState<'expense' | 'income'>('expense');
   const [selectedMonth, setSelectedMonth] = useState(getCurrentSettleMonth());
   const [monthOptions, setMonthOptions] = useState<string[]>([]);
@@ -169,7 +171,7 @@ export const ExpensesPage = () => {
     const expenseSettleMonth = getSettleMonthForDate(expenseDate);
     const resolvedBudgetId = budgetMap[expenseSettleMonth] || monthlyBudgetId;
     if (!resolvedBudgetId) {
-      alert(`${expenseSettleMonth} 월별 예산이 없습니다. 설정에서 먼저 예산을 등록해주세요.`);
+      show(`${expenseSettleMonth} 월별 예산이 없습니다. 설정에서 먼저 예산을 등록해주세요.`, 'error');
       return;
     }
     const requestData = {
@@ -196,7 +198,7 @@ export const ExpensesPage = () => {
       const msg = error?.response?.status
         ? `${error.response.status} - ${JSON.stringify(error.response.data)}`
         : error?.message || '네트워크 오류';
-      alert(`저장 실패: ${msg}`);
+      show(`저장 실패: ${msg}`, 'error');
     }
   };
 
@@ -254,7 +256,7 @@ export const ExpensesPage = () => {
       fetchIncomes();
     } catch (error) {
       console.error('저장 실패:', error);
-      alert('저장 실패');
+      show('저장 실패', 'error');
     }
   };
 
@@ -374,13 +376,14 @@ export const ExpensesPage = () => {
 
   return (
     <div className="space-y-6">
+      <Toast toast={toast} />
       {/* 헤더 */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
         <div>
           <p className="text-xs font-medium text-slate-400 dark:text-slate-500 mb-1">
             {selectedMonth.replace('-', '년 ')}월
           </p>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-dark-text">수입 / 지출 관리</h1>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-dark-text">지출 / 수입</h1>
           <p className="text-sm text-slate-400 dark:text-dark-muted mt-1">
             지출 <span className="font-semibold text-rose-500 tabular-nums">-{totalExpense.toLocaleString()}원</span>
             <span className="mx-2 text-slate-300">·</span>

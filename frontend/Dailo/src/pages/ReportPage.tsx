@@ -1,12 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import api from '../api/axios';
 import { MonthlyReport } from '../types';
-import { getAllocationLabels } from '../utils/allocationLabels';
 
 export const ReportPage = () => {
   const [reports, setReports] = useState<MonthlyReport[]>([]);
   const [loading, setLoading] = useState(true);
-  const labels = getAllocationLabels();
 
   useEffect(() => {
     api.get('/dashboard/monthly-report')
@@ -89,7 +87,7 @@ export const ReportPage = () => {
 
                 {/* 생활비 */}
                 <div className="space-y-2">
-                  <p className="text-xs font-medium text-slate-400 dark:text-slate-500">{labels.living}</p>
+                  <p className="text-xs font-medium text-slate-400 dark:text-slate-500">생활비</p>
                   <Row label="예산" value={fmt(r.livingBudget)} />
                   {r.livingCarryover !== 0 && (
                     <Row label="이월" value={`${sign(r.livingCarryover)}${fmt(r.livingCarryover)}`} />
@@ -103,17 +101,20 @@ export const ReportPage = () => {
                   />
                 </div>
 
-                {/* 비상금(레거시 달만) / 투자 */}
+                {/* 그 달 분배 항목 (생활비는 왼쪽 칸) — 예산 설정에서 만든 항목 그대로. 항목이 없는 옛 달만 ISA/연금 고정 칸 */}
                 <div className="space-y-2">
-                  <p className="text-xs font-medium text-slate-400 dark:text-slate-500">{labels.emergency} / 투자</p>
+                  <p className="text-xs font-medium text-slate-400 dark:text-slate-500">분배</p>
                   {(r.emergencyBudget > 0 || r.emergencyExpenseTotal > 0) && (
-                    <Row label={`${labels.emergency} 예산`} value={fmt(r.emergencyBudget)} />
+                    <Row label="비상금 지출" value={fmt(r.emergencyExpenseTotal)} color="text-red-400" />
                   )}
-                  {(r.emergencyBudget > 0 || r.emergencyExpenseTotal > 0) && (
-                    <Row label={`${labels.emergency} 지출`} value={fmt(r.emergencyExpenseTotal)} color="text-red-400" />
-                  )}
-                  <Row label={labels.isa} value={fmt(r.isaAmount)} color="text-emerald-500" />
-                  <Row label={labels.pension} value={fmt(r.pensionAmount)} color="text-violet-500" />
+                  {(r.allocationItems ?? []).length > 0
+                    ? (r.allocationItems ?? []).filter(i => i.label.trim() !== '생활비').map(i => (
+                        <Row key={i.label} label={i.label} value={fmt(i.budgetAmount)} color="text-emerald-500" />
+                      ))
+                    : <>
+                        <Row label="ISA" value={fmt(r.isaAmount)} color="text-emerald-500" />
+                        <Row label="연금저축" value={fmt(r.pensionAmount)} color="text-violet-500" />
+                      </>}
                 </div>
 
                 {/* 카드 실적 */}
@@ -156,8 +157,8 @@ const Row = ({
   color?: string;
   bold?: boolean;
 }) => (
-  <div className="flex justify-between items-center text-sm">
-    <span className="text-slate-500 dark:text-dark-muted">{label}</span>
-    <span className={`${bold ? 'font-bold' : ''} ${color ?? 'dark:text-dark-text'}`}>{value}원</span>
+  <div className="flex justify-between items-center gap-2 text-sm">
+    <span className="text-slate-500 dark:text-dark-muted min-w-0 truncate">{label}</span>
+    <span className={`shrink-0 tabular-nums ${bold ? 'font-bold' : ''} ${color ?? 'dark:text-dark-text'}`}>{value}원</span>
   </div>
 );

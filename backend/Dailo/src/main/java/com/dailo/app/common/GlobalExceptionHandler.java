@@ -10,6 +10,7 @@ import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.stream.Collectors;
@@ -65,6 +66,13 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleMethodNotSupported(HttpRequestMethodNotSupportedException e) {
         return ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED)
                 .body(ApiResponse.error("지원하지 않는 HTTP 메서드입니다."));
+    }
+
+    // SSE(실시간 시세 등)에서 브라우저가 연결을 끊은 뒤 쓰기 시도 — 서버 오류 아님. 응답도 못 쓰므로 아무것도 반환하지 않음
+    //  (Exception 핸들러로 가면 ERROR 로그 + text/event-stream에 JSON 쓰기 실패 경고가 연달아 찍혔음)
+    @ExceptionHandler(AsyncRequestNotUsableException.class)
+    public void handleAsyncRequestNotUsable(AsyncRequestNotUsableException e) {
+        log.debug("클라이언트 연결 끊김: {}", e.getMessage());
     }
 
     @ExceptionHandler(Exception.class)

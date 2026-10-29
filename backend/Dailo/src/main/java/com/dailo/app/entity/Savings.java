@@ -62,6 +62,11 @@ public class Savings extends BaseEntity {
 
     private Long bonusBalance;      // 적금: 지금까지 적립된 기여금 직접 입력 (null이면 월 기여금 × 회차)
 
+    // 예산 분배 항목 연결 — 최신 달 예산 저장 때 그 금액으로 (MonthlyBudgetService.syncLinkedAmounts)
+    public void updateMonthlyAmount(Long monthlyAmount) {
+        this.monthlyAmount = monthlyAmount;
+    }
+
     public void update(String name, String bank, Long monthlyAmount, LocalDate startDate, Integer months,
                        Float ratePct, Boolean taxFree, Integer paidOverride, String memo,
                        String kind, Long balanceOverride, String region, Boolean householdHead,

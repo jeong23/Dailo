@@ -51,6 +51,11 @@
 - POST       /api/habits/logs
 - GET/POST   /api/invest/setting
 - GET/POST   /api/invest/accounts
+- PATCH      /api/invest/accounts/{id}/active   {active} — 계좌 켜기/끄기만 바로 저장
+- GET/POST   /api/cash-accounts                 (POST·PUT·DELETE·PATCH는 ?settleMonth=YYYY-MM 필수 — 그 달 현금 자산 = 켜진 계좌 합계)
+- PUT/DELETE /api/cash-accounts/{id}
+- PATCH      /api/cash-accounts/{id}/active    {active}
+- GET/PUT    /api/notes/{key}                  key = budget-YYYY-MM | planner-YYYY-MM, PUT {content} (빈 값 = 삭제)
 - GET        /api/invest/dashboard?yearMonth=YYYY-MM
 - PUT        /api/invest/records/{id}
 - POST       /api/invest/holdings/{holdingId}/trades   (체결 완료 → 보유 수량·평균단가 반영)

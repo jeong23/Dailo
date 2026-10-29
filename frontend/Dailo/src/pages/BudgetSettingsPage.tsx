@@ -1,8 +1,11 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { MonthlyBudget, AllocationInputMode } from '../types';
 import api, { getStoredMemberId } from '../api/axios';
 import { formatNumber, parseNumber, formatSignedNumber, parseSignedNumber, getCurrentSettleMonth } from '../utils/format';
-import { calcTaxOptimization, TAX_CALC_RESULT_KEY, TAX_CALC_INPUTS_KEY } from '../utils/taxCalc';
+import { suggestLinks } from '../utils/accountLink';
+import { useServerNote } from '../hooks/useServerNote';
+import { calcTaxOptimization, DEFAULT_TAX_INPUTS, TAX_CALC_INPUTS_KEY, TAX_CALC_RESULT_KEY, taxInputsFromSetting } from '../utils/taxCalc';
+import { Toast, useToast } from '../components/Toast';
 
 // 예산 분배 항목(옛 생활비/ISA/연금저축/비상금/자유재량 고정 5슬롯 폐지) 미리보기용 색상 팔레트 — 인덱스 기반 순환
 // 항목 개수 제한 없이 자유롭게 추가/삭제/이름변경 가능 (allocationItems 배열 하나로 통합 관리)
@@ -30,14 +33,15 @@ interface AllocationItemForm {
   inputMode: AllocationInputMode;
   rate: number;        // percent 0~100 (RATE 모드에서 사용)
   amountInput: string; // "300,000" 형태 (AMOUNT 모드에서 사용)
+  investAccountId: number | null; // 연결된 투자 계좌 (null = 연결 없음)
+  savingsId: number | null;       // 연결된 적금·청약 (null = 연결 없음) — 투자 계좌와 둘 중 하나만
 }
 
 export const BudgetSettingsPage = () => {
+  const { toast, show } = useToast();
   const [selectedMonth, setSelectedMonth] = useState(getCurrentSettleMonth());
   const [existingBudget, setExistingBudget] = useState<MonthlyBudget | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [memo, setMemo] = useState('');
-  const [memoSaved, setMemoSaved] = useState(false);
 
   // 비상금 레거시 판단: 현재 선택된 달의 MonthlyBudget에 emergencyRate가 남아있으면(과거 고정 슬롯 시절 데이터) 레거시 표시 사용
   // 날짜 비교 금지, 저장된 emergencyRate 값 자체로 판단 (EmergencyPage/비상금 로직은 이번 스코프 제외 — 읽기 전용 표시만 그대로 유지)
@@ -50,6 +54,25 @@ export const BudgetSettingsPage = () => {
 
   // 예산 분배 항목 — 고정 슬롯 없이 개수 제한 없는 리스트 하나로 관리 (라벨/입력모드/비율/금액 전부 사용자 정의)
   const [allocationItems, setAllocationItems] = useState<AllocationItemForm[]>([]);
+  // 예산 항목 ↔ 투자 계좌 연결용 목록 (ISA 항목 → ISA 계좌). 최신 달을 저장하면 그 금액이 계좌 월 납입금이 됨
+  const [investAccounts, setInvestAccounts] = useState<{ id: number; name: string; type: string; active?: boolean }[]>([]);
+  const [savingsList, setSavingsList] = useState<{ id: number; name: string; kind: string | null }[]>([]);
+  useEffect(() => {
+    api.get('/invest/accounts').then(r => setInvestAccounts(r.data.data || [])).catch(() => setInvestAccounts([]));
+    api.get('/savings').then(r => setSavingsList(r.data.data || [])).catch(() => setSavingsList([]));
+  }, []);
+  const linkTargets = investAccounts.length + savingsList.length;
+  // 연결이 하나도 없는 달은 항목명(ISA·IRP·연금)으로 자동 연결 제안 — 달마다 한 번만 (이후 '연결 안 함'을 고르면 그대로 둠)
+  const autoLinkedMonth = useRef<string | null>(null);
+  const [autoLinked, setAutoLinked] = useState(false);
+  useEffect(() => {
+    if (linkTargets === 0 || allocationItems.length === 0 || autoLinkedMonth.current === selectedMonth) return;
+    autoLinkedMonth.current = selectedMonth;
+    const next = suggestLinks(allocationItems, investAccounts.filter(a => a.active !== false), savingsList); // 꺼진 계좌는 자동 연결 안 함
+    const changed = next.some((it, i) => it.investAccountId !== allocationItems[i].investAccountId || it.savingsId !== allocationItems[i].savingsId);
+    setAutoLinked(changed);
+    if (changed) setAllocationItems(next);
+  }, [investAccounts, savingsList, linkTargets, allocationItems, selectedMonth]);
 
   // 고정비 합계 (서버에서 조회)
   const [fixedCostTotal, setFixedCostTotal] = useState(0);
@@ -63,26 +86,39 @@ export const BudgetSettingsPage = () => {
   );
   const [isSavingDay, setIsSavingDay] = useState(false);
 
-  // 세액공제 계산기 — lazy initializer로 초기 1회만 localStorage 읽기
-  const [taxProbation, setTaxProbation] = useState<boolean>(() => {
-    try { return JSON.parse(localStorage.getItem(TAX_CALC_INPUTS_KEY) || '{}').isProbation ?? false; } catch { return false; }
-  });
-  const [taxProbEndMonth, setTaxProbEndMonth] = useState<number>(() => {
-    try { return JSON.parse(localStorage.getItem(TAX_CALC_INPUTS_KEY) || '{}').probEndMonth ?? 3; } catch { return 3; }
-  });
-  const [taxJoinMonth, setTaxJoinMonth] = useState<number>(() => {
-    try { return JSON.parse(localStorage.getItem(TAX_CALC_INPUTS_KEY) || '{}').joinMonth ?? 1; } catch { return 1; }
-  });
+  // 세액공제 계산기 입력 — 회원별 서버 저장 (기기·브라우저가 바뀌어도 같은 결과). taxLoaded 전엔 저장 안 함
+  const [taxProbation, setTaxProbation] = useState<boolean>(DEFAULT_TAX_INPUTS.probation);
+  const [taxProbEndMonth, setTaxProbEndMonth] = useState<number>(DEFAULT_TAX_INPUTS.probEndMonth);
+  const [taxJoinMonth, setTaxJoinMonth] = useState<number>(DEFAULT_TAX_INPUTS.joinMonth);
+  const [taxLoaded, setTaxLoaded] = useState(false);
+  useEffect(() => {
+    api.get('/invest/setting').then(r => {
+      let inputs = taxInputsFromSetting(r.data.data);
+      if (!inputs) {
+        // 예전 브라우저 저장값이 있으면 한 번 서버로 옮김
+        try {
+          const old = JSON.parse(localStorage.getItem(TAX_CALC_INPUTS_KEY) || 'null');
+          if (old) inputs = { joinMonth: old.joinMonth ?? 1, probation: !!old.isProbation, probEndMonth: old.probEndMonth ?? 3 };
+        } catch {}
+      }
+      const v = inputs ?? DEFAULT_TAX_INPUTS;
+      setTaxJoinMonth(v.joinMonth); setTaxProbation(v.probation); setTaxProbEndMonth(v.probEndMonth);
+    }).catch(() => {}).finally(() => setTaxLoaded(true));
+  }, []);
+  useEffect(() => {
+    if (!taxLoaded) return;
+    const t = setTimeout(() => {
+      api.put('/invest/setting/tax-inputs', { joinMonth: taxJoinMonth, probation: taxProbation, probEndMonth: taxProbEndMonth })
+        .then(() => { try { localStorage.removeItem(TAX_CALC_INPUTS_KEY); localStorage.removeItem(TAX_CALC_RESULT_KEY); } catch {} })
+        .catch(() => {});
+    }, 600);
+    return () => clearTimeout(t);
+  }, [taxLoaded, taxJoinMonth, taxProbation, taxProbEndMonth]);
 
-  // 입력 변경 시 localStorage 저장 + 결과 계산
-  const taxResult = useMemo(() => {
-    const inputs = { isProbation: taxProbation, probEndMonth: taxProbEndMonth, joinMonth: taxJoinMonth };
-    localStorage.setItem(TAX_CALC_INPUTS_KEY, JSON.stringify(inputs));
-    const result = calcTaxOptimization(parseNumber(netSalary), taxProbation, taxJoinMonth);
-    if (result) localStorage.setItem(TAX_CALC_RESULT_KEY, JSON.stringify(result));
-    return result;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [netSalary, taxProbation, taxJoinMonth, taxProbEndMonth]);
+  const taxResult = useMemo(
+    () => calcTaxOptimization(parseNumber(netSalary), taxProbation, taxJoinMonth),
+    [netSalary, taxProbation, taxJoinMonth],
+  );
 
   // 미리보기 계산값
   const net = parseNumber(netSalary);
@@ -159,6 +195,8 @@ export const BudgetSettingsPage = () => {
         inputMode: a.inputMode || 'RATE',
         rate: Math.round((a.rate || 0) * 100),
         amountInput: a.inputMode === 'AMOUNT' ? formatNumber(String(a.budgetAmount ?? 0)) : '',
+        investAccountId: a.investAccountId ?? null,
+        savingsId: a.savingsId ?? null,
       }));
 
   const fetchData = async (budgetList = allBudgets, month = selectedMonth) => {
@@ -226,28 +264,17 @@ export const BudgetSettingsPage = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedMonth]);
 
-  useEffect(() => {
-    const saved = localStorage.getItem(`settingsMemo-${selectedMonth}`) || '';
-    setMemo(saved);
-    setMemoSaved(false);
-  }, [selectedMonth]);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      localStorage.setItem(`settingsMemo-${selectedMonth}`, memo);
-      if (memo) setMemoSaved(true);
-    }, 600);
-    return () => clearTimeout(timer);
-  }, [memo, selectedMonth]);
+  // 달별 메모 — 서버 저장 (예전 localStorage 'settingsMemo-YYYY-MM'은 처음 열 때 옮김)
+  const { memo, setMemo, saved: memoSaved } = useServerNote(`budget-${selectedMonth}`, `settingsMemo-${selectedMonth}`);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (duplicateItemLabels.length > 0) {
-      alert(`중복된 항목명이 있습니다: ${duplicateItemLabels.join(', ')}`);
+      show(`중복된 항목명이 있습니다: ${duplicateItemLabels.join(', ')}`, 'error');
       return;
     }
     if (hasBlankItemLabel) {
-      alert('추가 항목의 이름을 입력해주세요.');
+      show('추가 항목의 이름을 입력해주세요.', 'error');
       return;
     }
     setIsSaving(true);
@@ -257,24 +284,16 @@ export const BudgetSettingsPage = () => {
       netSalary: net,
       cardGoal:          parseNumber(cardGoal),
       livingCarryover:   parseSignedNumber(livingCarryover),
-      // 고정 5슬롯(생활비/ISA/연금/비상금/자유재량) 입력 UI는 완전히 제거됨 — 이제 분배는 allocationItems 하나로만 관리한다.
-      // 단, MonthlyBudget 엔티티의 livingRate~discretionaryRate 컬럼은 DB상 NOT NULL이라 null을 보낼 수 없고,
-      // 과거(레거시) 달의 경우 이 값들을 이 페이지가 더 이상 편집하지 않는데도 저장할 때마다 0으로 덮어쓰면
-      // ReportPage/EmergencyPage가 참조하는 해당 월 스냅샷이 조용히 깨진다.
-      // → 기존 값이 있으면 그대로 되돌려보내고(신규 달은 existingBudget이 없으니 자연히 0), UI에서만 완전히 숨긴다.
-      livingRate:        existingBudget?.livingRate ?? 0,
-      isaRate:           existingBudget?.isaRate ?? 0,
-      pensionRate:       existingBudget?.pensionRate ?? 0,
-      emergencyRate:     existingBudget?.emergencyRate ?? 0,
-      discretionaryRate: existingBudget?.discretionaryRate ?? 0,
+      // 분배는 allocationItems 하나로만 관리 — 레거시 고정 5칸 비율(livingRate~discretionaryRate)은 보내지 않음
+      //  서버가 생성 시 0, 수정 시 기존 값 유지 (2026-08 이전 달 스냅샷 보존). 생활비·비상금 예산은 같은 이름의 항목 금액이 기준
       allocationItems: allocationItems.map(item => {
         const label = item.label.trim();
         if (item.inputMode === 'AMOUNT') {
           // AMOUNT 모드: 사용자가 입력한 정수 그대로 전송 — 프론트에서 반올림/역산 절대 금지
           // (300,000원 입력 시 299,996원으로 저장되던 오차의 원인이 여기서의 왕복 계산이었음)
-          return { label, inputMode: 'AMOUNT' as const, amount: parseNumber(item.amountInput) };
+          return { label, inputMode: 'AMOUNT' as const, amount: parseNumber(item.amountInput), investAccountId: item.investAccountId, savingsId: item.savingsId };
         }
-        return { label, inputMode: 'RATE' as const, rate: item.rate / 100 };
+        return { label, inputMode: 'RATE' as const, rate: item.rate / 100, investAccountId: item.investAccountId, savingsId: item.savingsId };
       }),
     };
 
@@ -284,12 +303,12 @@ export const BudgetSettingsPage = () => {
       } else {
         await api.post('/monthly-budgets', body);
       }
-      alert('저장되었습니다!');
+      show('저장되었습니다!');
       fetchData();
     } catch (error: any) {
       console.error('저장 실패:', error);
       const msg = error?.response?.data?.message || '저장 실패';
-      alert(msg);
+      show(msg, 'error');
     } finally {
       setIsSaving(false);
     }
@@ -303,9 +322,9 @@ export const BudgetSettingsPage = () => {
       await api.put(`/members/${memberId}`, { salaryDay: day });
       localStorage.setItem('salaryDay', String(day));
       setSalaryDay(day);
-      alert('월급날이 저장되었습니다.');
+      show('월급날이 저장되었습니다.');
     } catch {
-      alert('저장 실패');
+      show('저장 실패', 'error');
     } finally {
       setIsSavingDay(false);
     }
@@ -313,7 +332,7 @@ export const BudgetSettingsPage = () => {
 
   // 예산 분배 항목 관리 (개수 제한 없음)
   const addAllocationItem = () => {
-    setAllocationItems(prev => [...prev, { label: '새 항목', inputMode: 'RATE', rate: 0, amountInput: '' }]);
+    setAllocationItems(prev => [...prev, { label: '새 항목', inputMode: 'RATE', rate: 0, amountInput: '', investAccountId: null, savingsId: null }]);
   };
 
   const updateAllocationItemLabel = (index: number, label: string) => {
@@ -362,11 +381,12 @@ export const BudgetSettingsPage = () => {
 
   return (
     <div className="space-y-6">
+      <Toast toast={toast} />
       {/* 헤더 */}
       <div className="flex justify-between items-end flex-wrap gap-2">
         <div>
           <p className="text-xs font-medium text-slate-400 dark:text-slate-500 mb-1">급여 · 분배 비율 설정</p>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-dark-text">월별 예산 설정</h1>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-dark-text">예산 설정</h1>
         </div>
         <select
           value={selectedMonth}
@@ -505,7 +525,7 @@ export const BudgetSettingsPage = () => {
                       ? `${cashAssetBalance.toLocaleString()}원`
                       : '—'}
                   </div>
-                  <a href="/emergency" className="text-xs text-primary-500 hover:text-primary-600 mt-1 inline-block">
+                  <a href="/cash" className="text-xs text-primary-500 hover:text-primary-600 mt-1 inline-block">
                     현금 자산 페이지에서 관리 →
                   </a>
                 </div>
@@ -519,6 +539,12 @@ export const BudgetSettingsPage = () => {
                 <span className="text-xs text-slate-400">항목마다 비율 · 금액 모드를 각각 선택할 수 있어요</span>
               </div>
 
+              {linkTargets > 0 && (
+                <p className={`mb-2 text-[11px] ${autoLinked ? 'text-primary-600 dark:text-primary-400' : 'text-slate-400'}`}>
+                  {autoLinked ? '항목 이름으로 계좌를 자동 연결했어요 — ' : ''}
+                  계좌에 연결한 항목은 저장하면 내 계좌의 월 납입금(투자)·월 납입액(적금·청약)이 이 금액으로 바뀌어요 (가장 최근 달 예산 기준)
+                </p>
+              )}
               <div className="space-y-2">
                 {allocationItems.map((item, i) => {
                   const palette = ITEM_PALETTE[i % ITEM_PALETTE.length];
@@ -589,6 +615,34 @@ export const BudgetSettingsPage = () => {
                           {amount.toLocaleString()}원{available > 0 && ` (${Math.round((amount / available) * 100)}%)`}
                         </span>
                       </div>
+                      {linkTargets > 0 && (
+                        <label className="flex items-center gap-2 min-w-0" title="연결하면 이 달이 가장 최근 예산일 때 저장하는 금액이 그 계좌의 월 납입금이 돼요">
+                          <span className="text-[11px] text-slate-400 shrink-0">연결 계좌</span>
+                          {/* 값: 'invest:ID' / 'savings:ID' — 한 항목은 하나에만 연결 */}
+                          <select value={item.investAccountId != null ? `invest:${item.investAccountId}` : item.savingsId != null ? `savings:${item.savingsId}` : ''}
+                            onChange={e => {
+                              const [kind, id] = e.target.value.split(':');
+                              setAllocationItems(prev => prev.map((it, idx) => idx === i ? {
+                                ...it,
+                                investAccountId: kind === 'invest' ? Number(id) : null,
+                                savingsId: kind === 'savings' ? Number(id) : null,
+                              } : it));
+                            }}
+                            className="flex-1 min-w-0 min-h-[44px] p-1.5 rounded-lg border text-xs dark:bg-dark-bg dark:border-dark-border dark:text-dark-text outline-none focus:ring-2 focus:ring-primary-500 truncate">
+                            <option value="">연결 안 함</option>
+                            {investAccounts.length > 0 && (
+                              <optgroup label="투자 계좌">
+                                {investAccounts.map(a => <option key={a.id} value={`invest:${a.id}`}>{a.name.replace(/\t/g, ' ')}{a.active === false ? ' (꺼짐 — 납입 0원)' : ''}</option>)}
+                              </optgroup>
+                            )}
+                            {savingsList.length > 0 && (
+                              <optgroup label="적금·청약">
+                                {savingsList.map(sv => <option key={sv.id} value={`savings:${sv.id}`}>{sv.name}</option>)}
+                              </optgroup>
+                            )}
+                          </select>
+                        </label>
+                      )}
                     </div>
                   );
                 })}
@@ -828,7 +882,7 @@ export const BudgetSettingsPage = () => {
         </div>
         <textarea
           value={memo}
-          onChange={(e) => { setMemo(e.target.value); setMemoSaved(false); }}
+          onChange={(e) => setMemo(e.target.value)}
           rows={5}
           placeholder="이달의 메모, 특이사항, 계획 등을 자유롭게 작성하세요..."
           className="w-full p-3 rounded-lg border border-slate-200 dark:border-dark-border bg-slate-50 dark:bg-dark-bg text-sm text-slate-800 dark:text-dark-text placeholder-slate-400 dark:placeholder-slate-600 resize-none outline-none focus:ring-2 focus:ring-primary-500 transition-all"
