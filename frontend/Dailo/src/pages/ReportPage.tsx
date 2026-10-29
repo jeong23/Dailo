@@ -75,7 +75,7 @@ export const ReportPage = () => {
               </div>
 
               {/* 본문 그리드 */}
-              <div className="p-4 sm:p-6 grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="p-4 sm:p-6 grid grid-cols-2 xl:grid-cols-4 gap-x-6 gap-y-4">
                 {/* 수입/예산 */}
                 <div className="space-y-2">
                   <p className="text-xs font-medium text-slate-400 dark:text-slate-500">수입 / 예산</p>

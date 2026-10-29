@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api/axios';
+import { handleListKeyDown, startListOnFocus, isBlankList } from '../utils/listTextarea';
 
 interface Big3Item {
   content: string;
@@ -57,8 +58,10 @@ export const PlannerBoardPage = () => {
   // 메모 자동저장
   useEffect(() => {
     const timer = setTimeout(() => {
-      localStorage.setItem(memoKey, memo);
-      if (memo) setMemoSaved(true);
+      // 글머리 기호만 남은 메모는 빈 값으로 저장
+      const value = isBlankList(memo) ? '' : memo;
+      localStorage.setItem(memoKey, value);
+      if (value) setMemoSaved(true);
     }, 600);
     return () => clearTimeout(timer);
   }, [memo, memoKey]);
@@ -259,10 +262,16 @@ export const PlannerBoardPage = () => {
         <textarea
           value={memo}
           onChange={e => { setMemo(e.target.value); setMemoSaved(false); }}
+          onKeyDown={handleListKeyDown}
+          onFocus={startListOnFocus}
+          onBlur={() => { if (memo && isBlankList(memo)) setMemo(''); }}
           rows={7}
           placeholder={`예시:\n• 운동 주 3회 이상\n• 책 1권 완독\n• 사이드 프로젝트 MVP 완성\n• 저축 목표 달성`}
           className="w-full p-3 rounded-xl border border-slate-200 dark:border-dark-border bg-slate-50 dark:bg-dark-bg text-sm text-slate-800 dark:text-dark-text placeholder-slate-300 dark:placeholder-slate-600 resize-none outline-none focus:ring-2 focus:ring-primary-500 transition-all leading-relaxed"
         />
+        <p className="mt-2 text-[11px] text-slate-400 dark:text-slate-500 leading-relaxed">
+          Enter로 다음 항목이 자동으로 이어져요 · 빈 항목에서 Enter는 목록 종료 · 줄 맨 앞에 <code className="px-1 rounded bg-slate-100 dark:bg-slate-800">-</code> <code className="px-1 rounded bg-slate-100 dark:bg-slate-800">1.</code> <code className="px-1 rounded bg-slate-100 dark:bg-slate-800">[]</code> + 스페이스로 글머리·번호·체크박스 · Shift+Enter는 줄바꿈만
+        </p>
       </div>
     </div>
   );

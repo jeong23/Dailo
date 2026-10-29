@@ -15,3 +15,49 @@ code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
     monospace;
 }
+
+/* ── 스크롤바: 라이트/다크 테마 공통 ──────────────────────────
+   - color-scheme을 맞춰야 OS 기본 스크롤바·date input 등 네이티브 컨트롤도 다크로 그려짐
+     (없으면 다크모드에서도 흰 스크롤 트랙이 보임)
+   - 다크 클래스·색 테마 변수는 utils/theme.ts가 <html>에 적용 → html.dark 기준 */
+:root {
+  color-scheme: light;
+  /* 색 테마 기본값(파랑 = tailwind blue) — JS가 덮어씀 */
+  --primary-50: 239 246 255; --primary-100: 219 234 254; --primary-200: 191 219 254;
+  --primary-300: 147 197 253; --primary-400: 96 165 250; --primary-500: 59 130 246;
+  --primary-600: 37 99 235; --primary-700: 29 78 216; --primary-800: 30 64 175; --primary-900: 30 58 138;
+  --sidebar-bg: 255 255 255;
+  --scrollbar-thumb: rgb(203 213 225);        /* slate-300 */
+  --scrollbar-thumb-hover: rgb(148 163 184);  /* slate-400 */
+}
+html.dark {
+  color-scheme: dark;
+  --sidebar-bg: 30 41 59;
+  --scrollbar-thumb: rgb(71 85 105);          /* slate-600 */
+  --scrollbar-thumb-hover: rgb(100 116 139);  /* slate-500 */
+}
+
+/* Firefox · Chrome 121+ (표준 속성 — 지정되면 Chrome은 아래 ::-webkit-scrollbar를 무시) */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+/* Safari 등 WebKit — 트랙 투명 + 둥근 썸, 테두리로 여백을 줘서 콘텐츠에 붙지 않게 */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb);
+  border-radius: 9999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover { background-color: var(--scrollbar-thumb-hover); }
+::-webkit-scrollbar-corner { background: transparent; }
+
+/* 바텀시트 등 둥근 카드 안 스크롤 영역 — 모서리 라운드에 썸이 걸리지 않게 위아래 여백 */
+.themed-scrollbar::-webkit-scrollbar-track { margin: 12px 0; }
+
+/* 가로 칩 목록처럼 스크롤바를 아예 숨길 곳 */
+.no-scrollbar { scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }

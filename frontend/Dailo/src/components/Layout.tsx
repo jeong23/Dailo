@@ -2,6 +2,8 @@ import React, { ReactNode, useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { logout } from '../api/axios';
 import { useEscapeKey } from '../hooks/useEscapeKey';
+import { InstallPrompt } from './InstallPrompt';
+import { useTheme } from '../utils/theme';
 
 interface LayoutProps {
   children: ReactNode;
@@ -9,16 +11,23 @@ interface LayoutProps {
 
 const NAV_GROUPS = [
   {
-    label: 'Money',
+    label: '가계부',
     items: [
       { path: '/',               label: '대시보드',    icon: '📊' },
       { path: '/expenses',       label: '지출 / 수입', icon: '💳' },
       { path: '/fixed-costs',    label: '고정비',      icon: '📌' },
+      { path: '/savings',        label: '적금',        icon: '🏦' },
       { path: '/report',         label: '리포트',      icon: '📈' },
       { path: '/emergency',      label: '현금 자산',    icon: '💰' },
+    ],
+  },
+  {
+    // 투자 설정은 투자 현황 헤더의 ⚙️ 버튼으로 들어감 (사이드바에서 뺌)
+    label: '투자',
+    items: [
+      { path: '/allocation',     label: '자산 배분',   icon: '🧭' },
       { path: '/invest',         label: '투자 현황',   icon: '💹' },
       { path: '/invest/diary',   label: '투자일기',    icon: '📖' },
-      { path: '/invest/settings',label: '투자 설정',   icon: '⚙️' },
     ],
   },
   {
@@ -32,8 +41,22 @@ const NAV_GROUPS = [
   },
 ];
 
+// 모바일(폴드 커버 화면 포함) 하단 탭 — 자주 쓰는 4개 + 전체 메뉴(드로어)
+const BOTTOM_TABS = [
+  { path: '/',         label: '홈',     icon: '📊' },
+  { path: '/expenses', label: '지출',   icon: '💳' },
+  { path: '/todo',     label: '플래너', icon: '📅' },
+  { path: '/running',  label: '운동',   icon: '🏃' },
+];
+
+const PaletteIcon = ({ className }: { className: string }) => (
+  <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />
+  </svg>
+);
+
 export const Layout = ({ children }: LayoutProps) => {
-  const [isDark, setIsDark] = useState(true);
+  const { isDark } = useTheme();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   useEscapeKey(sidebarOpen, () => setSidebarOpen(false));
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() =>
@@ -48,20 +71,6 @@ export const Layout = ({ children }: LayoutProps) => {
   const location = useLocation();
 
   useEffect(() => { setSidebarOpen(false); }, [location.pathname]);
-
-  useEffect(() => {
-    const saved = localStorage.getItem('darkMode');
-    const isDarkMode = saved === null ? true : saved === 'true';
-    setIsDark(isDarkMode);
-    document.documentElement.classList.toggle('dark', isDarkMode);
-  }, []);
-
-  const toggleDarkMode = () => {
-    const next = !isDark;
-    setIsDark(next);
-    localStorage.setItem('darkMode', String(next));
-    document.documentElement.classList.toggle('dark', next);
-  };
 
   const toggleSidebar = () => {
     const next = !sidebarCollapsed;
@@ -81,12 +90,13 @@ export const Layout = ({ children }: LayoutProps) => {
 
   const isActive = (path: string) => {
     if (path === '/') return location.pathname === '/';
-    if (path === '/invest') return location.pathname === '/invest';
+    if (path === '/invest') return location.pathname === '/invest' || location.pathname.startsWith('/invest/settings');
     return location.pathname.startsWith(path);
   };
 
-  const Sidebar = ({ collapsed = false }: { collapsed?: boolean }) => (
-    <aside className={`flex flex-col h-full bg-white dark:bg-dark-card border-r border-slate-100 dark:border-dark-border transition-all duration-300 ${collapsed ? 'w-14' : 'w-56'}`}>
+  // rail: 태블릿·폴드 펼친 화면(md~lg) 고정 레일 — 접기 토글 없이 아이콘+작은 라벨
+  const Sidebar = ({ collapsed = false, rail = false, drawer = false }: { collapsed?: boolean; rail?: boolean; drawer?: boolean }) => (
+    <aside className={`flex flex-col h-full bg-sidebar border-r border-slate-100 dark:border-dark-border transition-all duration-300 ${collapsed ? 'w-[72px]' : 'w-56'}`}>
       {/* 로고 + 접기 버튼 */}
       <div className={`flex items-center h-14 flex-shrink-0 border-b border-slate-100 dark:border-dark-border ${collapsed ? 'justify-center px-0' : 'px-4 justify-between'}`}>
         {!collapsed && (
@@ -99,6 +109,19 @@ export const Layout = ({ children }: LayoutProps) => {
             />
           </Link>
         )}
+        {rail ? (
+          <Link to="/" aria-label="대시보드">
+            <img src="/dailo_logo_nobg.png" alt="Dailo" className="h-6 w-auto object-contain"
+              style={isDark ? { filter: 'brightness(2)' } : undefined} />
+          </Link>
+        ) : drawer ? (
+          <button onClick={() => setSidebarOpen(false)} aria-label="메뉴 닫기"
+            className="w-11 h-11 -mr-2 flex items-center justify-center rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        ) : (
         <button
           onClick={toggleSidebar}
           className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 dark:text-slate-500 transition-colors flex-shrink-0"
@@ -108,10 +131,11 @@ export const Layout = ({ children }: LayoutProps) => {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
           </svg>
         </button>
+        )}
       </div>
 
       {/* 네비게이션 */}
-      <nav className="flex-1 overflow-y-auto py-3">
+      <nav className="flex-1 overflow-y-auto no-scrollbar py-3">
         {NAV_GROUPS.map((group, gi) => {
           const isCollapsed = collapsedGroups.has(group.label);
           return (
@@ -144,8 +168,8 @@ export const Layout = ({ children }: LayoutProps) => {
                         key={item.path}
                         to={item.path}
                         title={collapsed ? item.label : undefined}
-                        className={`flex items-center gap-3 py-2 transition-all border-l-[3px] ${
-                          collapsed ? 'justify-center px-0 border-l-0 mx-1 rounded-lg' : 'pr-4 pl-5'
+                        className={`flex transition-all border-l-[3px] ${
+                          collapsed ? 'flex-col items-center justify-center gap-0.5 min-h-[52px] px-0 border-l-0 mx-1.5 rounded-xl' : 'items-center gap-3 min-h-[40px] py-2 pr-4 pl-5'
                         } ${
                           active
                             ? collapsed
@@ -157,7 +181,9 @@ export const Layout = ({ children }: LayoutProps) => {
                         }`}
                       >
                         <span className="text-base leading-none flex-shrink-0">{item.icon}</span>
-                        {!collapsed && <span className="text-sm">{item.label}</span>}
+                        {collapsed
+                          ? <span className="text-[10px] leading-tight max-w-full px-0.5 truncate">{item.label}</span>
+                          : <span className="text-sm">{item.label}</span>}
                       </Link>
                     );
                   })}
@@ -181,7 +207,7 @@ export const Layout = ({ children }: LayoutProps) => {
         <Link
           to="/settings"
           title={collapsed ? '설정' : undefined}
-          className={`flex items-center gap-2.5 w-full px-3 py-2 rounded-xl text-sm transition-colors ${
+          className={`flex items-center gap-2.5 w-full px-3 min-h-[40px] rounded-xl text-sm transition-colors ${
             isActive('/settings')
               ? 'bg-primary-50 dark:bg-primary-900/20 text-primary-600 dark:text-primary-400'
               : 'text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'
@@ -194,29 +220,25 @@ export const Layout = ({ children }: LayoutProps) => {
           {!collapsed && <span>설정</span>}
         </Link>
 
-        {/* 다크모드 토글 */}
-        <button
-          onClick={toggleDarkMode}
-          title={collapsed ? (isDark ? '라이트 모드' : '다크 모드') : undefined}
-          className={`flex items-center gap-2.5 w-full px-3 py-2 rounded-xl text-sm text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors ${collapsed ? 'justify-center' : ''}`}
+        {/* 화면 설정 (모드·색 테마) */}
+        <Link
+          to="/preferences"
+          title={collapsed ? '화면 설정' : undefined}
+          className={`flex items-center gap-2.5 w-full px-3 min-h-[40px] rounded-xl text-sm transition-colors ${
+            isActive('/preferences')
+              ? 'bg-primary-50 dark:bg-primary-900/20 text-primary-600 dark:text-primary-400'
+              : 'text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'
+          } ${collapsed ? 'justify-center' : ''}`}
         >
-          {isDark ? (
-            <svg className="w-4 h-4 text-yellow-400 shrink-0" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z" clipRule="evenodd" />
-            </svg>
-          ) : (
-            <svg className="w-4 h-4 text-slate-400 shrink-0" fill="currentColor" viewBox="0 0 20 20">
-              <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z" />
-            </svg>
-          )}
-          {!collapsed && <span>{isDark ? '라이트 모드' : '다크 모드'}</span>}
-        </button>
+          <PaletteIcon className="w-4 h-4 shrink-0" />
+          {!collapsed && <span>화면 설정</span>}
+        </Link>
 
         {/* 로그아웃 */}
         <button
           onClick={logout}
           title={collapsed ? '로그아웃' : undefined}
-          className={`flex items-center gap-2.5 w-full px-3 py-2 rounded-xl text-sm text-slate-500 dark:text-slate-400 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-500 dark:hover:text-red-400 transition-colors ${collapsed ? 'justify-center' : ''}`}
+          className={`flex items-center gap-2.5 w-full px-3 min-h-[40px] rounded-xl text-sm text-slate-500 dark:text-slate-400 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-500 dark:hover:text-red-400 transition-colors ${collapsed ? 'justify-center' : ''}`}
         >
           <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
@@ -228,18 +250,22 @@ export const Layout = ({ children }: LayoutProps) => {
   );
 
   return (
-    <div className="flex h-screen overflow-hidden bg-slate-50 dark:bg-dark-bg text-slate-900 dark:text-dark-text">
+    <div className="flex h-screen h-[100dvh] overflow-hidden bg-slate-50 dark:bg-dark-bg text-slate-900 dark:text-dark-text">
+      {/* 태블릿·폴드 펼친 화면(768~1023px): 아이콘 레일 고정 — 전체 사이드바(224px)는 본문을 600px대로 줄여 표가 깨짐 */}
+      <div className="hidden md:flex lg:hidden flex-shrink-0">
+        <Sidebar collapsed rail />
+      </div>
       {/* 데스크탑 사이드바 */}
-      <div className="hidden md:flex flex-shrink-0">
+      <div className="hidden lg:flex flex-shrink-0">
         <Sidebar collapsed={sidebarCollapsed} />
       </div>
 
       {/* 모바일 오버레이 */}
       {sidebarOpen && (
-        <div className="fixed inset-0 z-40 md:hidden">
+        <div className="fixed inset-0 z-50 md:hidden">
           <div className="absolute inset-0 bg-black/40" onClick={() => setSidebarOpen(false)} />
-          <div className="absolute left-0 top-0 h-full z-50">
-            <Sidebar collapsed={false} />
+          <div className="absolute left-0 top-0 h-full z-50 animate-slide-in pt-[env(safe-area-inset-top)] bg-sidebar">
+            <Sidebar collapsed={false} drawer />
           </div>
         </div>
       )}
@@ -247,26 +273,55 @@ export const Layout = ({ children }: LayoutProps) => {
       {/* 본문 */}
       <div className="flex flex-col flex-1 min-w-0">
         {/* 모바일 상단 바 */}
-        <header className="md:hidden flex items-center justify-between px-4 h-14 border-b border-slate-100 dark:border-dark-border bg-white dark:bg-dark-card flex-shrink-0">
-          <button onClick={() => setSidebarOpen(true)} className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800">
-            <svg className="w-5 h-5 text-slate-600 dark:text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-            </svg>
-          </button>
-          <img src="/dailo_logo_nobg.png" alt="Dailo" className="h-7 w-auto object-contain"
-            style={isDark ? { filter: 'brightness(2)' } : undefined} />
-          <button onClick={toggleDarkMode} className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800">
-            {isDark
-              ? <svg className="w-5 h-5 text-yellow-400" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z" clipRule="evenodd" /></svg>
-              : <svg className="w-5 h-5 text-slate-500" fill="currentColor" viewBox="0 0 20 20"><path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z" /></svg>
-            }
-          </button>
+        <header className="md:hidden flex items-center justify-between pl-4 pr-2 h-12 pt-[env(safe-area-inset-top)] box-content border-b border-slate-100 dark:border-dark-border bg-white/90 dark:bg-dark-card/90 backdrop-blur flex-shrink-0">
+          <Link to="/" aria-label="대시보드">
+            <img src="/dailo_logo_nobg.png" alt="Dailo" className="h-6 w-auto object-contain"
+              style={isDark ? { filter: 'brightness(2)' } : undefined} />
+          </Link>
+          <Link to="/preferences" aria-label="화면 설정"
+            className="w-11 h-11 flex items-center justify-center rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400">
+            <PaletteIcon className="w-5 h-5" />
+          </Link>
         </header>
 
-        <main className="flex-1 overflow-auto p-4 sm:p-6 lg:p-8">
+        <main className="flex-1 overflow-auto px-4 pt-4 pb-6 sm:p-6 lg:p-8">
           {children}
         </main>
+
+        {/* 모바일 하단 탭 바 — 엄지로 닿는 위치, 홈 인디케이터 영역(safe-area)만큼 패딩 */}
+        <nav className="md:hidden flex-shrink-0 border-t border-slate-100 dark:border-dark-border bg-white/95 dark:bg-dark-card/95 backdrop-blur pb-[env(safe-area-inset-bottom)]">
+          <div className="grid grid-cols-5 h-14">
+            {BOTTOM_TABS.map(tab => {
+              const active = isActive(tab.path);
+              return (
+                <Link key={tab.path} to={tab.path} aria-current={active ? 'page' : undefined}
+                  className={`flex flex-col items-center justify-center gap-0.5 text-[11px] font-medium transition-colors ${
+                    active ? 'text-primary-600 dark:text-primary-400' : 'text-slate-400 dark:text-slate-500'
+                  }`}>
+                  <span className={`text-lg leading-none transition-transform ${active ? 'scale-110' : 'grayscale opacity-70'}`}>{tab.icon}</span>
+                  {tab.label}
+                </Link>
+              );
+            })}
+            {/* 하단 탭에 없는 페이지에 있으면 '전체'를 활성으로 표시 */}
+            {(() => {
+              const inMore = !BOTTOM_TABS.some(t => isActive(t.path));
+              return (
+                <button onClick={() => setSidebarOpen(true)} aria-label="전체 메뉴"
+                  className={`flex flex-col items-center justify-center gap-0.5 text-[11px] font-medium ${
+                    inMore ? 'text-primary-600 dark:text-primary-400' : 'text-slate-400 dark:text-slate-500'
+                  }`}>
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                  </svg>
+                  전체
+                </button>
+              );
+            })()}
+          </div>
+        </nav>
       </div>
+      <InstallPrompt />
     </div>
   );
 };

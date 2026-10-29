@@ -519,7 +519,7 @@ export const ExpensesPage = () => {
           ) : (
             <>
               {/* 모바일 카드 */}
-              <div className="divide-y divide-slate-50 dark:divide-dark-border/50 md:hidden">
+              <div className="divide-y divide-slate-50 dark:divide-dark-border/50 lg:hidden">
                 {filteredExpenses.map(item => (
                   <div key={item.id} className="px-4 py-3">
                     <div className="flex items-start justify-between gap-2">
@@ -553,7 +553,7 @@ export const ExpensesPage = () => {
               </div>
 
               {/* 데스크탑 테이블 */}
-              <div className="hidden md:block overflow-x-auto">
+              <div className="hidden lg:block overflow-x-auto">
                 <table className="w-full text-left">
                   <thead>
                     <tr className="bg-slate-50/80 dark:bg-slate-800/30 text-xs font-medium text-slate-400 dark:text-slate-500">
@@ -641,7 +641,7 @@ export const ExpensesPage = () => {
           ) : (
             <>
               {/* 모바일 카드 */}
-              <div className="divide-y divide-slate-50 dark:divide-dark-border/50 md:hidden">
+              <div className="divide-y divide-slate-50 dark:divide-dark-border/50 lg:hidden">
                 {filteredIncomes.map(item => (
                   <div key={item.id} className="px-4 py-3 flex items-center gap-2">
                     <div className="flex-1 min-w-0">
@@ -661,7 +661,7 @@ export const ExpensesPage = () => {
               </div>
 
               {/* 데스크탑 테이블 */}
-              <div className="hidden md:block overflow-x-auto">
+              <div className="hidden lg:block overflow-x-auto">
                 <table className="w-full text-left">
                   <thead>
                     <tr className="bg-slate-50/80 dark:bg-slate-800/30 text-xs font-medium text-slate-400 dark:text-slate-500">

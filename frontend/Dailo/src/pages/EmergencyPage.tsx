@@ -251,7 +251,7 @@ export const EmergencyPage = () => {
         ) : (
           <>
             {/* 모바일 카드 */}
-            <div className="divide-y divide-slate-50 dark:divide-dark-border/50 md:hidden">
+            <div className="divide-y divide-slate-50 dark:divide-dark-border/50 lg:hidden">
               {[...rows].reverse().map(h => {
                 const isOver = h.diff !== null && h.diff < 0;
                 return (
@@ -272,7 +272,7 @@ export const EmergencyPage = () => {
             </div>
 
             {/* 데스크탑 테이블 */}
-            <div className="hidden md:block overflow-x-auto">
+            <div className="hidden lg:block overflow-x-auto">
               <table className="w-full text-sm text-left">
                 <thead>
                   <tr className="bg-slate-50/80 dark:bg-slate-800/30 text-xs font-medium text-slate-400 dark:text-slate-500">

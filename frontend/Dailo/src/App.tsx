@@ -17,6 +17,9 @@ import { HabitPage } from './pages/HabitPage';
 import { InvestDashboardPage } from './pages/InvestDashboardPage';
 import { InvestSettingsPage } from './pages/InvestSettingsPage';
 import { InvestDiaryPage } from './pages/InvestDiaryPage';
+import { DisplaySettingsPage } from './pages/DisplaySettingsPage';
+import { AllocationPage } from './pages/AllocationPage';
+import { SavingsPage } from './pages/SavingsPage';
 import { LoginPage } from './pages/LoginPage';
 import { isAuthenticated } from './api/axios';
 import { BudgetType, DailyExpense, Category, DashboardSummary, DailyStats, CategoryStats } from './types';
@@ -37,6 +40,9 @@ const ALLOCATION_ITEM_PALETTE = [
   { color: 'text-orange-500',  bg: 'bg-orange-50 dark:bg-orange-900/20' },
   { color: 'text-indigo-500',  bg: 'bg-indigo-50 dark:bg-indigo-900/20' },
 ];
+
+// 예산구분 select 옵션: 고정 3개(생활비/비상금/투자) + 이번 달 활성 allocationItems 라벨 (ExpensesPage와 동일 규칙)
+const BASE_BUDGET_TYPES = ['생활비', '비상금', '투자'];
 
 const RADIAN = Math.PI / 180;
 const renderPieLabel = ({ cx, cy, midAngle, outerRadius, name, percent }: any) => {
@@ -149,6 +155,8 @@ const DashboardHome = () => {
   const [categoryStats, setCategoryStats] = useState<CategoryStats[]>([]);
   const [monthOptions, setMonthOptions] = useState<string[]>([]);
   const [detailModalType, setDetailModalType] = useState<string | null>(null);
+  const [fixedCosts, setFixedCosts] = useState<{ id: number; name: string; amount: number; isActive: boolean; sortOrder: number; costType?: string; paidMonths?: number; installmentMonths?: number; countedThisMonth?: boolean }[]>([]);
+  const [fixedModalOpen, setFixedModalOpen] = useState(false);
 
   // 저장된 정산월 목록 로드
   useEffect(() => {
@@ -166,13 +174,14 @@ const DashboardHome = () => {
 
   // 데이터 로드
   const fetchData = async () => {
-    const [expenseRes, categoryRes, summaryRes, dailyRes, budgetRes, categoryStatsRes] = await Promise.allSettled([
+    const [expenseRes, categoryRes, summaryRes, dailyRes, budgetRes, categoryStatsRes, fixedCostRes] = await Promise.allSettled([
       api.get(`/daily-expenses/month/${selectedMonth}`),
       api.get('/categories'),
       api.get(`/dashboard/summary?month=${selectedMonth}`),
       api.get(`/dashboard/daily-stats?month=${selectedMonth}`),
       api.get(`/monthly-budgets/mine/month/${selectedMonth}`),
-      api.get(`/dashboard/category-stats?month=${selectedMonth}`)
+      api.get(`/dashboard/category-stats?month=${selectedMonth}`),
+      api.get('/fixed-costs/mine')
     ]);
 
     if (expenseRes.status === 'fulfilled') setExpenses(expenseRes.value.data.data || []);
@@ -187,6 +196,7 @@ const DashboardHome = () => {
       setMonthlyBudgetId(budgetRes.value.data.data.id);
     }
     if (categoryStatsRes.status === 'fulfilled') setCategoryStats(categoryStatsRes.value.data.data || []);
+    if (fixedCostRes.status === 'fulfilled') setFixedCosts(fixedCostRes.value.data.data || []);
   };
 
   useEffect(() => {
@@ -224,8 +234,19 @@ const DashboardHome = () => {
   const allocationItemSpent = (label: string) =>
     expenses.filter(e => e.budgetType === label).reduce((sum, e) => sum + e.amount, 0);
 
+  // 지출 등록 모달의 예산구분 옵션: 고정 3개 + 이번 달 summary.allocationItems 라벨 (중복 제거)
+  const budgetTypeOptions = React.useMemo(() => {
+    const extraLabels = (summary?.allocationItems || [])
+      .map(item => (item.label || '').trim())
+      .filter(label => label !== '');
+    return [...BASE_BUDGET_TYPES, ...extraLabels].filter(
+      (label, idx, arr) => arr.indexOf(label) === idx
+    );
+  }, [summary]);
+
   useEscapeKey(isModalOpen, () => setIsModalOpen(false));
   useEscapeKey(detailModalType !== null, () => setDetailModalType(null));
+  useEscapeKey(fixedModalOpen, () => setFixedModalOpen(false));
 
   // 상세 모달 데이터 (생활비 카드는 비상금과 통합 표시 — OR 조건)
   const detailModalItems = detailModalType === null ? [] :
@@ -360,9 +381,10 @@ const DashboardHome = () => {
       )}
 
       {/* 상단 요약 카드 */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+      {/* 폰(폴드 커버)에선 위 2개는 전체 폭, 카드 실적·주식 투자는 2열로 붙여 스크롤 줄임 */}
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-4">
         {/* 가용금액 */}
-        <div className="p-6 bg-white dark:bg-dark-card rounded-2xl shadow-[0_1px_8px_rgba(0,0,0,0.06)] dark:shadow-none">
+        <div className="col-span-2 sm:col-span-1 p-5 sm:p-6 bg-white dark:bg-dark-card rounded-2xl shadow-[0_1px_8px_rgba(0,0,0,0.06)] dark:shadow-none">
           <p className="text-xs font-medium text-slate-400 dark:text-slate-500">이번 달 가용 금액</p>
           <p className="text-3xl font-bold mt-2 tabular-nums text-primary-600">
             {(summary?.availableAmount || 0).toLocaleString()}
@@ -376,7 +398,7 @@ const DashboardHome = () => {
         {/* 생활비·비상금 소진율 (통합) — "생활비" 라벨의 allocationItems 항목(또는 과거 레거시 컬럼)이 있을 때만 표시.
             신규 달에서 항목을 아예 안 만들었거나 다른 이름으로 지었으면 값을 신뢰할 수 없으므로 카드 자체를 숨긴다 (최소 가드). */}
         {hasLivingAllocation && (
-        <div className="p-6 bg-white dark:bg-dark-card rounded-2xl shadow-[0_1px_8px_rgba(0,0,0,0.06)] dark:shadow-none cursor-pointer hover:shadow-md transition-shadow" onClick={() => setDetailModalType('생활비')}>
+        <div className="col-span-2 sm:col-span-1 p-5 sm:p-6 bg-white dark:bg-dark-card rounded-2xl shadow-[0_1px_8px_rgba(0,0,0,0.06)] dark:shadow-none cursor-pointer hover:shadow-md transition-shadow" onClick={() => setDetailModalType('생활비')}>
           <div className="flex justify-between items-start">
             <p className="text-xs font-medium text-slate-400 dark:text-slate-500">생활비{emergencyBudget > 0 ? '·비상금' : ''} 소진율</p>
             {combinedRate >= 100 && (
@@ -406,15 +428,15 @@ const DashboardHome = () => {
         )}
 
         {/* 카드 실적 */}
-        <div className="p-6 bg-white dark:bg-dark-card rounded-2xl shadow-[0_1px_8px_rgba(0,0,0,0.06)] dark:shadow-none cursor-pointer hover:shadow-md transition-shadow" onClick={() => setDetailModalType('카드')}>
+        <div className="min-w-0 p-4 sm:p-6 bg-white dark:bg-dark-card rounded-2xl shadow-[0_1px_8px_rgba(0,0,0,0.06)] dark:shadow-none cursor-pointer hover:shadow-md transition-shadow" onClick={() => setDetailModalType('카드')}>
           <p className="text-xs font-medium text-slate-400 dark:text-slate-500">카드 실적</p>
           {cardGoal > 0 ? (
             <>
               <div className="mt-2 flex items-end gap-2">
-                <span className={`text-3xl font-bold tabular-nums ${cardRate >= 100 ? 'text-emerald-500' : 'text-blue-500'}`}>{cardRate}%</span>
+                <span className={`text-2xl sm:text-3xl font-bold tabular-nums ${cardRate >= 100 ? 'text-emerald-500' : 'text-blue-500'}`}>{cardRate}%</span>
                 {cardRate >= 100 && <span className="text-xs font-semibold text-emerald-500 mb-1">달성!</span>}
               </div>
-              <p className="text-xs text-slate-400 mt-1 tabular-nums">
+              <p className="text-xs text-slate-400 mt-1 tabular-nums truncate">
                 {cardTotal.toLocaleString()} / {cardGoal.toLocaleString()}원
               </p>
               <div className="w-full bg-slate-100 dark:bg-slate-700 h-1.5 rounded-full mt-2 overflow-hidden">
@@ -423,7 +445,7 @@ const DashboardHome = () => {
             </>
           ) : (
             <>
-              <p className="text-2xl font-bold mt-2 tabular-nums text-slate-800 dark:text-dark-text">
+              <p className="text-xl sm:text-2xl font-bold mt-2 tabular-nums truncate text-slate-800 dark:text-dark-text">
                 {cardTotal.toLocaleString()}<span className="text-base font-medium ml-0.5">원</span>
               </p>
               <p className="text-xs text-amber-500 dark:text-amber-400 mt-1 font-medium">카드 목표 미설정</p>
@@ -439,11 +461,11 @@ const DashboardHome = () => {
         </div>
 
         {/* 주식 투자 */}
-        <div className="p-6 bg-white dark:bg-dark-card rounded-2xl shadow-[0_1px_8px_rgba(0,0,0,0.06)] dark:shadow-none cursor-pointer hover:shadow-md transition-shadow" onClick={() => setDetailModalType('투자')}>
+        <div className="min-w-0 p-4 sm:p-6 bg-white dark:bg-dark-card rounded-2xl shadow-[0_1px_8px_rgba(0,0,0,0.06)] dark:shadow-none cursor-pointer hover:shadow-md transition-shadow" onClick={() => setDetailModalType('투자')}>
           <p className="text-xs font-medium text-slate-400 dark:text-slate-500">주식 투자</p>
-          <p className="text-3xl font-bold mt-2 tabular-nums text-violet-500">
+          <p className="text-2xl sm:text-3xl font-bold mt-2 tabular-nums truncate text-violet-500">
             {investExpenses.toLocaleString()}
-            <span className="text-lg font-medium ml-0.5">원</span>
+            <span className="text-base sm:text-lg font-medium ml-0.5">원</span>
           </p>
           <p className="text-xs text-slate-400 mt-2">이번 달 투자 지출</p>
         </div>
@@ -483,8 +505,8 @@ const DashboardHome = () => {
             })().map((item, i) => (
               <div
                 key={`${item.label}-${i}`}
-                className={`text-center p-4 ${item.bg} rounded-xl min-w-0 ${'spent' in item ? 'cursor-pointer hover:shadow-md transition-shadow' : ''}`}
-                onClick={'spent' in item ? () => setDetailModalType(item.label) : undefined}
+                className={`text-center p-4 ${item.bg} rounded-xl min-w-0 cursor-pointer hover:shadow-md transition-shadow`}
+                onClick={'spent' in item ? () => setDetailModalType(item.label) : () => setFixedModalOpen(true)}
               >
                 <div className="flex items-center justify-center gap-1 min-w-0">
                   <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{item.label}</p>
@@ -643,7 +665,7 @@ const DashboardHome = () => {
       {/* 플로팅 버튼 */}
       <button
         onClick={() => setIsModalOpen(true)}
-        className="fixed bottom-8 right-8 flex items-center gap-2 px-5 py-3 bg-primary-600 text-white rounded-2xl shadow-lg hover:bg-primary-700 text-sm font-semibold z-40 transition-all hover:scale-105 hover:shadow-xl"
+        className="fixed bottom-[calc(4.5rem+env(safe-area-inset-bottom))] right-4 md:bottom-8 md:right-8 flex items-center gap-2 px-5 py-3 bg-primary-600 text-white rounded-2xl shadow-lg hover:bg-primary-700 text-sm font-semibold z-40 transition-all hover:scale-105 hover:shadow-xl"
       >
         <span className="text-lg leading-none">+</span>
         <span>지출 추가</span>
@@ -697,6 +719,56 @@ const DashboardHome = () => {
             <div className="px-6 py-4 border-t border-slate-100 dark:border-dark-border">
               <a href="/expenses" className="text-sm text-primary-600 font-medium hover:underline">
                 지출 페이지에서 보기 →
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 고정비 항목 모달 */}
+      {fixedModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm"
+          onClick={() => setFixedModalOpen(false)}
+        >
+          <div
+            className="bg-white dark:bg-dark-card w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl shadow-2xl flex flex-col max-h-[80vh]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-start px-6 pt-6 pb-4">
+              <div>
+                <h3 className="text-lg font-bold dark:text-dark-text">고정비 항목</h3>
+                <p className="text-sm text-slate-400 mt-0.5 tabular-nums">
+                  이번 달 합계 {fixedCosts.filter(f => f.countedThisMonth).reduce((s, f) => s + f.amount, 0).toLocaleString()}원 · {fixedCosts.filter(f => f.countedThisMonth).length}건
+                </p>
+              </div>
+              <button onClick={() => setFixedModalOpen(false)} className="text-slate-400 hover:text-slate-600 text-2xl leading-none p-1 min-h-[44px] min-w-[44px]">×</button>
+            </div>
+
+            <div className="overflow-y-auto flex-1 px-4 pb-2 divide-y divide-slate-50 dark:divide-dark-border/50">
+              {fixedCosts.length > 0 ? [...fixedCosts].sort((a, b) => b.amount - a.amount).map(item => (
+                <div key={item.id} className={`py-3 flex justify-between items-center gap-3 ${!item.countedThisMonth ? 'opacity-40' : ''}`}>
+                  <p className="text-sm font-medium text-slate-800 dark:text-dark-text truncate min-w-0">
+                    {item.name}
+                    {item.costType === 'INSTALLMENT' && (
+                      <span className="ml-1.5 text-xs font-normal text-violet-500 tabular-nums">할부 {item.paidMonths}/{item.installmentMonths}</span>
+                    )}
+                  </p>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {!item.isActive && (
+                      <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-400 dark:bg-slate-700 dark:text-slate-500">비활성</span>
+                    )}
+                    <span className="text-sm font-semibold text-rose-500 tabular-nums">{item.amount.toLocaleString()}원</span>
+                  </div>
+                </div>
+              )) : (
+                <div className="py-12 text-center text-sm text-slate-400">등록된 고정비가 없습니다.</div>
+              )}
+            </div>
+
+            <div className="px-6 py-4 border-t border-slate-100 dark:border-dark-border">
+              <a href="/fixed-costs" className="text-sm text-primary-600 font-medium hover:underline">
+                고정비 관리에서 보기 →
               </a>
             </div>
           </div>
@@ -786,9 +858,9 @@ const DashboardHome = () => {
                     onChange={(e) => setBudgetType(e.target.value as BudgetType)}
                     className="w-full p-2.5 rounded-lg border dark:bg-dark-bg dark:border-dark-border dark:text-dark-text outline-none focus:ring-2 focus:ring-primary-500"
                   >
-                    <option value="생활비">생활비</option>
-                    <option value="비상금">비상금</option>
-                    <option value="투자">투자</option>
+                    {budgetTypeOptions.map(type => (
+                      <option key={type} value={type}>{type}</option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -846,6 +918,9 @@ function App() {
                 <Route path="/invest/records" element={<Navigate to="/invest" replace />} />
                 <Route path="/invest/settings" element={<InvestSettingsPage />} />
                 <Route path="/invest/diary" element={<InvestDiaryPage />} />
+                <Route path="/preferences" element={<DisplaySettingsPage />} />
+                <Route path="/allocation" element={<AllocationPage />} />
+                <Route path="/savings" element={<SavingsPage />} />
               </Routes>
             </Layout>
           </PrivateRoute>

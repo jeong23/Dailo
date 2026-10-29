@@ -1,6 +1,7 @@
 package com.dailo.app.config;
 
 import com.dailo.app.security.JwtAuthenticationFilter;
+import jakarta.servlet.DispatcherType;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -34,6 +35,8 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf.disable())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
+                        // SSE(SseEmitter) 비동기 재디스패치 — 최초 요청에서 이미 인증됨. JWT 필터는 ASYNC 디스패치에서 다시 돌지 않아 막으면 스트림이 403으로 끊김
+                        .dispatcherTypeMatchers(DispatcherType.ASYNC).permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/members").permitAll()
                         .requestMatchers(
                                 "/api/auth/**",
@@ -54,6 +57,9 @@ public class SecurityConfig {
                                 "/invest/records",
                                 "/invest/diary",
                                 "/invest/analytics",
+                                "/preferences",
+                                "/allocation",
+                                "/savings",
                                 "/static/**",
                                 "/*.js",
                                 "/*.css",
@@ -88,7 +94,7 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOriginPatterns(Arrays.asList("http://localhost:3000", "https://*.trycloudflare.com"));
+        configuration.setAllowedOriginPatterns(Arrays.asList("http://localhost:3000", "https://*.trycloudflare.com", "https://*.ts.net"));
         configuration.setExposedHeaders(Arrays.asList("Content-Disposition"));
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(Arrays.asList("*"));

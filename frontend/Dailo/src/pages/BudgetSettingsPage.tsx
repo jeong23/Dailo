@@ -162,10 +162,9 @@ export const BudgetSettingsPage = () => {
       }));
 
   const fetchData = async (budgetList = allBudgets, month = selectedMonth) => {
-    const memberId = getStoredMemberId();
     const [budgetRes, fixedRes, emergencyRes, cashAssetRes] = await Promise.allSettled([
       api.get(`/monthly-budgets/mine/month/${month}`),
-      api.get(`/fixed-costs/member/${memberId}`),
+      api.get('/fixed-costs/mine'),
       api.get('/dashboard/emergency-history'),
       api.get('/cash-assets'),
     ]);
@@ -203,7 +202,7 @@ export const BudgetSettingsPage = () => {
     if (fixedRes.status === 'fulfilled') {
       const fixedList = fixedRes.value.data.data || [];
       const total = fixedList
-        .filter((f: any) => f.isActive)
+        .filter((f: any) => f.countedThisMonth)   // 활성 + 할부는 이번 달 결제 있는 것만 (백엔드 합계와 같은 기준)
         .reduce((sum: number, f: any) => sum + f.amount, 0);
       setFixedCostTotal(total);
     }

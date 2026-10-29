@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api/axios';
 
@@ -10,19 +10,13 @@ export const LoginPage = () => {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
-  useEffect(() => {
-    const saved = localStorage.getItem('darkMode');
-    const isDark = saved === null ? true : saved === 'true';
-    document.documentElement.classList.toggle('dark', isDark);
-  }, []);
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
 
     try {
-      const res = await api.post('/auth/login', { username, password });
+      const res = await api.post('/auth/login', { username: username.trim(), password });
       const { token, memberId, name, salaryDay } = res.data.data;
 
       localStorage.setItem('token', token);
@@ -32,7 +26,11 @@ export const LoginPage = () => {
 
       navigate('/', { replace: true });
     } catch (err: any) {
-      setError('아이디 또는 비밀번호가 올바르지 않습니다.');
+      const status = err?.response?.status;
+      if (!err?.response) setError('서버에 연결할 수 없습니다. 네트워크(Tailscale) 연결을 확인하세요.');
+      // 백엔드가 인증 실패(BadCredentialsException)를 500으로 반환하므로 500도 계정 오류로 안내
+      else if (status === 401 || status === 400 || status === 500) setError('아이디 또는 비밀번호가 올바르지 않습니다.');
+      else setError(`서버 오류가 발생했습니다. (${status})`);
     } finally {
       setLoading(false);
     }
@@ -64,6 +62,10 @@ export const LoginPage = () => {
                 type="text"
                 value={username}
                 onChange={e => setUsername(e.target.value)}
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                autoComplete="username"
                 className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-bg text-slate-900 dark:text-dark-text outline-none focus:ring-2 focus:ring-primary-500 transition-shadow"
                 placeholder="아이디를 입력하세요"
                 required
@@ -80,6 +82,10 @@ export const LoginPage = () => {
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={e => setPassword(e.target.value)}
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  autoComplete="current-password"
                   className="w-full px-4 py-2.5 pr-11 rounded-xl border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-bg text-slate-900 dark:text-dark-text outline-none focus:ring-2 focus:ring-primary-500 transition-shadow"
                   placeholder="비밀번호를 입력하세요"
                   required
