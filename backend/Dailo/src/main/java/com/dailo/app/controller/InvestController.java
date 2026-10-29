@@ -4,6 +4,7 @@ import com.dailo.app.common.ApiResponse;
 import com.dailo.app.dto.InvestDto;
 import com.dailo.app.security.CustomUserDetails;
 import com.dailo.app.service.InvestService;
+import com.dailo.app.service.InvestTradeService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -17,6 +18,7 @@ import java.util.List;
 public class InvestController {
 
     private final InvestService investService;
+    private final InvestTradeService tradeService;
 
     // ─── Setting ───────────────────────────────────────────────
     @GetMapping("/setting")
@@ -57,9 +59,34 @@ public class InvestController {
     // ─── Record ────────────────────────────────────────────────
     @PutMapping("/records/{id}")
     public ResponseEntity<ApiResponse<Void>> updateRecord(
+            @AuthenticationPrincipal CustomUserDetails user,
             @PathVariable Long id,
             @RequestBody InvestDto.RecordUpdateRequest req) {
-        investService.updateRecord(id, req);
+        investService.updateRecord(user.getMemberId(), id, req);
+        return ResponseEntity.ok(ApiResponse.ok(null));
+    }
+
+    // ─── Trade (체결 완료 → 보유 수량·평균단가 반영) ─────────────
+    @PostMapping("/holdings/{holdingId}/trades")
+    public ResponseEntity<ApiResponse<InvestDto.TradeResponse>> recordTrade(
+            @AuthenticationPrincipal CustomUserDetails user,
+            @PathVariable Long holdingId,
+            @RequestBody InvestDto.TradeRequest req) {
+        return ResponseEntity.ok(ApiResponse.ok(tradeService.record(user.getMemberId(), holdingId, req)));
+    }
+
+    @GetMapping("/trades")
+    public ResponseEntity<ApiResponse<List<InvestDto.TradeResponse>>> getTrades(
+            @AuthenticationPrincipal CustomUserDetails user,
+            @RequestParam String yearMonth) {
+        return ResponseEntity.ok(ApiResponse.ok(tradeService.list(user.getMemberId(), yearMonth)));
+    }
+
+    @DeleteMapping("/trades/{id}")
+    public ResponseEntity<ApiResponse<Void>> undoTrade(
+            @AuthenticationPrincipal CustomUserDetails user,
+            @PathVariable Long id) {
+        tradeService.undo(user.getMemberId(), id);
         return ResponseEntity.ok(ApiResponse.ok(null));
     }
 
@@ -79,8 +106,10 @@ public class InvestController {
     }
 
     @DeleteMapping("/diary/{id}")
-    public ResponseEntity<ApiResponse<Void>> deleteDiary(@PathVariable Long id) {
-        investService.deleteDiary(id);
+    public ResponseEntity<ApiResponse<Void>> deleteDiary(
+            @AuthenticationPrincipal CustomUserDetails user,
+            @PathVariable Long id) {
+        investService.deleteDiary(user.getMemberId(), id);
         return ResponseEntity.ok(ApiResponse.ok(null));
     }
 }

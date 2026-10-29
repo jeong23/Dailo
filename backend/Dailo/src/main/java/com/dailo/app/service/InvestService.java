@@ -4,6 +4,7 @@ import com.dailo.app.dto.InvestDto;
 import com.dailo.app.entity.*;
 import com.dailo.app.repository.*;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,6 +22,8 @@ public class InvestService {
     private final InvestHoldingRepository holdingRepo;
     private final InvestMonthlyRecordRepository recordRepo;
     private final InvestDiaryRepository diaryRepo;
+    private final ApplicationEventPublisher eventPublisher;
+    private final InvestThemeRepository themeRepo;
 
     // ─── Setting ───────────────────────────────────────────────
 
@@ -65,6 +68,8 @@ public class InvestService {
                                     .id(h.getId()).ticker(h.getTicker())
                                     .targetPct(h.getTargetPct()).sortOrder(h.getSortOrder())
                                     .avgPurchasePrice(h.getAvgPurchasePrice()).shares(h.getShares())
+                                    .stockCode(h.getStockCode())
+                                    .themeId(h.getThemeId()).manualValue(h.getManualValue())
                                     .build())
                             .collect(Collectors.toList());
                     return InvestDto.AccountResponse.builder()
@@ -85,6 +90,7 @@ public class InvestService {
             InvestAccount account;
             if (ar.getId() != null) {
                 account = accountRepo.findById(ar.getId())
+                        .filter(a -> a.getMemberId().equals(memberId)) // 다른 회원 계좌 id로 덮어쓰기 방지
                         .orElseThrow(() -> new IllegalArgumentException("계좌를 찾을 수 없습니다: " + ar.getId()));
                 account.update(ar.getName(), ar.getType(), ar.getTargetPct(), ar.getSortOrder());
             } else {
@@ -96,20 +102,29 @@ public class InvestService {
             keptAccountIds.add(account.getId());
 
             if (ar.getHoldings() != null) {
+                // 한 계좌에 같은 종목코드가 두 줄이면 비중·평가금액·리밸런싱이 둘로 쪼개져 틀어짐 → 저장 거부
+                Set<String> codesInAccount = new HashSet<>();
                 for (InvestDto.HoldingRequest hr : ar.getHoldings()) {
                     InvestHolding holding;
+                    String stockCode = normalizeStockCode(hr.getStockCode());
+                    if (stockCode != null && !codesInAccount.add(stockCode)) {
+                        throw new IllegalArgumentException("'" + ar.getName() + "' 계좌에 종목코드 " + stockCode + "가 두 번 있어요. 한 줄로 합쳐주세요");
+                    }
                     if (hr.getId() != null) {
                         holding = holdingRepo.findById(hr.getId())
+                                .filter(h -> h.getAccount().getMemberId().equals(memberId))
                                 .orElseThrow(() -> new IllegalArgumentException("종목을 찾을 수 없습니다: " + hr.getId()));
                         holding.update(hr.getTicker(), hr.getTargetPct(), hr.getSortOrder(),
-                                hr.getAvgPurchasePrice(), hr.getShares());
+                                hr.getAvgPurchasePrice(), hr.getShares(), stockCode);
                     } else {
                         holding = holdingRepo.save(InvestHolding.builder()
                                 .account(account).ticker(hr.getTicker())
                                 .targetPct(hr.getTargetPct()).sortOrder(hr.getSortOrder())
                                 .avgPurchasePrice(hr.getAvgPurchasePrice()).shares(hr.getShares())
+                                .stockCode(stockCode)
                                 .build());
                     }
+                    holding.assign(ownedThemeId(memberId, hr.getThemeId()), positiveOrNull(hr.getManualValue()));
                     keptHoldingIds.add(holding.getId());
                 }
             }
@@ -137,7 +152,32 @@ public class InvestService {
             }
         }
 
+        // 커밋 후 실시간 시세 구독 종목을 다시 맞춤 (QuoteService가 AFTER_COMMIT으로 수신)
+        eventPublisher.publishEvent(new InvestHoldingsChangedEvent());
         return getAccounts(memberId);
+    }
+
+    // 테마 id는 본인 테마만 (다른 회원 테마 id면 400)
+    private Long ownedThemeId(Long memberId, Long themeId) {
+        if (themeId == null) return null;
+        return themeRepo.findById(themeId)
+                .filter(t -> t.getMemberId().equals(memberId))
+                .map(InvestTheme::getId)
+                .orElseThrow(() -> new IllegalArgumentException("테마를 찾을 수 없습니다: " + themeId));
+    }
+
+    private static Integer positiveOrNull(Integer v) {
+        return v != null && v > 0 ? v : null;
+    }
+
+    // 종목코드: 공백 제거 + 대문자, 빈 값은 null. 국내 종목코드는 6자리 영숫자(신규 ETF는 0001A0처럼 영문 포함)
+    static String normalizeStockCode(String raw) {
+        if (raw == null || raw.isBlank()) return null;
+        String code = raw.trim().toUpperCase();
+        if (!code.matches("[0-9A-Z]{6}")) {
+            throw new IllegalArgumentException("종목코드는 6자리여야 합니다: " + raw);
+        }
+        return code;
     }
 
     // ─── Dashboard ─────────────────────────────────────────────
@@ -227,6 +267,8 @@ public class InvestService {
 
                 dashHoldings.add(InvestDto.DashboardHolding.builder()
                         .recordId(rec.getId()).holdingId(h.getId()).ticker(h.getTicker())
+                        .stockCode(h.getStockCode())
+                        .themeId(h.getThemeId()).manualValue(h.getManualValue())
                         .avgPurchasePrice(h.getAvgPurchasePrice()).shares(h.getShares())
                         .holdingTargetPct(h.getTargetPct()).overallTargetPct(overallPct)
                         .plannedAmt(planned).actualAmt(actual)
@@ -258,13 +300,18 @@ public class InvestService {
                 .totalPlanned(totalPlanned).totalActual(totalActual)
                 .pensionYtdActual(pensionYtd)
                 .accounts(dashAccounts)
+                .themes(themeRepo.findByMemberIdOrderBySortOrderAsc(memberId).stream().map(InvestDto.ThemeDto::from).toList())
                 .build();
     }
 
     @Transactional
-    public void updateRecord(Long recordId, InvestDto.RecordUpdateRequest req) {
+    public void updateRecord(Long memberId, Long recordId, InvestDto.RecordUpdateRequest req) {
         InvestMonthlyRecord record = recordRepo.findById(recordId)
                 .orElseThrow(() -> new IllegalArgumentException("레코드를 찾을 수 없습니다: " + recordId));
+        // 다른 회원의 납입 기록 수정 방지 (IDOR) — 존재 여부를 숨기려고 not-found와 같은 메시지 사용
+        if (!record.getHolding().getAccount().getMemberId().equals(memberId)) {
+            throw new IllegalArgumentException("레코드를 찾을 수 없습니다: " + recordId);
+        }
         Integer evalAmt = null;
         if (req.getCurrentPrice() != null) {
             Float shares = record.getHolding().getShares();
@@ -300,7 +347,13 @@ public class InvestService {
     }
 
     @Transactional
-    public void deleteDiary(Long id) {
-        diaryRepo.deleteById(id);
+    public void deleteDiary(Long memberId, Long id) {
+        InvestDiary diary = diaryRepo.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("일기를 찾을 수 없습니다: " + id));
+        // 다른 회원의 일기 삭제 방지 (IDOR)
+        if (!diary.getMemberId().equals(memberId)) {
+            throw new IllegalArgumentException("일기를 찾을 수 없습니다: " + id);
+        }
+        diaryRepo.delete(diary);
     }
 }

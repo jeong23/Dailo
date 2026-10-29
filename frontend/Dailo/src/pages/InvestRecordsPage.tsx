@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from '../api/axios';
+import { accountTypeLabel } from '../utils/accountLiquidity';
 
 interface DashHolding {
   recordId: number; holdingId: number; ticker: string;
@@ -9,7 +10,6 @@ interface DashHolding {
 interface DashAccount { id: number; name: string; type: string; targetPct: number; holdings: DashHolding[]; }
 interface Dashboard { yearMonth: string; monthlyBudget: number; totalPlanned: number; totalActual: number; accounts: DashAccount[]; }
 
-const TYPE_LABEL: Record<string, string> = { PENSION: '연금저축', GENERAL: '일반', IRP: 'IRP' };
 const now = new Date();
 const currentYm = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 const formatNum = (v: string) => v.replace(/[^0-9]/g, '').replace(/\B(?=(\d{3})+(?!\d))/g, ',');
@@ -151,7 +151,7 @@ export const InvestRecordsPage = () => {
                 <div className="px-5 py-3 border-b border-slate-100 dark:border-dark-border flex items-center justify-between">
                   <div>
                     <span className="text-sm font-bold dark:text-dark-text">{acc.name}</span>
-                    <span className="text-xs text-slate-400 ml-2">{TYPE_LABEL[acc.type]} · {acc.targetPct}%</span>
+                    <span className="text-xs text-slate-400 ml-2">{accountTypeLabel(acc.type)} · {acc.targetPct}%</span>
                     {allPaid && <span className="ml-2 text-xs text-emerald-500 font-medium">✓ 전체 완료</span>}
                   </div>
                   {!isBulk ? (
