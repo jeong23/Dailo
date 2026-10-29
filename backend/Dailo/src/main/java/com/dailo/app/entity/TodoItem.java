@@ -6,12 +6,16 @@ import lombok.*;
 import java.time.LocalDate;
 
 @Entity
-@Table(name = "todo_item")
+@Table(name = "todo_item", indexes = @Index(
+        name = "idx_todo_item_member_date", columnList = "member_id, plan_date"))
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @AllArgsConstructor
 @Builder
 public class TodoItem extends BaseEntity {
+
+    @Column(nullable = false)
+    private Long memberId;
 
     @Column(nullable = false)
     private LocalDate planDate;

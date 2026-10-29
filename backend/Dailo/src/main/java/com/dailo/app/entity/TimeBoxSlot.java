@@ -7,13 +7,16 @@ import java.time.LocalDate;
 
 @Entity
 @Table(name = "time_box_slot", uniqueConstraints = {
-        @UniqueConstraint(columnNames = {"plan_date", "hour"})
+        @UniqueConstraint(name = "uk_time_box_slot_member_date_hour", columnNames = {"member_id", "plan_date", "hour"})
 })
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @AllArgsConstructor
 @Builder
 public class TimeBoxSlot extends BaseEntity {
+
+    @Column(nullable = false)
+    private Long memberId;
 
     @Column(name = "plan_date", nullable = false)
     private LocalDate planDate;

@@ -18,15 +18,16 @@ public class TodoItemService {
 
     private final TodoItemRepository todoItemRepository;
 
-    public List<TodoItemDto.Response> findByDate(LocalDate date) {
-        return todoItemRepository.findByPlanDateOrderBySortOrderAsc(date).stream()
+    public List<TodoItemDto.Response> findByDate(Long memberId, LocalDate date) {
+        return todoItemRepository.findByMemberIdAndPlanDateOrderBySortOrderAsc(memberId, date).stream()
                 .map(TodoItemDto.Response::from)
                 .collect(Collectors.toList());
     }
 
     @Transactional
-    public TodoItemDto.Response create(TodoItemDto.Request request) {
+    public TodoItemDto.Response create(Long memberId, TodoItemDto.Request request) {
         TodoItem item = TodoItem.builder()
+                .memberId(memberId)
                 .planDate(request.getPlanDate())
                 .content(request.getContent())
                 .type(request.getType())
@@ -37,9 +38,8 @@ public class TodoItemService {
     }
 
     @Transactional
-    public TodoItemDto.Response update(Long id, TodoItemDto.UpdateRequest request) {
-        TodoItem item = todoItemRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("할 일을 찾을 수 없습니다: " + id));
+    public TodoItemDto.Response update(Long memberId, Long id, TodoItemDto.UpdateRequest request) {
+        TodoItem item = findOwned(memberId, id);
         item.update(request.getContent(), request.getIsDone());
         if (request.getType() != null) item.updateType(request.getType());
         if (request.getSortOrder() != null) item.updateSortOrder(request.getSortOrder());
@@ -47,10 +47,17 @@ public class TodoItemService {
     }
 
     @Transactional
-    public void delete(Long id) {
-        if (!todoItemRepository.existsById(id)) {
+    public void delete(Long memberId, Long id) {
+        todoItemRepository.delete(findOwned(memberId, id));
+    }
+
+    private TodoItem findOwned(Long memberId, Long id) {
+        TodoItem item = todoItemRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("할 일을 찾을 수 없습니다: " + id));
+        // 다른 회원의 할 일 수정·삭제 방지 (IDOR)
+        if (!item.getMemberId().equals(memberId)) {
             throw new IllegalArgumentException("할 일을 찾을 수 없습니다: " + id);
         }
-        todoItemRepository.deleteById(id);
+        return item;
     }
 }

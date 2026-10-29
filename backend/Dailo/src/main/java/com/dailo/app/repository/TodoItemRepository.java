@@ -7,6 +7,6 @@ import java.time.LocalDate;
 import java.util.List;
 
 public interface TodoItemRepository extends JpaRepository<TodoItem, Long> {
-    List<TodoItem> findByPlanDateOrderBySortOrderAsc(LocalDate planDate);
-    List<TodoItem> findByPlanDateBetweenAndType(LocalDate start, LocalDate end, String type);
+    List<TodoItem> findByMemberIdAndPlanDateOrderBySortOrderAsc(Long memberId, LocalDate planDate);
+    List<TodoItem> findByMemberIdAndPlanDateBetweenAndType(Long memberId, LocalDate start, LocalDate end, String type);
 }

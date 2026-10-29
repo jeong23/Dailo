@@ -18,14 +18,15 @@ public class TimeBoxBlockService {
 
     private final TimeBoxBlockRepository blockRepository;
 
-    public List<TimeBoxBlockDto.Response> findByDate(LocalDate date) {
-        return blockRepository.findByPlanDateOrderByStartHourAscStartSlotAsc(date)
+    public List<TimeBoxBlockDto.Response> findByDate(Long memberId, LocalDate date) {
+        return blockRepository.findByMemberIdAndPlanDateOrderByStartHourAscStartSlotAsc(memberId, date)
                 .stream().map(TimeBoxBlockDto.Response::from).collect(Collectors.toList());
     }
 
     @Transactional
-    public TimeBoxBlockDto.Response create(TimeBoxBlockDto.Request req) {
+    public TimeBoxBlockDto.Response create(Long memberId, TimeBoxBlockDto.Request req) {
         TimeBoxBlock block = TimeBoxBlock.builder()
+                .memberId(memberId)
                 .planDate(req.getPlanDate())
                 .startHour(req.getStartHour())
                 .startSlot(req.getStartSlot())
@@ -38,18 +39,24 @@ public class TimeBoxBlockService {
     }
 
     @Transactional
-    public TimeBoxBlockDto.Response update(Long id, TimeBoxBlockDto.Request req) {
-        TimeBoxBlock block = blockRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("블록을 찾을 수 없습니다: " + id));
+    public TimeBoxBlockDto.Response update(Long memberId, Long id, TimeBoxBlockDto.Request req) {
+        TimeBoxBlock block = findOwned(memberId, id);
         block.update(req.getContent(), req.getIsDone());
         return TimeBoxBlockDto.Response.from(block);
     }
 
     @Transactional
-    public void delete(Long id) {
-        if (!blockRepository.existsById(id)) {
+    public void delete(Long memberId, Long id) {
+        blockRepository.delete(findOwned(memberId, id));
+    }
+
+    private TimeBoxBlock findOwned(Long memberId, Long id) {
+        TimeBoxBlock block = blockRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("블록을 찾을 수 없습니다: " + id));
+        // 다른 회원의 블록 수정·삭제 방지 (IDOR)
+        if (!block.getMemberId().equals(memberId)) {
             throw new IllegalArgumentException("블록을 찾을 수 없습니다: " + id);
         }
-        blockRepository.deleteById(id);
+        return block;
     }
 }

@@ -6,14 +6,18 @@ import lombok.*;
 import java.time.LocalDate;
 
 @Entity
-@Table(name = "daily_plan")
+@Table(name = "daily_plan", uniqueConstraints = @UniqueConstraint(
+        name = "uk_daily_plan_member_date", columnNames = {"member_id", "plan_date"}))
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @AllArgsConstructor
 @Builder
 public class DailyPlan extends BaseEntity {
 
-    @Column(nullable = false, unique = true)
+    @Column(nullable = false)
+    private Long memberId;
+
+    @Column(nullable = false)
     private LocalDate planDate;
 
     // 미래 시각화 (R2 이미지 URL)

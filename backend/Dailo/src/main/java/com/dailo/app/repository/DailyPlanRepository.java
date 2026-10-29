@@ -8,6 +8,6 @@ import java.util.List;
 import java.util.Optional;
 
 public interface DailyPlanRepository extends JpaRepository<DailyPlan, Long> {
-    Optional<DailyPlan> findByPlanDate(LocalDate planDate);
-    List<DailyPlan> findByPlanDateBetweenOrderByPlanDateAsc(LocalDate start, LocalDate end);
+    Optional<DailyPlan> findByMemberIdAndPlanDate(Long memberId, LocalDate planDate);
+    List<DailyPlan> findByMemberIdAndPlanDateBetweenOrderByPlanDateAsc(Long memberId, LocalDate start, LocalDate end);
 }

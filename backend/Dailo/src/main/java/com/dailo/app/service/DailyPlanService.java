@@ -22,15 +22,15 @@ public class DailyPlanService {
     private final DailyPlanRepository dailyPlanRepository;
     private final TodoItemRepository todoItemRepository;
 
-    public List<PlannerBoardDto.DayEntry> findMonthlyBoard(int year, int month) {
+    public List<PlannerBoardDto.DayEntry> findMonthlyBoard(Long memberId, int year, int month) {
         LocalDate start = LocalDate.of(year, month, 1);
         LocalDate end = start.withDayOfMonth(start.lengthOfMonth());
 
-        Set<LocalDate> planDates = dailyPlanRepository.findByPlanDateBetweenOrderByPlanDateAsc(start, end)
+        Set<LocalDate> planDates = dailyPlanRepository.findByMemberIdAndPlanDateBetweenOrderByPlanDateAsc(memberId, start, end)
                 .stream().map(DailyPlan::getPlanDate).collect(Collectors.toSet());
 
-        List<TodoItem> big3Items = todoItemRepository.findByPlanDateBetweenAndType(start, end, "BIG3");
-        List<TodoItem> brainItems = todoItemRepository.findByPlanDateBetweenAndType(start, end, "BRAIN_DUMP");
+        List<TodoItem> big3Items = todoItemRepository.findByMemberIdAndPlanDateBetweenAndType(memberId, start, end, "BIG3");
+        List<TodoItem> brainItems = todoItemRepository.findByMemberIdAndPlanDateBetweenAndType(memberId, start, end, "BRAIN_DUMP");
 
         Map<LocalDate, List<TodoItem>> big3ByDate = big3Items.stream()
                 .collect(Collectors.groupingBy(TodoItem::getPlanDate));
@@ -63,15 +63,15 @@ public class DailyPlanService {
         }).collect(Collectors.toList());
     }
 
-    public DailyPlanDto.Response findByDate(LocalDate date) {
-        return dailyPlanRepository.findByPlanDate(date)
+    public DailyPlanDto.Response findByDate(Long memberId, LocalDate date) {
+        return dailyPlanRepository.findByMemberIdAndPlanDate(memberId, date)
                 .map(DailyPlanDto.Response::from)
                 .orElse(null);
     }
 
     @Transactional
-    public DailyPlanDto.Response upsert(DailyPlanDto.Request request) {
-        Optional<DailyPlan> existing = dailyPlanRepository.findByPlanDate(request.getPlanDate());
+    public DailyPlanDto.Response upsert(Long memberId, DailyPlanDto.Request request) {
+        Optional<DailyPlan> existing = dailyPlanRepository.findByMemberIdAndPlanDate(memberId, request.getPlanDate());
 
         if (existing.isPresent()) {
             DailyPlan plan = existing.get();
@@ -87,6 +87,7 @@ public class DailyPlanService {
         }
 
         DailyPlan plan = DailyPlan.builder()
+                .memberId(memberId)
                 .planDate(request.getPlanDate())
                 .futureVisionUrl(request.getFutureVisionUrl())
                 .identity1(request.getIdentity1())

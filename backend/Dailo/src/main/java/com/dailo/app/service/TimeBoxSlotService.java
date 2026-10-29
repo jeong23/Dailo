@@ -19,16 +19,16 @@ public class TimeBoxSlotService {
 
     private final TimeBoxSlotRepository timeBoxSlotRepository;
 
-    public List<TimeBoxSlotDto.Response> findByDate(LocalDate date) {
-        return timeBoxSlotRepository.findByPlanDateOrderByHourAsc(date).stream()
+    public List<TimeBoxSlotDto.Response> findByDate(Long memberId, LocalDate date) {
+        return timeBoxSlotRepository.findByMemberIdAndPlanDateOrderByHourAsc(memberId, date).stream()
                 .map(TimeBoxSlotDto.Response::from)
                 .collect(Collectors.toList());
     }
 
     @Transactional
-    public TimeBoxSlotDto.Response upsert(TimeBoxSlotDto.Request request) {
+    public TimeBoxSlotDto.Response upsert(Long memberId, TimeBoxSlotDto.Request request) {
         Optional<TimeBoxSlot> existing = timeBoxSlotRepository
-                .findByPlanDateAndHour(request.getPlanDate(), request.getHour());
+                .findByMemberIdAndPlanDateAndHour(memberId, request.getPlanDate(), request.getHour());
 
         if (existing.isPresent()) {
             TimeBoxSlot slot = existing.get();
@@ -37,6 +37,7 @@ public class TimeBoxSlotService {
         }
 
         TimeBoxSlot slot = TimeBoxSlot.builder()
+                .memberId(memberId)
                 .planDate(request.getPlanDate())
                 .hour(request.getHour())
                 .slot1(request.getSlot1())

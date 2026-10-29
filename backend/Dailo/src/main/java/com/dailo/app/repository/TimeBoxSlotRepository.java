@@ -8,6 +8,6 @@ import java.util.List;
 import java.util.Optional;
 
 public interface TimeBoxSlotRepository extends JpaRepository<TimeBoxSlot, Long> {
-    List<TimeBoxSlot> findByPlanDateOrderByHourAsc(LocalDate planDate);
-    Optional<TimeBoxSlot> findByPlanDateAndHour(LocalDate planDate, Integer hour);
+    List<TimeBoxSlot> findByMemberIdAndPlanDateOrderByHourAsc(Long memberId, LocalDate planDate);
+    Optional<TimeBoxSlot> findByMemberIdAndPlanDateAndHour(Long memberId, LocalDate planDate, Integer hour);
 }

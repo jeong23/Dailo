@@ -7,5 +7,5 @@ import java.time.LocalDate;
 import java.util.List;
 
 public interface TimeBoxBlockRepository extends JpaRepository<TimeBoxBlock, Long> {
-    List<TimeBoxBlock> findByPlanDateOrderByStartHourAscStartSlotAsc(LocalDate planDate);
+    List<TimeBoxBlock> findByMemberIdAndPlanDateOrderByStartHourAscStartSlotAsc(Long memberId, LocalDate planDate);
 }
