@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api/axios';
+import { markActivity, takeLogoutReason } from '../utils/session';
 
 export const LoginPage = () => {
   const navigate = useNavigate();
@@ -9,6 +10,13 @@ export const LoginPage = () => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  // 자동 로그아웃으로 왔으면 이유 안내 (한 번 읽고 지움)
+  const [notice] = useState(() => {
+    const reason = takeLogoutReason();
+    if (reason === 'timeout') return '1시간 동안 사용하지 않아 자동 로그아웃됐어요. 다시 로그인해 주세요.';
+    if (reason === 'expired') return '로그인이 만료됐어요. 다시 로그인해 주세요.';
+    return '';
+  });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -23,6 +31,7 @@ export const LoginPage = () => {
       localStorage.setItem('memberId', String(memberId));
       localStorage.setItem('memberName', name);
       localStorage.setItem('salaryDay', String(salaryDay ?? 25));
+      markActivity();
 
       navigate('/', { replace: true });
     } catch (err: any) {
@@ -52,6 +61,12 @@ export const LoginPage = () => {
         {/* 카드 */}
         <div className="bg-white dark:bg-dark-card rounded-3xl shadow-[0_4px_24px_rgba(0,0,0,0.08)] dark:shadow-none p-8">
           <h1 className="text-xl font-bold text-slate-900 dark:text-dark-text mb-6">로그인</h1>
+
+          {notice && !error && (
+            <p role="status" className="mb-5 rounded-2xl bg-amber-50 dark:bg-amber-900/20 px-4 py-3 text-sm font-medium text-amber-700 dark:text-amber-300">
+              ⏰ {notice}
+            </p>
+          )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>

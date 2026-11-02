@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { DailyExpense, Category, BudgetType } from '../types';
 import api, { getStoredMemberId } from '../api/axios';
-import { formatNumber, parseNumber, getCurrentSettleMonth, getSettleMonthForDate } from '../utils/format';
+import { formatNumber, parseNumber, getCurrentSettleMonth, getSettleMonthForDate, todayYmd } from '../utils/format';
+import { CashAccountSelect, ExpenseAccountField, SavingsBadge, SavingsSelect, SavingsOption, useExpenseLinks } from '../components/ExpenseLinkFields';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 import { Toast, useToast } from '../components/Toast';
 
@@ -12,6 +13,7 @@ interface Income {
   settleMonth: string;
   source: string;
   memo: string;
+  cashAccountId?: number | null;
 }
 
 // 예산구분(BudgetType) 고정 3종 — '생활비'/'비상금'은 DashboardService의 sumLivingExpense/sumEmergencyExpense
@@ -55,7 +57,7 @@ export const ExpensesPage = () => {
   const [editingExpense, setEditingExpense] = useState<DailyExpense | null>(null);
   const [itemName, setItemName] = useState('');
   const [expenseAmount, setExpenseAmount] = useState('');
-  const [expenseDate, setExpenseDate] = useState(new Date().toISOString().split('T')[0]);
+  const [expenseDate, setExpenseDate] = useState(todayYmd());
   const [paymentMethod, setPaymentMethod] = useState('카드');
   const [budgetType, setBudgetType] = useState<BudgetType>('생활비');
   const [categoryId, setCategoryId] = useState<number>(0);
@@ -76,9 +78,15 @@ export const ExpensesPage = () => {
   const [isIncomeModalOpen, setIsIncomeModalOpen] = useState(false);
   const [editingIncome, setEditingIncome] = useState<Income | null>(null);
   const [incomeAmount, setIncomeAmount] = useState('');
-  const [incomeDate, setIncomeDate] = useState(new Date().toISOString().split('T')[0]);
+  const [incomeDate, setIncomeDate] = useState(todayYmd());
   const [source, setSource] = useState('');
   const [incomeMemo, setIncomeMemo] = useState('');
+  // 현금 계좌 — 지출·수입이 어느 통장 잔액에 반영될지 ('' = 기본 계좌). 계좌가 없으면 select 숨김
+  const { cashAccounts, savingsList } = useExpenseLinks();
+  const [expenseAccountId, setExpenseAccountId] = useState('');
+  const [incomeAccountId, setIncomeAccountId] = useState('');
+  // 적금·청약 납입 기록 — 고르면 그 달 납입이 확인되고, 현금 잔액에선 자동 납입 대신 이 지출이 빠짐
+  const [expenseSavingsId, setExpenseSavingsId] = useState('');
   useEscapeKey(isExpenseModalOpen, () => setIsExpenseModalOpen(false));
   useEscapeKey(isIncomeModalOpen, () => setIsIncomeModalOpen(false));
 
@@ -124,6 +132,9 @@ export const ExpensesPage = () => {
   };
 
   useEffect(() => {
+  }, []);
+
+  useEffect(() => {
     fetchExpenses();
     fetchIncomes();
     setSearchQuery('');
@@ -141,11 +152,13 @@ export const ExpensesPage = () => {
   const resetExpenseForm = () => {
     setItemName('');
     setExpenseAmount('');
-    setExpenseDate(new Date().toISOString().split('T')[0]);
+    setExpenseDate(todayYmd());
     setPaymentMethod('카드');
     setBudgetType('생활비');
     setCategoryId(categories.length > 0 ? categories[0].id : 0);
     setExpenseMemo('');
+    setExpenseAccountId('');
+    setExpenseSavingsId('');
     setEditingExpense(null);
   };
 
@@ -163,8 +176,19 @@ export const ExpensesPage = () => {
     setBudgetType(expense.budgetType);
     setCategoryId(expense.categoryId || categories[0]?.id || 0);
     setExpenseMemo(expense.memo || '');
+    setExpenseAccountId(expense.cashAccountId ? String(expense.cashAccountId) : '');
+    setExpenseSavingsId(expense.savingsId ? String(expense.savingsId) : '');
     setIsExpenseModalOpen(true);
   };
+
+  const pickSavings = (v: string, s?: SavingsOption) => {
+    setExpenseSavingsId(v);
+    if (!s) return;
+    if (!itemName.trim()) setItemName(s.name);
+    if (!expenseAmount) setExpenseAmount(formatNumber(s.monthlyAmount));
+    if (paymentMethod === '카드') setPaymentMethod('이체');
+  };
+  const savingsName = (id?: number | null) => (id ? savingsList.find(s => s.id === id)?.name ?? '적금' : null);
 
   const handleExpenseSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -184,6 +208,8 @@ export const ExpensesPage = () => {
       paymentMethod,
       budgetType,
       memo: expenseMemo,
+      cashAccountId: expenseAccountId ? Number(expenseAccountId) : null,
+      savingsId: expenseSavingsId ? Number(expenseSavingsId) : null,
     };
     try {
       if (editingExpense?.id) {
@@ -215,9 +241,10 @@ export const ExpensesPage = () => {
   // 수입 폼
   const resetIncomeForm = () => {
     setIncomeAmount('');
-    setIncomeDate(new Date().toISOString().split('T')[0]);
+    setIncomeDate(todayYmd());
     setSource('');
     setIncomeMemo('');
+    setIncomeAccountId('');
     setEditingIncome(null);
   };
 
@@ -232,6 +259,7 @@ export const ExpensesPage = () => {
     setIncomeDate(item.incomeDate);
     setSource(item.source || '');
     setIncomeMemo(item.memo || '');
+    setIncomeAccountId(item.cashAccountId ? String(item.cashAccountId) : '');
     setIsIncomeModalOpen(true);
   };
 
@@ -244,6 +272,7 @@ export const ExpensesPage = () => {
       settleMonth: getSettleMonthForDate(incomeDate),
       source,
       memo: incomeMemo,
+      cashAccountId: incomeAccountId ? Number(incomeAccountId) : null,
     };
     try {
       if (editingIncome) {
@@ -541,6 +570,7 @@ export const ExpensesPage = () => {
                               ? 'bg-violet-50 text-violet-600 dark:bg-violet-900/30 dark:text-violet-400'
                               : 'bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400'
                           }`}>{item.budgetType}</span>
+                          {item.savingsId && <SavingsBadge name={savingsName(item.savingsId)} />}
                         </div>
                         <p className="text-sm font-medium text-slate-800 dark:text-dark-text mt-1">{item.itemName}</p>
                         <p className="text-xs text-slate-400 mt-0.5">{item.categoryName || item.category?.name || ''}{item.memo ? ` · ${item.memo}` : ''}</p>
@@ -574,7 +604,9 @@ export const ExpensesPage = () => {
                       <tr key={item.id} className="hover:bg-primary-50/30 dark:hover:bg-slate-800/30 transition-colors">
                         <td className="px-6 py-3.5 text-sm text-slate-400 tabular-nums">{item.expenseDate?.substring(5)}</td>
                         <td className="px-6 py-3.5">
-                          <div className="text-sm font-medium text-slate-800 dark:text-dark-text">{item.itemName}</div>
+                          <div className="text-sm font-medium text-slate-800 dark:text-dark-text">
+                            {item.itemName}{item.savingsId && <SavingsBadge name={savingsName(item.savingsId)} />}
+                          </div>
                           {item.memo && <div className="text-xs text-slate-400 mt-0.5">{item.memo}</div>}
                         </td>
                         <td className="px-6 py-3.5 text-sm text-slate-400 dark:text-dark-muted">
@@ -761,6 +793,8 @@ export const ExpensesPage = () => {
                   </select>
                 </div>
               </div>
+              <SavingsSelect list={savingsList} value={expenseSavingsId} onChange={pickSavings} />
+              <ExpenseAccountField accounts={cashAccounts} value={expenseAccountId} onChange={setExpenseAccountId} paymentMethod={paymentMethod} />
               <div>
                 <label className="block text-sm font-medium mb-1 dark:text-dark-muted">메모 (선택)</label>
                 <input type="text" value={expenseMemo} onChange={(e) => setExpenseMemo(e.target.value)}
@@ -812,6 +846,10 @@ export const ExpensesPage = () => {
                   className="w-full p-2.5 rounded-lg border dark:bg-dark-bg dark:border-dark-border dark:text-dark-text outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="예: 은행이자, 환급금" />
               </div>
+              {cashAccounts.length > 0 && (
+                <CashAccountSelect accounts={cashAccounts} value={incomeAccountId} onChange={setIncomeAccountId}
+                  label="들어온 계좌" hint="저장하면 현금 자산·자산 현황 잔액에 바로 반영돼요" />
+              )}
               <div>
                 <label className="block text-sm font-medium mb-1 dark:text-dark-muted">메모 (선택)</label>
                 <input type="text" value={incomeMemo} onChange={(e) => setIncomeMemo(e.target.value)}

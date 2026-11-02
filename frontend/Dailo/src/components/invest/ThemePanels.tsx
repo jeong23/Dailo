@@ -6,16 +6,32 @@ import { THEME_COLORS } from '../../utils/themeDefaults';
 // 투자 현황 — 테마 모드 화면 조각 (InvestDashboardPage에서 테마가 있을 때 사용)
 //  ThemeTodo: 이번 달 할 일 (계좌별 매수·매도 → 체결 완료)
 //  ThemeBreakdown: 테마별 현재 비중 vs 목표 + 소속 종목
+//  위성 테마(satellite)는 목표 대신 '최대 N%' — 상한 아래면 할 일 없음, 넘으면 안내 (납입금으로 사지 않음)
 
-export interface ThemeInfo { id: number; name: string; targetPct: number; cash: boolean }
+export interface ThemeInfo { id: number; name: string; targetPct: number; cash: boolean; satellite?: boolean }
+
+// 위성 테마 중 상한 + threshold를 넘은 것 — {theme, 현재 %}
+const overCapSatellites = (themes: ThemeInfo[], holdings: ThemeHolding[], threshold: number) => {
+  const inTheme = holdings.filter(h => h.themeId !== null && themes.some(t => t.id === h.themeId));
+  const total = inTheme.reduce((s, h) => s + (h.evalAmt ?? 0), 0);
+  if (total <= 0) return [];
+  return themes.filter(t => t.satellite).map(t => ({
+    theme: t, pct: (inTheme.filter(h => h.themeId === t.id).reduce((s, h) => s + (h.evalAmt ?? 0), 0) / total) * 100,
+  })).filter(x => x.pct - x.theme.targetPct > threshold);
+};
 export interface ThemeHolding {
   holdingId: number; accountId: number; ticker: string; themeId: number | null;
   evalAmt: number | null; purchaseAmt: number | null; profitPct: number | null;
   shares: number | null; currentPrice: number | null;
 }
-export interface ThemeAccount { id: number; name: string; contribution: number; budget: number; tradeCount: number }
+export interface ThemeAccount { id: number; name: string; type?: string; contribution: number; budget: number; tradeCount: number }
 export interface Blocker { accountId: number; kind: 'duplicate' | 'price'; text: string }
 
+// 받침 있으면 '이', 없으면 '가' (한글 아닌 끝 글자는 '이')
+const josaIGa = (word: string) => {
+  const c = word.trim().charCodeAt(word.trim().length - 1) - 0xac00;
+  return c >= 0 && c <= 11171 && c % 28 === 0 ? '가' : '이';
+};
 const CARD = 'bg-white dark:bg-dark-card rounded-2xl shadow-[0_1px_8px_rgba(0,0,0,0.06)] dark:shadow-none';
 const fmt = (n: number) => Math.round(n).toLocaleString();
 const fmtPct = (v: number) => `${v > 0 ? '+' : ''}${v.toFixed(2)}%`;
@@ -30,6 +46,50 @@ const SIDE: Record<TRAction['side'], { label: string; chip: string; text: string
 };
 const ORDER: Record<TRAction['side'], number> = { SELL: 0, USE_CASH: 1, BUY: 2, KEEP_CASH: 3 };
 
+// 일반 계좌 매도 세금 (참고용): 국내 상장 해외·채권·원자재 ETF 매매차익은 배당소득세 15.4%, 국내 주식형 ETF는 비과세.
+// ISA·연금저축·IRP는 계좌 안에서 사고팔 땐 세금 없음 (ISA는 만기, 연금은 꺼낼 때 과세)
+const GAIN_TAX = 0.154;
+const taxFreeAccount = (type?: string) => type === 'ISA' || type === 'PENSION' || type === 'IRP';
+
+// 매매 비용 설정 줄 — 수수료 %, 가격 변동 여유 % (서버 저장)
+const TradeCosts = ({ feeRate, priceBuffer, onSave }: { feeRate: number; priceBuffer: number; onSave: (v: { feeRate: number; priceBuffer: number }) => void }) => {
+  const [open, setOpen] = React.useState(false);
+  const [fee, setFee] = React.useState(String(feeRate));
+  const [buf, setBuf] = React.useState(String(priceBuffer));
+  React.useEffect(() => { setFee(String(feeRate)); setBuf(String(priceBuffer)); }, [feeRate, priceBuffer]);
+  const feeN = parseFloat(fee), bufN = parseFloat(buf);
+  const valid = feeN >= 0 && feeN <= 1 && bufN >= 0 && bufN <= 5;
+  if (!open) {
+    return (
+      <div className="mt-2 flex items-center gap-2 flex-wrap text-[11px] text-slate-400">
+        <span>수수료 {feeRate}% · 가격 여유 {priceBuffer}% 반영</span>
+        <button onClick={() => setOpen(true)} className="min-h-[32px] px-2 text-primary-500 font-medium">바꾸기</button>
+      </div>
+    );
+  }
+  const field = 'h-11 sm:h-9 w-20 rounded-lg bg-slate-50 dark:bg-dark-bg px-2 text-right text-sm tabular-nums text-slate-800 dark:text-dark-text outline-none focus:ring-2 focus:ring-primary-400';
+  return (
+    <div className="mt-2 rounded-xl bg-slate-50/70 dark:bg-slate-800/20 p-3 space-y-2">
+      <div className="flex items-center gap-2 flex-wrap">
+        <label className="text-xs text-slate-500 dark:text-slate-400 w-28 shrink-0">증권사 수수료</label>
+        <input inputMode="decimal" value={fee} onChange={e => setFee(e.target.value)} className={field} aria-label="수수료 %" />
+        <span className="text-xs text-slate-400">%</span>
+      </div>
+      <div className="flex items-center gap-2 flex-wrap">
+        <label className="text-xs text-slate-500 dark:text-slate-400 w-28 shrink-0">가격 변동 여유</label>
+        <input inputMode="decimal" value={buf} onChange={e => setBuf(e.target.value)} className={field} aria-label="가격 여유 %" />
+        <span className="text-xs text-slate-400">%</span>
+      </div>
+      <p className="text-[11px] text-slate-400">수수료는 증권 앱의 계좌 수수료(ISA 중개형은 보통 0.015% 안팎)를 넣으세요. 가격 여유는 주문하는 사이 값이 올라도 돈이 모자라지 않게 남겨둘 몫이에요 (0~5%).</p>
+      <div className="flex gap-2">
+        <button disabled={!valid} onClick={() => { onSave({ feeRate: feeN, priceBuffer: bufN }); setOpen(false); }}
+          className="h-11 sm:h-9 px-4 rounded-full bg-primary-600 text-white text-xs font-semibold disabled:opacity-40">저장</button>
+        <button onClick={() => setOpen(false)} className="h-11 sm:h-9 px-4 rounded-full bg-slate-100 dark:bg-slate-800 text-xs font-medium text-slate-500">취소</button>
+      </div>
+    </div>
+  );
+};
+
 export const themeColor = (themes: ThemeInfo[], id: number | null) => {
   const i = themes.findIndex(t => t.id === id);
   return i < 0 ? '#cbd5e1' : THEME_COLORS[i % THEME_COLORS.length];
@@ -37,7 +97,9 @@ export const themeColor = (themes: ThemeInfo[], id: number | null) => {
 
 export const ThemeTodo = ({
   themes, holdings, accounts, plan, blockers, threshold, monthlyBudget, withContribution, onToggleContribution, allowSell, onToggleSell, onTrade, children,
+  feeRate, priceBuffer, onSaveCosts,
 }: {
+  feeRate: number; priceBuffer: number; onSaveCosts: (v: { feeRate: number; priceBuffer: number }) => void;
   themes: ThemeInfo[]; holdings: ThemeHolding[]; accounts: ThemeAccount[]; plan: TRResult | null; blockers: Blocker[];
   threshold: number; monthlyBudget: number; withContribution: boolean; onToggleContribution: () => void;
   allowSell: boolean; onToggleSell: () => void;
@@ -50,6 +112,8 @@ export const ThemeTodo = ({
   const sellTotal = actions.filter(a => a.side === 'SELL' || a.side === 'USE_CASH').reduce((s, a) => s + a.amount, 0);
   const buyTotal = actions.filter(a => a.side === 'BUY').reduce((s, a) => s + a.amount, 0);
   const tradeActions = actions.filter(a => a.side === 'BUY' || a.side === 'SELL');
+  const overCap = overCapSatellites(themes, holdings, threshold);
+  const hasSatellite = themes.some(t => t.satellite);
 
   return (
     <section className={`${CARD} p-4 sm:p-5`}>
@@ -94,6 +158,23 @@ export const ThemeTodo = ({
         </div>
       )}
 
+      <TradeCosts feeRate={feeRate} priceBuffer={priceBuffer} onSave={onSaveCosts} />
+
+      {withContribution && monthlyBudget > 0 && (
+        <p className="mt-2 text-[11px] text-slate-400">이번 달 납입금을 이미 이체해 예수금에 넣었다면 '납입금 포함'을 끄세요 — 켜 두면 같은 돈이 두 번 잡혀요.</p>
+      )}
+
+      {overCap.length > 0 && (
+        <div className="mt-3 space-y-2">
+          {overCap.map(({ theme, pct }) => (
+            <p key={theme.id} className="rounded-lg bg-violet-50 dark:bg-violet-900/15 px-3 py-2 text-xs text-violet-700 dark:text-violet-300">
+              위성 <b>{theme.name}</b>{josaIGa(theme.name)} 상한 {theme.targetPct}%를 넘었어요 (지금 {pct.toFixed(1)}%) —
+              {allowSell ? ' 아래 할 일에 상한까지 줄이기가 들어 있어요.' : ' 더 사지 말고, 납입금은 코어 테마로만 보내요.'}
+            </p>
+          ))}
+        </div>
+      )}
+
       {plan && (sellTotal > 0 || buyTotal > 0) && (
         <div className="grid grid-cols-2 gap-2 mt-4">
           <div className="rounded-xl bg-blue-50/70 dark:bg-blue-900/10 px-3 py-2.5 min-w-0">
@@ -112,12 +193,14 @@ export const ThemeTodo = ({
           {accounts.map(acc => {
             const list = actions.filter(a => a.accountId === acc.id).sort((x, y) => ORDER[x.side] - ORDER[y.side] || y.amount - x.amount);
             const left = plan.leftover[acc.id] ?? 0;
+            // 쓸 돈 = 납입금(토글) + 체결 반영분 + 이번에 꺼내 쓰는 예수금(현금성)
+            const spend = acc.budget + list.filter(x => x.side === 'USE_CASH').reduce((t, x) => t + x.amount, 0);
             if (list.length === 0 && acc.budget === 0) return null;
             return (
               <div key={acc.id} className="rounded-xl ring-1 ring-slate-100 dark:ring-dark-border/60 p-3">
                 <div className="flex items-baseline justify-between gap-3 min-w-0">
                   <p className="text-sm font-semibold text-slate-700 dark:text-slate-200 truncate min-w-0">{acc.name}</p>
-                  {acc.budget > 0 && <p className="text-[11px] text-slate-400 tabular-nums shrink-0">쓸 돈 {fmt(acc.budget)}원</p>}
+                  {spend > 0 && <p className="text-[11px] text-slate-400 tabular-nums shrink-0">쓸 돈 {fmt(spend)}원</p>}
                 </div>
                 {list.length === 0 ? (
                   <p className="mt-2 text-xs text-emerald-600 dark:text-emerald-400">✓ 이 계좌는 할 일이 없어요</p>
@@ -143,6 +226,15 @@ export const ThemeTodo = ({
                           <div className="text-right shrink-0">
                             <p className={`text-sm font-bold tabular-nums ${st.text}`}>{a.shares ? `${a.shares}주` : `${st.sign}${fmt(a.amount)}원`}</p>
                             {a.shares ? <p className="text-[11px] text-slate-400 tabular-nums">{fmt(a.amount)}원</p> : null}
+                            {a.fee > 0 && <p className="text-[10px] text-slate-400 tabular-nums">수수료 약 {fmt(a.fee)}원</p>}
+                            {a.side === 'SELL' && (() => {
+                              if (taxFreeAccount(acc.type)) return <p className="text-[10px] text-slate-400">계좌 안 매매 · 지금 세금 없음</p>;
+                              const avg = h && h.shares && h.purchaseAmt ? h.purchaseAmt / h.shares : null;
+                              const gain = avg != null && a.shares ? (a.amount / a.shares - avg) * a.shares : null;
+                              return gain != null && gain > 0
+                                ? <p className="text-[10px] text-amber-600 dark:text-amber-400 tabular-nums">세금 최대 약 {fmt(gain * GAIN_TAX)}원</p>
+                                : null;
+                            })()}
                           </div>
                           {tradable && (
                             <button onClick={() => onTrade(h!.holdingId, a.side as 'BUY' | 'SELL', a.shares)}
@@ -155,9 +247,14 @@ export const ThemeTodo = ({
                     })}
                   </ul>
                 )}
-                {left > 0 && (
+                {(left > 0 || (plan.reserve[acc.id] ?? 0) > 0) && (
                   <p className="mt-1 text-[11px] text-slate-400 tabular-nums">
-                    남는 돈 {fmt(left)}원 — {list.some(x => x.side === 'BUY') ? '1주 가격보다 적게 남은 돈' : '이 계좌에서 살 수 있는 테마가 이미 목표를 채웠어요'} · 예수금으로 두고 다음 달에 써요
+                    {(plan.reserve[acc.id] ?? 0) > 0 && <>가격 여유 {fmt(plan.reserve[acc.id])}원 · </>}
+                    {list.some(x => x.fee > 0) && <>수수료 약 {fmt(list.reduce((t, x) => t + x.fee, 0))}원 · </>}
+                    {left > 0
+                      ? <>남는 돈 {fmt(left)}원 — {list.some(x => x.side === 'BUY') ? '1주 가격보다 적게 남은 돈' : '이 계좌에서 살 수 있는 테마가 이미 목표를 채웠어요'} · </>
+                      : null}
+                    쓰지 않은 돈은 예수금으로 두고 다음 달에 써요
                   </p>
                 )}
               </div>
@@ -169,6 +266,8 @@ export const ThemeTodo = ({
       {children}
       <p className="text-[11px] text-slate-400 mt-3">
         돈은 계좌 안에서만 움직여요. 살 수 있는 테마가 적은 계좌부터, 전체 기준으로 가장 모자란 테마의 종목을 1주씩 골랐어요. 증권 앱에서 실행 후 '체결 완료'를 누르면 보유 수량·평균단가가 바뀌고 다시 계산돼요.
+        {hasSatellite && ' 위성 테마는 납입금으로 사지 않아요 — 남는 돈으로 상한 안에서 직접 사세요.'}
+        {' 국내 상장 ETF라 환율은 원화 주가에 이미 들어 있어요(이름에 (H)가 붙은 상품은 환헤지). 주문은 지정가로 화면 현재가 근처에 넣으면 가격 여유 안에서 체결돼요. 세금 안내는 참고용이에요.'}
       </p>
     </section>
   );
@@ -207,7 +306,11 @@ export const ThemeBreakdown = ({
           const plCost = pl.reduce((s, h) => s + (h.purchaseAmt ?? 0), 0);
           const profitPct = plCost > 0 ? ((plEval - plCost) / plCost) * 100 : null;
           const after = plan?.themes.find(x => x.id === t.id)?.afterPct;
-          const status = Math.abs(diff) <= threshold
+          const status = t.satellite
+            ? diff > threshold
+              ? { label: `상한 ${diff.toFixed(1)}%p 초과`, cls: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300' }
+              : { label: '상한 안', cls: 'bg-violet-50 text-violet-600 dark:bg-violet-900/20 dark:text-violet-400' }
+            : Math.abs(diff) <= threshold
             ? { label: '목표 안', cls: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400' }
             : diff > 0
               ? { label: `${diff.toFixed(1)}%p 초과`, cls: 'bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400' }
@@ -218,13 +321,14 @@ export const ThemeBreakdown = ({
                 <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: themeColor(themes, t.id) }} />
                 <p className="text-sm font-semibold text-slate-800 dark:text-dark-text truncate min-w-0 flex-1">
                   {t.name}{t.cash && <span className="ml-1 text-[11px] font-normal text-slate-400">현금성</span>}
+                  {t.satellite && <span className="ml-1 text-[11px] font-normal text-violet-500">위성</span>}
                 </p>
                 <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${status.cls}`}>{status.label}</span>
               </div>
               <div className="mt-2 flex items-end justify-between gap-3">
                 <div className="min-w-0">
                   <p className="text-xl font-bold tabular-nums text-slate-900 dark:text-dark-text">
-                    {cur.toFixed(1)}%<span className="text-xs font-medium text-slate-400 ml-1.5">목표 {t.targetPct}%</span>
+                    {cur.toFixed(1)}%<span className="text-xs font-medium text-slate-400 ml-1.5">{t.satellite ? '최대' : '목표'} {t.targetPct}%</span>
                   </p>
                   {after !== undefined && Math.abs(after - cur) >= 0.1 && (
                     <p className="text-[11px] text-slate-400 tabular-nums">할 일 실행 후 {after.toFixed(1)}%</p>

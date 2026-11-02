@@ -42,15 +42,16 @@ public class AllocationService {
             String name = r.getName() == null ? "" : r.getName().trim();
             if (name.isEmpty()) throw new IllegalArgumentException("테마 이름을 입력해주세요");
             boolean cash = Boolean.TRUE.equals(r.getCash());
+            boolean satellite = !cash && Boolean.TRUE.equals(r.getSatellite()); // 현금성은 위성이 될 수 없음
             InvestTheme theme;
             if (r.getId() != null) {
                 theme = themeRepo.findById(r.getId())
                         .filter(t -> t.getMemberId().equals(memberId))
                         .orElseThrow(() -> new IllegalArgumentException("테마를 찾을 수 없습니다: " + r.getId()));
-                theme.update(name, r.getTargetPct(), cash, order);
+                theme.update(name, r.getTargetPct(), cash, satellite, order);
             } else {
                 theme = themeRepo.save(InvestTheme.builder()
-                        .memberId(memberId).name(name).targetPct(r.getTargetPct()).cash(cash).sortOrder(order)
+                        .memberId(memberId).name(name).targetPct(r.getTargetPct()).cash(cash).satellite(satellite).sortOrder(order)
                         .build());
             }
             kept.add(theme.getId());

@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { DailyPlan, TodoItem, TimeBoxSlot } from '../types';
 import api from '../api/axios';
 import { VisionBoard } from '../components/VisionBoard';
+import { parseYmd, toYmd, todayYmd } from '../utils/format';
 
 // 5시 ~ 다음날 4시: 24~28은 자정 이후(00~04시)지만 같은 플랜 날짜에 hour=24..28로 저장 — 정렬·slotToIndex가 그대로 이어짐
 const HOURS = Array.from({ length: 24 }, (_, i) => i + 5);
@@ -62,7 +63,7 @@ const slotStyle = (value: string, done: boolean) => {
   return 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400';
 };
 
-const today = () => new Date().toISOString().split('T')[0];
+const today = todayYmd;
 
 export const TodoPage = () => {
   const [searchParams] = useSearchParams();
@@ -207,9 +208,9 @@ export const TodoPage = () => {
   };
 
   const moveDate = (delta: number) => {
-    const d = new Date(selectedDate);
+    const d = parseYmd(selectedDate);
     d.setDate(d.getDate() + delta);
-    setSelectedDate(d.toISOString().split('T')[0]);
+    setSelectedDate(toYmd(d));
   };
 
   const isTouch = typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches;

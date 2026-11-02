@@ -7,7 +7,8 @@ import { getCurrentSettleMonth } from '../utils/format';
 import { CashAccount, CashAssetEntry } from '../types';
 
 // 내 계좌 > 현금 — 입출금·CMA·파킹통장을 계좌별로 등록
-//  켜진 계좌 잔액 합계가 이번 정산월 현금 자산(cash_asset)으로 자동 기록됨 → 현금 자산 추이·자산 현황은 그 값을 그대로 씀
+//  잔액 = 기준 잔액(마지막으로 맞춘 값) + 그 뒤 지출·수입·월급·고정비·적금 납입·만기 (서버 CashFlow 계산) → 현금 자산 추이·자산 현황도 같은 값
+//  수정 시트의 잔액을 다른 값으로 저장하면 '잔액 맞추기' — 그 시각이 새 기준
 //  계좌가 하나도 없으면 예전처럼 현금 자산 화면에서 직접 입력 — 그 최신 잔액을 '기본 현금' 계좌로 가져올 수 있음
 
 const CARD = 'bg-white dark:bg-dark-card rounded-2xl shadow-[0_1px_8px_rgba(0,0,0,0.06)] dark:shadow-none';
@@ -16,6 +17,10 @@ const FIELD_INPUT = 'flex-1 min-w-0 bg-transparent outline-none text-sm text-sla
 const fmt = (n: number) => Math.round(n).toLocaleString();
 const fmtNum = (v: string) => v.replace(/[^0-9]/g, '').replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 const parseNum = (v: string) => parseInt(v.replace(/,/g, ''), 10) || 0;
+const fmtAsOf = (iso: string) => {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? '' : `${d.getMonth() + 1}월 ${d.getDate()}일`;
+};
 
 interface Form { id?: number; name: string; bank: string; balance: string; memo: string }
 
@@ -31,7 +36,7 @@ export const CashAccountsPanel = () => {
   const q = `?settleMonth=${settleMonth}`;
 
   const load = async () => {
-    const [aRes, hRes] = await Promise.allSettled([api.get('/cash-accounts'), api.get('/cash-assets')]);
+    const [aRes, hRes] = await Promise.allSettled([api.get(`/cash-accounts${q}`), api.get(`/cash-assets${q}`)]);
     if (aRes.status === 'fulfilled') setAccounts(aRes.value.data.data || []);
     else show('현금 계좌를 불러오지 못했어요', 'error');
     if (hRes.status === 'fulfilled') {
@@ -45,6 +50,8 @@ export const CashAccountsPanel = () => {
   // 꺼진 계좌는 아래로 (투자 계좌와 같은 규칙)
   const sorted = [...accounts].sort((a, b) => Number(!a.active) - Number(!b.active));
   const total = accounts.filter(a => a.active).reduce((t, a) => t + a.balance, 0);
+  const pendingCard = accounts.filter(a => a.active).reduce((t, a) => t + (a.pendingCard || 0), 0);
+  const editing = form?.id ? accounts.find(a => a.id === form.id) : undefined;
 
   const save = async () => {
     if (!form) return;
@@ -56,7 +63,7 @@ export const CashAccountsPanel = () => {
       else await api.post(`/cash-accounts${q}`, body);
       setForm(null);
       await load();
-      show('저장했어요 — 이번 달 현금 자산에도 반영됐어요');
+      show('저장했어요 — 이 잔액부터 지출·수입이 자동 반영돼요');
     } catch (e: any) {
       show(e?.response?.data?.message || '저장에 실패했어요', 'error');
     } finally { setBusy(false); }
@@ -115,10 +122,13 @@ export const CashAccountsPanel = () => {
           <button onClick={() => setForm({ name: '', bank: '', balance: '', memo: '' })}
             className="shrink-0 h-11 sm:h-9 rounded-full px-4 bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium">+ 계좌 추가</button>
         </div>
+        {pendingCard > 0 && (
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 tabular-nums">이번 달 카드값 −{fmt(pendingCard)}원 예정 · 정산월이 끝나면 빠져요</p>
+        )}
         <p className="text-xs text-slate-400 mt-2">
           {accounts.length > 0
-            ? <>합계가 이번 달({settleMonth}) <Link to="/cash" className="underline">현금 자산</Link>으로 자동 기록돼요 — 자산 현황의 현금 칸도 이 값이에요</>
-            : <>계좌를 추가하면 합계가 이번 달 <Link to="/cash" className="underline">현금 자산</Link>으로 자동 기록돼요</>}
+            ? <>지출·수입·월급·고정비·적금 납입·만기금이 잔액에 자동 반영돼요 — <Link to="/cash" className="underline">현금 자산</Link> 추이와 자산 현황 현금 칸도 같은 값이에요</>
+            : <>계좌를 추가하면 그 잔액부터 지출·수입이 자동 반영돼요 — <Link to="/cash" className="underline">현금 자산</Link>·자산 현황에도 같이</>}
         </p>
       </section>
 
@@ -150,7 +160,14 @@ export const CashAccountsPanel = () => {
                   <p className="text-sm font-semibold text-slate-900 dark:text-dark-text truncate">{a.name}</p>
                   <p className="text-xs text-slate-400 truncate">{[a.bank, a.memo].filter(Boolean).join(' · ') || ' '}</p>
                 </div>
-                <p className="shrink-0 text-sm font-semibold tabular-nums text-slate-900 dark:text-dark-text">{fmt(a.balance)}원</p>
+                <div className="shrink-0 text-right">
+                  <p className="text-sm font-semibold tabular-nums text-slate-900 dark:text-dark-text">{fmt(a.balance)}원</p>
+                  {a.balance !== a.baseBalance && (
+                    <p className={`text-[11px] tabular-nums ${a.balance < a.baseBalance ? 'text-red-500' : 'text-emerald-500'}`}>
+                      {a.balance > a.baseBalance ? '+' : ''}{fmt(a.balance - a.baseBalance)} 기록 반영
+                    </p>
+                  )}
+                </div>
               </button>
               <button type="button" role="switch" aria-checked={a.active} aria-label={`${a.name} 사용`} onClick={() => toggle(a)}
                 className="h-11 shrink-0 flex items-center gap-1.5 px-1">
@@ -181,10 +198,15 @@ export const CashAccountsPanel = () => {
                 <input value={form.bank} onChange={e => setForm({ ...form, bank: e.target.value })} placeholder="예: 토스뱅크 (선택)" maxLength={30} className={FIELD_INPUT} />
               </label>
               <label className={FIELD}>
-                <span className="text-xs text-slate-400 mr-2 shrink-0 w-12">잔액</span>
+                <span className="text-xs text-slate-400 mr-2 shrink-0 w-12">{form.id ? '현재 잔액' : '잔액'}</span>
                 <input inputMode="numeric" value={form.balance} onChange={e => setForm({ ...form, balance: fmtNum(e.target.value) })} placeholder="0" className={`${FIELD_INPUT} text-right tabular-nums`} />
                 <span className="text-xs text-slate-400 ml-1">원</span>
               </label>
+              <p className="text-xs text-slate-400 -mt-1 px-1">
+                {editing?.balanceAsOf
+                  ? <>기준 {fmtAsOf(editing.balanceAsOf)} {fmt(editing.baseBalance)}원 + 그 뒤 기록. 은행 앱 잔액과 다르면 실제 금액으로 고쳐 저장하세요 — 지금부터 다시 계산해요</>
+                  : <>은행 앱에 보이는 지금 잔액을 넣으세요 — 이후 지출·수입은 자동으로 더하고 빼요</>}
+              </p>
               <label className={FIELD}>
                 <span className="text-xs text-slate-400 mr-2 shrink-0 w-12">메모</span>
                 <input value={form.memo} onChange={e => setForm({ ...form, memo: e.target.value })} placeholder="예: 비상금 (선택)" maxLength={200} className={FIELD_INPUT} />

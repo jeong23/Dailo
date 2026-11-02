@@ -164,6 +164,36 @@ export function housingSummary(h: HousingInput, today: string) {
 }
 
 /** 자산 현황 '적금' 칸에 들어갈 지금 쌓인 돈 — 종류에 맞게 (적금은 정부기여금 포함) */
+// 만기 지난 적금은 0 — 만기 수령액이 만기일에 현금 잔액으로 들어감(서버 CashFlow.maturityPayout), 두 번 세지 않게
 export function currentPrincipal(s: SavingsInput & HousingInput & { kind?: string | null }, today: string): number {
-  return s.kind === 'HOUSING' ? housingSummary(s, today).principal : savingsSummary(s, today).current;
+  if (s.kind === 'HOUSING') return housingSummary(s, today).principal;
+  const sum = savingsSummary(s, today);
+  return sum.status === 'MATURED' ? 0 : sum.current;
+}
+
+// ── 납입 기록 확인 (지출 화면에서 이 적금으로 적은 지출 = 납입 기록) ──
+// 회차 납입일의 정산월에 기록이 있으면 '기록됨' — 서버 CashFlow.savingsPayments와 같은 매칭(정산월 단위)
+export interface PaymentRecord { expenseId: number; date: string; settleMonth: string; amount: number; itemName: string | null }
+export type RoundStatus = 'RECORDED' | 'MISSING' | 'UPCOMING';
+export interface Round { date: string; settleMonth: string; status: RoundStatus; recorded: number }
+
+// 최근 납입일 recent개 + 다음 납입 1개. months 0·null = 만기 없음(청약)
+export function recentRounds(startDate: string, months: number | null, today: string, records: PaymentRecord[],
+                             settleMonthOf: (ymd: string) => string, recent = 3): Round[] {
+  const limit = months && months > 0 ? months : Infinity;
+  const due: string[] = [];
+  let next: string | null = null;
+  for (let k = 0; k < limit; k++) {
+    const d = addMonths(startDate, k);
+    if (d > today) { next = d; break; }
+    due.push(d);
+  }
+  const byMonth = new Map<string, number>();
+  records.forEach(r => byMonth.set(r.settleMonth, (byMonth.get(r.settleMonth) ?? 0) + (r.amount ?? 0)));
+  const round = (d: string, upcoming: boolean): Round => {
+    const m = settleMonthOf(d);
+    const recorded = byMonth.get(m) ?? 0;
+    return { date: d, settleMonth: m, recorded, status: byMonth.has(m) ? 'RECORDED' : upcoming ? 'UPCOMING' : 'MISSING' };
+  };
+  return [...due.slice(-recent).map(d => round(d, false)), ...(next ? [round(next, true)] : [])];
 }

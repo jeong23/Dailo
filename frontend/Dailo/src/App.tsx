@@ -22,9 +22,11 @@ import { AllocationPage } from './pages/AllocationPage';
 import { SavingsPage } from './pages/SavingsPage';
 import { LoginPage } from './pages/LoginPage';
 import { isAuthenticated } from './api/axios';
+import { expireStaleSession } from './utils/session';
 import { BudgetType, DailyExpense, Category, DashboardSummary, DailyStats, CategoryStats } from './types';
 import api from './api/axios';
-import { formatNumber, parseNumber, getCurrentSettleMonth } from './utils/format';
+import { formatNumber, parseNumber, getCurrentSettleMonth, getSettleMonthForDate, todayYmd } from './utils/format';
+import { ExpenseAccountField, SavingsOption, SavingsSelect, useExpenseLinks } from './components/ExpenseLinkFields';
 import { useEscapeKey } from './hooks/useEscapeKey';
 import { Toast, useToast } from './components/Toast';
 
@@ -142,11 +144,22 @@ const DashboardHome = () => {
   // 입력 폼 상태
   const [itemName, setItemName] = useState('');
   const [amount, setAmount] = useState('');
-  const [expenseDate, setExpenseDate] = useState(new Date().toISOString().split('T')[0]);
+  const [expenseDate, setExpenseDate] = useState(todayYmd());
   const [paymentMethod, setPaymentMethod] = useState('카드');
   const [budgetType, setBudgetType] = useState<BudgetType>('생활비');
   const [categoryId, setCategoryId] = useState<number>(0);
   const [memo, setMemo] = useState('');
+  // 현금 계좌·적금 납입 연결 — 지출 / 수입 화면과 같은 칸 (예전엔 대시보드에서 적으면 항상 기본 계좌)
+  const { cashAccounts, savingsList } = useExpenseLinks();
+  const [cashAccountId, setCashAccountId] = useState('');
+  const [savingsId, setSavingsId] = useState('');
+  const pickSavings = (v: string, s?: SavingsOption) => {
+    setSavingsId(v);
+    if (!s) return;
+    if (!itemName.trim()) setItemName(s.name);
+    if (!amount) setAmount(formatNumber(s.monthlyAmount));
+    if (paymentMethod === '카드') setPaymentMethod('이체');
+  };
 
   // 데이터 상태
   const [expenses, setExpenses] = useState<DailyExpense[]>([]);
@@ -308,29 +321,34 @@ const DashboardHome = () => {
       itemName: itemName,
       amount: parseNumber(amount),
       expenseDate: expenseDate,
-      settleMonth: selectedMonth,
+      // 정산월은 날짜로 — 보고 있는 달(selectedMonth)로 보내면 지난 달 화면에서 적은 오늘 지출이 지난 달로 들어갔음
+      settleMonth: getSettleMonthForDate(expenseDate),
       paymentMethod: paymentMethod,
       budgetType: budgetType,
-      memo: memo
+      memo: memo,
+      cashAccountId: cashAccountId ? Number(cashAccountId) : null,
+      savingsId: savingsId ? Number(savingsId) : null,
     };
 
     try {
       await api.post('/daily-expenses', requestData);
-      show('저장되었습니다!');
+      show(requestData.settleMonth === selectedMonth ? '저장되었습니다!' : `${requestData.settleMonth} 정산월에 저장했어요`);
       setIsModalOpen(false);
       resetForm();
       fetchData();
-    } catch (error) {
+    } catch (error: any) {
       console.error('저장 실패:', error);
-      show('저장 실패', 'error');
+      show(error?.response?.data?.message || '저장 실패', 'error');
     }
   };
 
   const resetForm = () => {
     setItemName('');
     setAmount('');
-    setExpenseDate(new Date().toISOString().split('T')[0]);
+    setExpenseDate(todayYmd());
     setMemo('');
+    setCashAccountId('');
+    setSavingsId('');
     setCategoryId(categories.length > 0 ? categories[0].id : 0);
   };
 
@@ -880,6 +898,9 @@ const DashboardHome = () => {
                 </div>
               </div>
 
+              <SavingsSelect list={savingsList} value={savingsId} onChange={pickSavings} />
+              <ExpenseAccountField accounts={cashAccounts} value={cashAccountId} onChange={setCashAccountId} paymentMethod={paymentMethod} />
+
               <div>
                 <label className="block text-sm font-medium mb-1 dark:text-dark-muted">메모 (선택)</label>
                 <input
@@ -907,7 +928,9 @@ const DashboardHome = () => {
 };
 
 const PrivateRoute = ({ children }: { children: React.ReactNode }) => {
-  return isAuthenticated() ? <>{children}</> : <Navigate to="/login" replace />;
+  if (isAuthenticated()) return <>{children}</>;
+  expireStaleSession();
+  return <Navigate to="/login" replace />;
 };
 
 function App() {

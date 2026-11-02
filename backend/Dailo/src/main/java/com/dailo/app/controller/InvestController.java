@@ -41,6 +41,24 @@ public class InvestController {
         return ResponseEntity.ok(ApiResponse.ok(investService.saveTaxInputs(user.getMemberId(), req)));
     }
 
+    // 매매 비용(수수료·가격 여유)만 저장 — 투자 현황 이번 달 할 일에서 바로 바꿈
+    @PutMapping("/setting/trade-costs")
+    public ResponseEntity<ApiResponse<Void>> setTradeCosts(
+            @AuthenticationPrincipal CustomUserDetails user,
+            @RequestBody InvestDto.TradeCostsRequest req) {
+        investService.setTradeCosts(user.getMemberId(), req);
+        return ResponseEntity.ok(ApiResponse.ok(null));
+    }
+
+    // 투자 현황 '납입금 포함' 토글 — 이 달 납입금을 이미 예수금에 넣었는지만 저장
+    @PutMapping("/setting/deposited")
+    public ResponseEntity<ApiResponse<Void>> setDeposited(
+            @AuthenticationPrincipal CustomUserDetails user,
+            @RequestBody InvestDto.DepositedRequest req) {
+        investService.setDeposited(user.getMemberId(), req);
+        return ResponseEntity.ok(ApiResponse.ok(null));
+    }
+
     // ─── Accounts ──────────────────────────────────────────────
     @GetMapping("/accounts")
     public ResponseEntity<ApiResponse<List<InvestDto.AccountResponse>>> getAccounts(

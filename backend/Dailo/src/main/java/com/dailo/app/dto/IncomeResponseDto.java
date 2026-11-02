@@ -17,6 +17,7 @@ public class IncomeResponseDto {
     private String settleMonth;
     private String source;
     private String memo;
+    private Long cashAccountId;
 
     public static IncomeResponseDto from(Income income) {
         return IncomeResponseDto.builder()
@@ -26,6 +27,7 @@ public class IncomeResponseDto {
                 .settleMonth(income.getSettleMonth())
                 .source(income.getSource())
                 .memo(income.getMemo())
+                .cashAccountId(income.getCashAccountId())
                 .build();
     }
 }

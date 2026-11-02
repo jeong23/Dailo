@@ -24,4 +24,6 @@ public class DailyExpenseRequestDto {
     private String paymentMethod;
     private String budgetType;
     private String memo;
+    private Long cashAccountId;
+    private Long savingsId;
 }

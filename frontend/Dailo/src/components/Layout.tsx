@@ -3,6 +3,8 @@ import { Link, useLocation } from 'react-router-dom';
 import { logout } from '../api/axios';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 import { InstallPrompt } from './InstallPrompt';
+import { SessionTimeout } from './SessionTimeout';
+import { SalaryDaySync } from './SalaryDaySync';
 import { useTheme } from '../utils/theme';
 
 interface LayoutProps {
@@ -322,6 +324,8 @@ export const Layout = ({ children }: LayoutProps) => {
         </nav>
       </div>
       <InstallPrompt />
+      <SessionTimeout />
+      <SalaryDaySync />
     </div>
   );
 };

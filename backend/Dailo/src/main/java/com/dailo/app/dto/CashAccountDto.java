@@ -1,10 +1,13 @@
 package com.dailo.app.dto;
 
 import com.dailo.app.entity.CashAccount;
+import com.dailo.app.service.CashFlow;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import lombok.*;
+
+import java.time.LocalDateTime;
 
 public class CashAccountDto {
 
@@ -32,14 +35,20 @@ public class CashAccountDto {
         private Long id;
         private String name;
         private String bank;
-        private Long balance;
+        private Long balance;              // 현재 잔액 (기준 잔액 + 그 뒤 기록)
+        private Long baseBalance;          // 기준 잔액 — 사용자가 마지막으로 맞춘 값
+        private LocalDateTime balanceAsOf; // 기준 시각
+        private Long pendingCard;          // 이번 달 카드값 (정산월이 끝나면 빠짐)
         private Boolean active;
         private Integer sortOrder;
         private String memo;
 
-        public static Response from(CashAccount a) {
+        public static Response from(CashAccount a, CashFlow.AccountBalance calc) {
             return Response.builder().id(a.getId()).name(a.getName()).bank(a.getBank())
-                    .balance(a.getBalance()).active(a.isOn()).sortOrder(a.getSortOrder()).memo(a.getMemo())
+                    .balance(calc != null ? calc.current() : a.getBalance())
+                    .baseBalance(a.getBalance()).balanceAsOf(a.getBalanceAsOf() != null ? a.getBalanceAsOf() : a.getUpdatedAt())
+                    .pendingCard(calc != null ? calc.pendingCard() : 0L)
+                    .active(a.isOn()).sortOrder(a.getSortOrder()).memo(a.getMemo())
                     .build();
         }
     }

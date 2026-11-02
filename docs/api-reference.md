@@ -52,7 +52,8 @@
 - GET/POST   /api/invest/setting
 - GET/POST   /api/invest/accounts
 - PATCH      /api/invest/accounts/{id}/active   {active} — 계좌 켜기/끄기만 바로 저장
-- GET/POST   /api/cash-accounts                 (POST·PUT·DELETE·PATCH는 ?settleMonth=YYYY-MM 필수 — 그 달 현금 자산 = 켜진 계좌 합계)
+- GET/POST   /api/cash-accounts                 (POST·PUT·DELETE·PATCH는 ?settleMonth=YYYY-MM 필수, GET은 선택 — balance = 기준 잔액 + 그 뒤 지출·수입·월급·고정비 계산값, baseBalance·balanceAsOf·pendingCard)
+  - daily-expenses·incomes body에 cashAccountId(선택, null = 기본 계좌), daily-expenses는 savingsId(선택 — 적금·청약 납입 기록) / GET /api/cash-assets?settleMonth= 는 기준 달부터 auto 계산값
 - PUT/DELETE /api/cash-accounts/{id}
 - PATCH      /api/cash-accounts/{id}/active    {active}
 - GET/PUT    /api/notes/{key}                  key = budget-YYYY-MM | planner-YYYY-MM, PUT {content} (빈 값 = 삭제)
@@ -62,7 +63,7 @@
 - GET        /api/invest/trades?yearMonth=YYYY-MM
 - DELETE     /api/invest/trades/{id}                    (되돌리기 — 종목별 가장 최근 체결만)
 - GET/POST   /api/invest/themes                         (투자 테마 목록 통째로 저장)
-- GET/POST   /api/savings  ·  PUT/DELETE /api/savings/{id}   (적금·주택청약 — kind SAVINGS|HOUSING, 청약은 months=0·balanceOverride·region(SEOUL_BUSAN|METRO|OTHER)·householdHead, 적금은 monthlyBonus·bonusBalance 정부기여금)
+- GET/POST   /api/savings  ·  PUT/DELETE /api/savings/{id}   (적금·주택청약 — kind SAVINGS|HOUSING, 청약은 months=0·balanceOverride·region(SEOUL_BUSAN|METRO|OTHER)·householdHead, 적금은 monthlyBonus·bonusBalance 정부기여금, 응답 records = savingsId로 적은 납입 지출)
 - GET/POST   /api/assets/buckets                        (자산 배분 칸 — 첫 GET에 4×25% 생성)
 - GET/POST   /api/invest/diary?year=YYYY&month=M
 - DELETE     /api/invest/diary/{id}

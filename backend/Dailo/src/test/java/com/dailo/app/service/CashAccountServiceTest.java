@@ -5,6 +5,12 @@ import com.dailo.app.entity.CashAccount;
 import com.dailo.app.entity.CashAsset;
 import com.dailo.app.repository.CashAccountRepository;
 import com.dailo.app.repository.CashAssetRepository;
+import com.dailo.app.repository.DailyExpenseRepository;
+import com.dailo.app.repository.FixedCostRepository;
+import com.dailo.app.repository.IncomeRepository;
+import com.dailo.app.repository.MemberRepository;
+import com.dailo.app.repository.MonthlyBudgetRepository;
+import com.dailo.app.repository.SavingsRepository;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -16,7 +22,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
-// 현금 계좌: 다른 회원 계좌는 못 건드리고, 바뀔 때마다 그 달 현금 자산 = 켜진 계좌 합계
+// 현금 계좌: 다른 회원 계좌는 못 건드리고, 바뀔 때마다 그 달 현금 자산 = 켜진 계좌 합계 (기록이 없으면 기준 잔액 그대로)
 class CashAccountServiceTest {
 
     private static final Long ME = 1L;
@@ -24,7 +30,10 @@ class CashAccountServiceTest {
 
     private final CashAccountRepository accountRepo = mock(CashAccountRepository.class);
     private final CashAssetRepository assetRepo = mock(CashAssetRepository.class);
-    private final CashAccountService service = new CashAccountService(accountRepo, assetRepo);
+    private final CashBalanceService balanceService = new CashBalanceService(accountRepo, assetRepo,
+            mock(DailyExpenseRepository.class), mock(IncomeRepository.class), mock(MonthlyBudgetRepository.class), mock(FixedCostRepository.class),
+            mock(SavingsRepository.class), mock(MemberRepository.class));
+    private final CashAccountService service = new CashAccountService(accountRepo, assetRepo, balanceService, mock(MemberRepository.class));
 
     private CashAccount account(long balance, Boolean active) {
         return CashAccount.builder().memberId(ME).name("통장").balance(balance).active(active).build();

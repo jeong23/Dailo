@@ -22,8 +22,9 @@ public class CashAccountController {
 
     @GetMapping
     public ResponseEntity<ApiResponse<List<CashAccountDto.Response>>> list(
-            @AuthenticationPrincipal CustomUserDetails user) {
-        return ResponseEntity.ok(ApiResponse.ok(cashAccountService.list(user.getMemberId())));
+            @AuthenticationPrincipal CustomUserDetails user,
+            @RequestParam(required = false) String settleMonth) {
+        return ResponseEntity.ok(ApiResponse.ok(cashAccountService.list(user.getMemberId(), settleMonth)));
     }
 
     @PostMapping

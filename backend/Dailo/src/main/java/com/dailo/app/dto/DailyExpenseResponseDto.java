@@ -24,6 +24,8 @@ public class DailyExpenseResponseDto {
     private String paymentMethod;
     private String budgetType;
     private String memo;
+    private Long cashAccountId;
+    private Long savingsId;
     private LocalDateTime createdAt;
 
     public static DailyExpenseResponseDto from(DailyExpense expense) {
@@ -39,6 +41,8 @@ public class DailyExpenseResponseDto {
                 .paymentMethod(expense.getPaymentMethod())
                 .budgetType(expense.getBudgetType())
                 .memo(expense.getMemo())
+                .cashAccountId(expense.getCashAccountId())
+                .savingsId(expense.getSavingsId())
                 .createdAt(expense.getCreatedAt())
                 .build();
     }

@@ -204,7 +204,7 @@ export const BudgetSettingsPage = () => {
       api.get(`/monthly-budgets/mine/month/${month}`),
       api.get('/fixed-costs/mine'),
       api.get('/dashboard/emergency-history'),
-      api.get('/cash-assets'),
+      api.get(`/cash-assets?settleMonth=${getCurrentSettleMonth()}`),
     ]);
 
     if (budgetRes.status === 'fulfilled') {

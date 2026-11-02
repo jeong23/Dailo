@@ -72,6 +72,8 @@ export interface DailyExpense {
   paymentMethod: PaymentMethod;
   budgetType: BudgetType;
   memo?: string;
+  cashAccountId?: number | null; // 현금 계좌 (null = 기본 계좌)
+  savingsId?: number | null; // 적금·청약 납입 기록이면 그 적금 id
 }
 
 export interface DashboardSummary {
@@ -121,7 +123,10 @@ export interface CashAccount {
   id: number;
   name: string;
   bank: string | null;
-  balance: number;
+  balance: number;              // 현재 잔액 = 기준 잔액 + 그 뒤 지출·수입·월급·고정비 (서버 계산)
+  baseBalance: number;          // 기준 잔액 (마지막으로 맞춘 값)
+  balanceAsOf: string | null;   // 기준 시각
+  pendingCard: number;          // 이번 달 카드값 — 정산월이 끝나면 빠짐
   active: boolean;
   sortOrder: number | null;
   memo: string | null;
@@ -132,6 +137,7 @@ export interface CashAssetEntry {
   settleMonth: string;
   balance: number;
   memo: string | null;
+  auto?: boolean; // 현금 계좌 기준으로 계산한 달 (직접 저장한 값 아님)
 }
 
 export interface MonthlyReport {

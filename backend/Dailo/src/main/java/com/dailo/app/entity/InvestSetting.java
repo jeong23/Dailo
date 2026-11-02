@@ -34,6 +34,18 @@ public class InvestSetting extends BaseEntity {
     private Boolean taxProbation;      // 수습 중 (급여 80%)
     private Integer taxProbEndMonth;   // 수습 종료 예정월 1~12
 
+    // 이 달(yyyy-MM) 납입금은 이미 이체해 예수금에 들어가 있음 — 투자 현황 '납입금 포함' 토글을 끈 달.
+    // 기기 상관없이 같은 상태여야 해서 서버 저장 (켜 두면 예수금과 납입금이 두 번 잡힘)
+    @Column(length = 7)
+    private String depositedMonth;
+
+    // 매매 비용 — 이번 달 할 일 계산에 반영. null = 기본값 (DEFAULT_FEE_RATE / DEFAULT_PRICE_BUFFER)
+    private Float feeRate;      // 증권사 수수료 % (매수·매도 각각)
+    private Float priceBuffer;  // 주문 사이 가격이 오를 때 대비해 남겨둘 % (시장가로 사도 돈이 모자라지 않게)
+
+    public static final float DEFAULT_FEE_RATE = 0.015f;
+    public static final float DEFAULT_PRICE_BUFFER = 0.5f;
+
     public void update(Integer monthlyBudget, Float rebalanceThreshold, Integer pensionLimit) {
         this.monthlyBudget = monthlyBudget;
         this.rebalanceThreshold = rebalanceThreshold;
@@ -50,6 +62,28 @@ public class InvestSetting extends BaseEntity {
         this.taxJoinMonth = joinMonth;
         this.taxProbation = probation;
         this.taxProbEndMonth = probEndMonth;
+    }
+
+    public void updateTradeCosts(Float feeRate, Float priceBuffer) {
+        if (feeRate != null) this.feeRate = feeRate;
+        if (priceBuffer != null) this.priceBuffer = priceBuffer;
+    }
+
+    public float feeRateOrDefault() {
+        return feeRate != null ? feeRate : DEFAULT_FEE_RATE;
+    }
+
+    public float priceBufferOrDefault() {
+        return priceBuffer != null ? priceBuffer : DEFAULT_PRICE_BUFFER;
+    }
+
+    public void markDeposited(String yearMonth, boolean deposited) {
+        if (deposited) this.depositedMonth = yearMonth;
+        else if (yearMonth.equals(this.depositedMonth)) this.depositedMonth = null;
+    }
+
+    public boolean isDeposited(String yearMonth) {
+        return yearMonth != null && yearMonth.equals(depositedMonth);
     }
 
     public boolean isSellAllowed() {

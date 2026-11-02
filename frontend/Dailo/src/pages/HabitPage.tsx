@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import api, { getStoredMemberId } from '../api/axios';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 import { Toast, useToast } from '../components/Toast';
+import { toYmd, todayYmd } from '../utils/format';
 
 interface Habit {
   id: number;
@@ -26,7 +27,6 @@ const COLORS = [
 
 const EMOJIS = ['💪', '📚', '🏃', '🧘', '💧', '🥗', '😴', '✍️', '🎵', '🧹', '🌿', '🎯'];
 
-const todayStr = new Date().toISOString().split('T')[0];
 
 const EditIcon = () => (
   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -41,6 +41,7 @@ const DeleteIcon = () => (
 );
 
 export const HabitPage = () => {
+  const todayStr = todayYmd(); // 렌더마다 — 모듈 상수면 자정 지나도 안 바뀜
   const { toast, show } = useToast();
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
@@ -153,10 +154,10 @@ export const HabitPage = () => {
   const getStreak = (habitId: number): number => {
     let streak = 0;
     const d = new Date();
-    const todayDs = d.toISOString().split('T')[0];
+    const todayDs = toYmd(d);
     if (!hasLog(habitId, todayDs)) d.setDate(d.getDate() - 1);
     for (let i = 0; i < 366; i++) {
-      const ds = d.toISOString().split('T')[0];
+      const ds = toYmd(d);
       if (hasLog(habitId, ds)) { streak++; d.setDate(d.getDate() - 1); }
       else break;
     }

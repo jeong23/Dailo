@@ -14,6 +14,8 @@ public class CashAssetResponseDto {
     private String settleMonth;
     private Integer balance;
     private String memo;
+    // true = 현금 계좌 기준 잔액 + 지출·수입·월급·고정비로 계산한 값 (저장된 값 아님)
+    private boolean auto;
 
     public static CashAssetResponseDto from(CashAsset cashAsset) {
         return CashAssetResponseDto.builder()

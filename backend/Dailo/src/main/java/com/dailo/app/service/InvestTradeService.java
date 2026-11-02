@@ -2,9 +2,11 @@ package com.dailo.app.service;
 
 import com.dailo.app.dto.InvestDto;
 import com.dailo.app.entity.InvestHolding;
+import com.dailo.app.entity.InvestSetting;
 import com.dailo.app.entity.InvestTrade;
 import com.dailo.app.repository.InvestHoldingRepository;
 import com.dailo.app.repository.InvestMonthlyRecordRepository;
+import com.dailo.app.repository.InvestSettingRepository;
 import com.dailo.app.repository.InvestTradeRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -20,6 +22,8 @@ import java.util.List;
  *  매수: 수량 += q, 평균단가 = (기존 평균 × 기존 수량 + 체결가 × q) / 새 수량  (가중평균, 원 단위 반올림)
  *  매도: 수량 -= q, 평균단가 유지 (매도는 평균단가를 바꾸지 않음)
  * 이번 달 기록에 수동 현재가가 있으면 평가금액도 새 수량으로 다시 계산.
+ * 같은 계좌에 예수금 줄(종목코드 없음 + 직접 입력 금액 + 이름에 예수금/현금잔고)이 있으면
+ * 매수는 체결금액+수수료만큼 빼고(남은 예수금까지만), 매도는 체결금액−수수료만큼 더함 → 쓸 돈이 체결 따라 바뀜.
  */
 @Service
 @RequiredArgsConstructor
@@ -31,6 +35,9 @@ public class InvestTradeService {
     private final InvestHoldingRepository holdingRepo;
     private final InvestTradeRepository tradeRepo;
     private final InvestMonthlyRecordRepository recordRepo;
+    private final InvestSettingRepository settingRepo;
+
+    private static final java.util.regex.Pattern CASH_ROW = java.util.regex.Pattern.compile("예수금|현금잔고");
 
     @Transactional
     public InvestDto.TradeResponse record(Long memberId, Long holdingId, InvestDto.TradeRequest req) {
@@ -55,13 +62,26 @@ public class InvestTradeService {
             avgAfter = avgBefore;
         }
 
+        // 예수금 줄 반영 금액
+        InvestHolding cash = cashRow(holding);
+        Integer cashDelta = null;
+        if (cash != null) {
+            long amount = Math.round((double) q * req.getPrice());
+            float feeRate = settingRepo.findByMemberId(memberId).map(InvestSetting::feeRateOrDefault).orElse(InvestSetting.DEFAULT_FEE_RATE);
+            long fee = (long) Math.ceil(amount * feeRate / 100.0);
+            int have = Math.max(cash.getManualValue() != null ? cash.getManualValue() : 0, 0);
+            cashDelta = side.equals("BUY") ? -(int) Math.min(amount + fee, have) : (int) (amount - fee);
+        }
+
         InvestTrade trade = tradeRepo.save(InvestTrade.builder()
                 .memberId(memberId).accountId(holding.getAccount().getId()).holdingId(holding.getId())
                 .ticker(holding.getTicker()).stockCode(holding.getStockCode())
                 .side(side).shares(q).price(req.getPrice())
                 .tradeDate(req.getTradeDate() != null ? req.getTradeDate() : LocalDate.now(KST))
                 .sharesBefore(before).avgBefore(avgBefore)
+                .cashHoldingId(cash != null ? cash.getId() : null).cashDelta(cashDelta)
                 .build());
+        if (cash != null && cashDelta != null) cash.adjustManualValue(cashDelta);
         holding.applyPosition(after, avgAfter);
         refreshEval(holding, after);
         return InvestDto.TradeResponse.of(trade, after, avgAfter);
@@ -90,7 +110,20 @@ public class InvestTradeService {
                     h.applyPosition(trade.getSharesBefore(), trade.getAvgBefore());
                     refreshEval(h, trade.getSharesBefore() != null ? trade.getSharesBefore() : 0f);
                 });
+        if (trade.getCashHoldingId() != null && trade.getCashDelta() != null) {
+            holdingRepo.findById(trade.getCashHoldingId())
+                    .filter(h -> h.getAccount().getMemberId().equals(memberId))
+                    .ifPresent(h -> h.adjustManualValue(-trade.getCashDelta()));
+        }
         tradeRepo.delete(trade);
+    }
+
+    // 같은 계좌의 예수금 줄 — 없으면 null (그 계좌는 화면이 납입금 − 체결로 계산)
+    private InvestHolding cashRow(InvestHolding holding) {
+        return holdingRepo.findByAccountIdOrderBySortOrderAsc(holding.getAccount().getId()).stream()
+                .filter(h -> !h.getId().equals(holding.getId()))
+                .filter(h -> h.getStockCode() == null && h.getManualValue() != null && CASH_ROW.matcher(h.getTicker()).find())
+                .findFirst().orElse(null);
     }
 
     private InvestHolding ownedHolding(Long memberId, Long holdingId) {

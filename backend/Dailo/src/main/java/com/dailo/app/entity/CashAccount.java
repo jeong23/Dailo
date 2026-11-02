@@ -3,8 +3,10 @@ package com.dailo.app.entity;
 import jakarta.persistence.*;
 import lombok.*;
 
+import java.time.LocalDateTime;
+
 // 현금 계좌 (입출금·CMA·파킹통장 등) — '내 계좌 > 현금'에서 등록
-//  켜진 계좌 잔액 합계가 그 정산월 cash_asset.balance로 기록됨 (CashAccountService.syncMonth) — 현금 자산 추이·자산 배분은 그대로 cash_asset을 읽음
+//  balance는 "기준 잔액" — balanceAsOf 시점에 사용자가 확인한 값. 현재 잔액 = 기준 잔액 + 그 뒤 지출·수입·월급·고정비 (CashFlow 계산)
 @Entity
 @Table(name = "cash_account")
 @Getter
@@ -25,6 +27,12 @@ public class CashAccount extends BaseEntity {
     @Column(nullable = false)
     private Long balance;
 
+    // 기준 잔액을 확인한 시각 / 그때 정산월 — null이면 옛 데이터 (updatedAt·최근 cash_asset 달로 대신함)
+    private LocalDateTime balanceAsOf;
+
+    @Column(length = 7)
+    private String balanceMonth;
+
     // false = 꺼진 계좌 — 합계에서 빠짐. null = 사용 중
     private Boolean active;
 
@@ -33,11 +41,17 @@ public class CashAccount extends BaseEntity {
     @Column(length = 200)
     private String memo;
 
-    public void update(String name, String bank, Long balance, String memo) {
+    public void update(String name, String bank, String memo) {
         this.name = name;
         this.bank = bank;
-        this.balance = balance;
         this.memo = memo;
+    }
+
+    // 잔액 맞추기 — 이 시각 이후 기록만 자동 반영
+    public void anchor(Long balance, LocalDateTime at, String month) {
+        this.balance = balance;
+        this.balanceAsOf = at;
+        this.balanceMonth = month;
     }
 
     public void updateActive(boolean active) {

@@ -105,3 +105,94 @@ describe('rebalanceByTheme', () => {
     expect(r.actions.every(a => a.accountId === 1 && a.side !== 'SELL')).toBe(true);
   });
 });
+
+describe('rebalanceByTheme — 위성 테마(코어-새틀라이트)', () => {
+  const themes: TRTheme[] = [
+    { id: 1, targetPct: 40, cash: false },               // 코어
+    { id: 2, targetPct: 20, cash: false, satellite: true }, // 성장(상한 20%)
+    { id: 3, targetPct: 40, cash: false },               // 채권
+  ];
+  const h = (id: number, themeId: number, value: number, price = 10_000): TRHolding => ({ id, accountId: 1, themeId, value, price });
+
+  it('위성이 상한 아래여도 납입금으로 사지 않음', () => {
+    const r = rebalanceByTheme(themes, [h(1, 1, 400_000), h(2, 2, 0), h(3, 3, 400_000)], [{ id: 1, budget: 200_000 }], 5);
+    expect(r.actions.some(a => a.themeId === 2)).toBe(false);
+  });
+
+  it('위성이 상한 아래면 코어 테마가 나머지를 나눠 납입금을 다 씀', () => {
+    // 위성 보유 0 → 코어 1:1로 전체(100만)를 나눔 → 각 50만 목표, 둘 다 10만씩 부족
+    const r = rebalanceByTheme(themes, [h(1, 1, 400_000), h(2, 2, 0), h(3, 3, 400_000)], [{ id: 1, budget: 200_000 }], 5);
+    expect(r.leftover[1]).toBe(0);
+    const bought = (id: number) => r.actions.filter(a => a.themeId === id).reduce((s, a) => s + a.amount, 0);
+    expect(bought(1)).toBe(100_000);
+    expect(bought(3)).toBe(100_000);
+  });
+
+  it('위성이 상한을 넘으면 sell=false에선 그대로, sell=true에선 상한까지 매도', () => {
+    const hs = [h(1, 1, 200_000), h(2, 2, 600_000), h(3, 3, 200_000)];
+    const keep = rebalanceByTheme(themes, hs, [{ id: 1, budget: 0 }], 5, { sell: false });
+    expect(keep.actions.some(a => a.side === 'SELL')).toBe(false);
+    const sold = rebalanceByTheme(themes, hs.map(x => ({ ...x })), [{ id: 1, budget: 0 }], 5);
+    expect(sold.actions.find(a => a.side === 'SELL')?.themeId).toBe(2);
+    expect(sold.actions.some(a => a.side === 'BUY' && a.themeId === 2)).toBe(false);
+  });
+});
+
+describe('rebalanceByTheme — 매매 비용', () => {
+  const themes: TRTheme[] = [{ id: 1, targetPct: 100, cash: false }];
+  const one = (price: number): TRHolding[] => [{ id: 1, accountId: 1, themeId: 1, value: 0, price }];
+
+  it('수수료·가격 여유까지 쓸 돈 안에서만 산다', () => {
+    // 1주 10,000원 + 수수료 0.015%(2원) + 여유 0.5%(50원) = 10,052원 → 10만원이면 9주 (10주는 100,520원)
+    const r = rebalanceByTheme(themes, one(10_000), [{ id: 1, budget: 100_000 }], 5, { feeRate: 0.015, buffer: 0.5 });
+    const buy = r.actions.find(a => a.side === 'BUY')!;
+    expect(buy.shares).toBe(9);
+    expect(buy.amount).toBe(90_000);
+    expect(buy.fee).toBe(18);
+    expect(r.reserve[1]).toBe(450);
+    expect(r.fees).toBe(18);
+    expect(buy.amount + buy.fee + r.reserve[1] + r.leftover[1]).toBe(100_000);
+  });
+
+  it('비용 0이면 예전과 같음', () => {
+    const r = rebalanceByTheme(themes, one(10_000), [{ id: 1, budget: 100_000 }], 5);
+    expect(r.actions.find(a => a.side === 'BUY')?.shares).toBe(10);
+    expect(r.fees).toBe(0);
+  });
+
+  it('매도는 수수료만큼 덜 들어옴', () => {
+    const two: TRTheme[] = [{ id: 1, targetPct: 50, cash: false }, { id: 2, targetPct: 50, cash: false }];
+    const hs: TRHolding[] = [
+      { id: 1, accountId: 1, themeId: 1, value: 900_000, price: 10_000 },
+      { id: 2, accountId: 1, themeId: 2, value: 100_000, price: 10_000 },
+    ];
+    const r = rebalanceByTheme(two, hs, [{ id: 1, budget: 0 }], 5, { feeRate: 0.1 });
+    const sell = r.actions.find(a => a.side === 'SELL')!;
+    expect(sell.fee).toBe(Math.ceil(sell.amount * 0.001));
+    const bought = r.actions.filter(a => a.side === 'BUY').reduce((t, a) => t + a.amount + a.fee, 0);
+    expect(bought).toBeLessThanOrEqual(sell.amount - sell.fee);
+  });
+});
+
+describe('rebalanceByTheme — 예수금(현금성 목표 0%)', () => {
+  const themes: TRTheme[] = [
+    { id: 1, targetPct: 90, cash: false },
+    { id: 2, targetPct: 10, cash: false },
+    { id: 3, targetPct: 0, cash: true },
+  ];
+  it('밴드 안의 작은 예수금도 모자란 테마 매수에 쓰고, 쓴 만큼만 현금 사용으로 표시', () => {
+    // 예수금 53,313 = 전체의 약 3.7% (밴드 5% 안) — 금(테마 2) 1주 23,600원
+    const hs: TRHolding[] = [
+      { id: 1, accountId: 1, themeId: 1, value: 1_300_000, price: 25_000 },
+      { id: 2, accountId: 1, themeId: 2, value: 70_000, price: 23_600 },
+      { id: 3, accountId: 1, themeId: 3, value: 53_313, price: null },
+    ];
+    const r = rebalanceByTheme(themes, hs, [{ id: 1, budget: 0 }], 5);
+    const buy = r.actions.find(a => a.side === 'BUY')!;
+    expect(buy.themeId).toBe(2);
+    expect(buy.shares).toBe(2);
+    const use = r.actions.find(a => a.side === 'USE_CASH')!;
+    expect(use.amount).toBe(47_200);
+    expect(r.leftover[1]).toBe(0);
+  });
+});

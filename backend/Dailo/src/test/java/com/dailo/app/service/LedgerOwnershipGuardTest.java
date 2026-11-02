@@ -22,10 +22,10 @@ class LedgerOwnershipGuardTest {
 
     private final DailyExpenseRepository expenseRepo = mock(DailyExpenseRepository.class);
     private final MonthlyBudgetRepository budgetRepo = mock(MonthlyBudgetRepository.class);
-    private final DailyExpenseService expenseService = new DailyExpenseService(expenseRepo, budgetRepo, mock(CategoryRepository.class));
+    private final DailyExpenseService expenseService = new DailyExpenseService(expenseRepo, budgetRepo, mock(CategoryRepository.class), mock(CashAccountRepository.class), mock(SavingsRepository.class));
 
     private final IncomeRepository incomeRepo = mock(IncomeRepository.class);
-    private final IncomeService incomeService = new IncomeService(incomeRepo, mock(MemberRepository.class));
+    private final IncomeService incomeService = new IncomeService(incomeRepo, mock(MemberRepository.class), mock(CashAccountRepository.class));
 
     private final HabitRepository habitRepo = mock(HabitRepository.class);
     private final HabitLogRepository habitLogRepo = mock(HabitLogRepository.class);
@@ -73,7 +73,7 @@ class LedgerOwnershipGuardTest {
         when(expenseRepo.findById(3L)).thenReturn(Optional.of(e));
         assertThatThrownBy(() -> expenseService.update(ME, 3L, mock(DailyExpenseRequestDto.class)))
                 .isInstanceOf(IllegalArgumentException.class);
-        verify(e, never()).update(any(), any(), any(), any(), any(), any(), any());
+        verify(e, never()).update(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test

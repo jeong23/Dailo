@@ -6,6 +6,7 @@ import com.dailo.app.entity.InvestHolding;
 import com.dailo.app.entity.InvestTrade;
 import com.dailo.app.repository.InvestHoldingRepository;
 import com.dailo.app.repository.InvestMonthlyRecordRepository;
+import com.dailo.app.repository.InvestSettingRepository;
 import com.dailo.app.repository.InvestTradeRepository;
 import org.junit.jupiter.api.Test;
 
@@ -28,11 +29,64 @@ class InvestTradeServiceTest {
     private final InvestHoldingRepository holdingRepo = mock(InvestHoldingRepository.class);
     private final InvestTradeRepository tradeRepo = mock(InvestTradeRepository.class);
     private final InvestMonthlyRecordRepository recordRepo = mock(InvestMonthlyRecordRepository.class);
-    private final InvestTradeService service = new InvestTradeService(holdingRepo, tradeRepo, recordRepo);
+    private final InvestSettingRepository settingRepo = mock(InvestSettingRepository.class);
+    private final InvestTradeService service = new InvestTradeService(holdingRepo, tradeRepo, recordRepo, settingRepo);
 
     InvestTradeServiceTest() {
         when(tradeRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(recordRepo.findByHoldingIdAndYearMonth(any(), anyString())).thenReturn(Optional.empty());
+        when(settingRepo.findByMemberId(any())).thenReturn(Optional.empty()); // 수수료 기본 0.015%
+        when(holdingRepo.findByAccountIdOrderBySortOrderAsc(any())).thenReturn(java.util.List.of());
+    }
+
+    // 같은 계좌(100) 예수금 줄 — 실제 객체라 금액 변화를 그대로 확인
+    private InvestHolding cashRow(int value) {
+        InvestHolding cash = InvestHolding.builder().ticker("현금잔고(예수금)").manualValue(value).targetPct(0f).build();
+        org.springframework.test.util.ReflectionTestUtils.setField(cash, "id", 11L);
+        return cash;
+    }
+
+    @Test
+    void 매수하면_예수금에서_체결금액과_수수료를_뺀다() {
+        holding(ME, 0f, null);
+        InvestHolding cash = cashRow(873_798);
+        when(holdingRepo.findByAccountIdOrderBySortOrderAsc(100L)).thenReturn(java.util.List.of(cash));
+
+        InvestDto.TradeResponse res = service.record(ME, 7L, new InvestDto.TradeRequest("BUY", 14f, 25375, null));
+
+        // 355,250 + 수수료 ceil(355,250 × 0.015%) = 54 → 355,304
+        assertThat(res.getCashDelta()).isEqualTo(-355_304);
+        assertThat(cash.getManualValue()).isEqualTo(873_798 - 355_304);
+    }
+
+    @Test
+    void 예수금이_모자라면_있는_만큼만_뺀다() {
+        holding(ME, 0f, null);
+        InvestHolding cash = cashRow(100_000);
+        when(holdingRepo.findByAccountIdOrderBySortOrderAsc(100L)).thenReturn(java.util.List.of(cash));
+
+        InvestDto.TradeResponse res = service.record(ME, 7L, new InvestDto.TradeRequest("BUY", 10f, 25000, null));
+
+        assertThat(res.getCashDelta()).isEqualTo(-100_000);
+        assertThat(cash.getManualValue()).isZero();
+    }
+
+    @Test
+    void 되돌리기는_예수금도_원복() {
+        InvestHolding h = holding(ME, 14f, 25375);
+        InvestHolding cash = cashRow(518_494);
+        when(holdingRepo.findById(11L)).thenReturn(Optional.of(cash));
+        InvestAccount acc = h.getAccount();
+        org.springframework.test.util.ReflectionTestUtils.setField(cash, "account", acc);
+        InvestTrade t = InvestTrade.builder().memberId(ME).accountId(100L).holdingId(7L).ticker("x").side("BUY")
+                .shares(14f).price(25375).sharesBefore(0f).cashHoldingId(11L).cashDelta(-355_304).build();
+        org.springframework.test.util.ReflectionTestUtils.setField(t, "id", 50L);
+        when(tradeRepo.findById(50L)).thenReturn(Optional.of(t));
+        when(tradeRepo.findTopByHoldingIdOrderByIdDesc(7L)).thenReturn(Optional.of(t));
+
+        service.undo(ME, 50L);
+
+        assertThat(cash.getManualValue()).isEqualTo(873_798);
     }
 
     private InvestHolding holding(Long owner, Float shares, Integer avg) {

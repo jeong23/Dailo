@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import api from '../api/axios';
 import { handleListKeyDown, startListOnFocus, isBlankList } from '../utils/listTextarea';
 import { useServerNote } from '../hooks/useServerNote';
+import { todayYmd } from '../utils/format';
 
 interface Big3Item {
   content: string;
@@ -19,9 +20,9 @@ interface DayEntry {
   big3Items: Big3Item[];
 }
 
-const today = new Date().toISOString().split('T')[0];
 
 export const PlannerBoardPage = () => {
+  const today = todayYmd(); // 렌더마다 — 모듈 상수면 자정 지나도 안 바뀜
   const navigate = useNavigate();
   const now = new Date();
   const [ym, setYm] = useState({ year: now.getFullYear(), month: now.getMonth() + 1 });

@@ -46,7 +46,8 @@ com.dailo.app
 - HABIT_LOG (습관 체크 기록 — habit_id, log_date, UNIQUE(habit_id, log_date))
 
 ## 인증 (JWT)
-- 방식: Stateless JWT (jjwt 0.12.6), 30일 만료
+- 방식: Stateless JWT (jjwt 0.12.6), **1시간 만료**(JwtUtil.EXPIRATION_MS) — 사용 중엔 프론트가 POST /api/auth/refresh로 연장
+  → 인증 실패는 SecurityConfig authenticationEntryPoint가 401 JSON (기본 403이면 프론트가 만료를 몰라 로그아웃 안 됨)
 - 필터: JwtAuthenticationFilter (OncePerRequestFilter) — Authorization: Bearer 헤더 파싱
 - 컨트롤러에서 memberId 주입: @AuthenticationPrincipal CustomUserDetails userDetails
 - CustomUserDetails 필드: memberId, username, password, name, salaryDay
@@ -201,6 +202,14 @@ com.dailo.app
 - Spring Boot 재시작은 수동으로 별도 진행
 
 ## 과거 실수 기록
+- 가입(POST /members)·회원 수정 body의 role을 그대로 저장해 누구나 ADMIN이 될 수 있었음 (2026-11-02) → 항상 USER, 수정은 기존 role 유지. 관리자는 DB에서만
+  → CustomUserDetails.admin(role=ADMIN) — 카테고리 생성·수정·삭제는 admin만 (AccessDeniedException → 403, GlobalExceptionHandler)
+- MonthlyBudget.livingCarryover·cardGoal null이면 대시보드 summary 500(언박싱) → 생성 시 0 기본값 + 조회 null 가드
+- 적금 삭제·월 납입액 변경 전 CashAccountService.snapshot(memberId) 필수 — 지난 납입·만기 수령이 계산에서 사라져 현금 잔액이 되살아나거나 줄어듦
+  → snapshot = 지금 계산 잔액으로 모든 계좌 기준 다시 잡기 + 지난 달 말 잔액 cash_asset 저장 (SavingsService.update/delete, MonthlyBudgetService.syncInvestContributions)
+- 지출 수정이 정산월·예산을 안 바꿨음(DailyExpense.update에 없음) → 날짜를 고쳐도 옛 정산월 합계에 남음 (2026-11-02 수정)
+  → DailyExpenseService.resolveBudget: 요청 settleMonth의 '내' 예산으로 생성·수정 모두 맞춤, 예산 없으면 400. monthlyBudgetId는 settleMonth 없을 때만
+- 대시보드·예산 분배 고정비가 오늘 기준(sumActiveByMemberId)이라 할부가 끝나면 지난 달 가용금액이 바뀜 → FixedCostRepository.sumForSettleMonth(그 정산월) 사용
 - sumCardExpense 쿼리 오타 → sumEmergncyExpense로 적었다 수정함
 - ApiResponse.success() 없음 → ApiResponse.ok() 사용해야 함
 - DailyExpenseResponseDto: category 객체 없이 categoryName(String)만 반환함
@@ -259,9 +268,27 @@ com.dailo.app
   → 정산월은 프론트 salaryDay(localStorage) 기준이라 서버가 계산 못 함 — 변경 API는 ?settleMonth 필수, 형식 틀리면 400
 - budget_allocation_item.savings_id — investAccountId와 동시 지정 400, 본인 적금만. 최신 달 저장 시 Savings.updateMonthlyAmount
 
+## 현금 잔액 자동 반영 (2026-11-02)
+- 잔액은 저장하지 않고 읽을 때 계산: CashBalanceService(데이터 로드) → CashFlow.calculate(순수 계산, 테스트 CashFlowTest)
+  → 계좌 잔액 = 기준 잔액(cash_account.balance, balance_as_of, balance_month) + 그 뒤 기록. 지출을 고치거나 지워도 되돌릴 게 없음
+  → 현금·이체 지출/수입: 날짜 > 기준일이면 반영(기준일 당일은 createdAt > balanceAsOf). 카드: 정산월이 끝날 때 한 번에(기준 달 이상만, 진행 중 달은 pendingCard)
+  → 월급(그 달 MonthlyBudget.netSalary) − 고정비(sumActiveByMemberIdForMonth): 기준 달 **다음 달부터**, 기본 계좌(켜진 계좌 첫 번째)에만
+  → daily_expense/income.cash_account_id null·지운 계좌 = 기본 계좌. 남의 계좌 id는 서비스에서 400
+- GET /cash-assets·/cash-accounts 는 ?settleMonth(현재 정산월) 받음 — 켜진 계좌 모두 기준이 있는 달(max balance_month)부터 그 달까지 계산값(auto=true)으로 덮어씀, 그 전 달은 저장값
+- PUT /cash-accounts/{id}: 보낸 balance ≠ 현재 계산 잔액이면 '잔액 맞추기'(anchor = now, settleMonth). 이름만 고치면 기준 유지 — 화면이 계산값을 보내기 때문
+  → 적금·청약 납입(2026-11-02): CashFlow.savingsPayments — startDate.plusMonths(n)(말일 보정) 날마다 −monthlyAmount, 기본 계좌. 적금은 months회, 청약(HOUSING)은 만기 없음
+    정산월은 Member.salaryDay(기본 25)로 settleMonthOf — 프론트 getSettleMonthForDate와 같은 규칙. paidOverride·만기 수령액은 현금에 반영 안 함
+    → 납입 기록(2026-11-02): daily_expense.savings_id(본인 적금만, DailyExpenseService.ownedSavings). 그 지출의 settleMonth = 납입일 정산월이면 그 회차 자동 납입은 안 만듦(savingsPayments recorded) — 지출이 대신 빠짐, 금액 달라도 지출 금액
+    → GET /savings 응답 records(지출 id·날짜·정산월·금액) — 프론트 recentRounds가 회차별 기록됨/기록 없음 표시. 적금 삭제해도 지출의 savings_id는 남음(무시됨)
+  → 적금 만기(2026-11-02): CashFlow.maturityPayout — 만기일(start.plusMonths(months))에 세후 수령액(프론트 savingsSummary.maturityAmount와 같은 식) +, 기본 계좌. 청약 없음
+    → 프론트 currentPrincipal·적금 합계는 MATURED를 0으로 (자산 현황 두 번 세기 방지)
+- 옛 계좌(balance_as_of null)는 updatedAt·최근 cash_asset 달을 기준으로 씀
+
 ## 생활비 예산·메모 (2026-10-29)
 - DashboardService.getSummary/getMonthlyReport: 생활비·비상금 예산 = 같은 이름 분배 항목 금액(labeledAmount), 없으면 레거시 비율
   → 2026-09부터 레거시 rate가 0이라 livingBalance가 '-지출'로 나왔음 (현금 자산 잉여금 반영까지 틀림). 분배 항목 금액 계산은 liveItems 한 곳
   → MonthlyReportDto.allocationItems 추가 (IN절 한 번 조회 후 그룹핑)
 - 레거시 고정 5칸 rate는 프론트가 더 이상 안 보냄 — 생성 0 / 수정 시 기존 값 유지. 컬럼 삭제는 옛 달 스냅샷 때문에 보류
 - member_note(member_id, note_key, content TEXT) — 키는 (budget|planner)-YYYY-MM만, 5000자, 빈 내용이면 삭제
+
+- InvestTheme.satellite(2026-11-02, nullable — 옛 행 null=false): 위성 테마 = targetPct가 상한. 저장 시 cash=true면 satellite 강제 false. ThemeDto에 satellite 필드

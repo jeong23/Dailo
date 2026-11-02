@@ -18,4 +18,5 @@ public class IncomeRequestDto {
     private String settleMonth;
     private String source;
     private String memo;
+    private Long cashAccountId;
 }

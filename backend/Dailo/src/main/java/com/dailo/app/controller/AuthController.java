@@ -5,7 +5,9 @@ import com.dailo.app.dto.AuthDto;
 import com.dailo.app.security.CustomUserDetails;
 import com.dailo.app.security.JwtUtil;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -28,6 +30,18 @@ public class AuthController {
         CustomUserDetails userDetails = (CustomUserDetails) authentication.getPrincipal();
         String token = jwtUtil.generateToken(userDetails.getMemberId(), userDetails.getUsername());
 
+        return ResponseEntity.ok(ApiResponse.ok(
+                new AuthDto.LoginResponse(token, userDetails.getMemberId(), userDetails.getName(), userDetails.getSalaryDay())
+        ));
+    }
+
+    // 사용 중 토큰 연장 — 유효한 토큰으로만 새 토큰 발급 (/api/auth/**는 permitAll이라 principal 직접 확인)
+    @PostMapping("/refresh")
+    public ResponseEntity<ApiResponse<AuthDto.LoginResponse>> refresh(@AuthenticationPrincipal CustomUserDetails userDetails) {
+        if (userDetails == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ApiResponse.error("로그인이 만료되었습니다."));
+        }
+        String token = jwtUtil.generateToken(userDetails.getMemberId(), userDetails.getUsername());
         return ResponseEntity.ok(ApiResponse.ok(
                 new AuthDto.LoginResponse(token, userDetails.getMemberId(), userDetails.getName(), userDetails.getSalaryDay())
         ));

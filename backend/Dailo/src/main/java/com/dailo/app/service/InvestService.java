@@ -84,6 +84,24 @@ public class InvestService {
         return InvestDto.SettingResponse.from(setting);
     }
 
+    @Transactional
+    public void setTradeCosts(Long memberId, InvestDto.TradeCostsRequest req) {
+        if (req.getFeeRate() != null && (req.getFeeRate() < 0 || req.getFeeRate() > 1)) throw new IllegalArgumentException("수수료는 0~1% 사이로 입력해주세요");
+        if (req.getPriceBuffer() != null && (req.getPriceBuffer() < 0 || req.getPriceBuffer() > 5)) throw new IllegalArgumentException("가격 여유는 0~5% 사이로 입력해주세요");
+        InvestSetting setting = settingRepo.findByMemberId(memberId).orElseGet(() -> settingRepo.save(InvestSetting.builder()
+                .memberId(memberId).monthlyBudget(0).rebalanceThreshold(5.0f).pensionLimit(6_000_000).build()));
+        setting.updateTradeCosts(req.getFeeRate(), req.getPriceBuffer());
+    }
+
+    @Transactional
+    public void setDeposited(Long memberId, InvestDto.DepositedRequest req) {
+        String ym = req.getYearMonth();
+        if (ym == null || !ym.matches("\\d{4}-(0[1-9]|1[0-2])")) throw new IllegalArgumentException("yearMonth 형식은 yyyy-MM이에요");
+        InvestSetting setting = settingRepo.findByMemberId(memberId).orElseGet(() -> settingRepo.save(InvestSetting.builder()
+                .memberId(memberId).monthlyBudget(0).rebalanceThreshold(5.0f).pensionLimit(6_000_000).build()));
+        setting.markDeposited(ym, Boolean.TRUE.equals(req.getDeposited()));
+    }
+
     private static int monthOrThrow(int m, String label) {
         if (m < 1 || m > 12) throw new IllegalArgumentException(label + "은 1~12월이어야 해요");
         return m;
@@ -369,6 +387,9 @@ public class InvestService {
                 .rebalanceThreshold(threshold).pensionLimit(pensionLimit)
                 .allowSell(setting == null || setting.isSellAllowed())
                 .strategyPreset(setting != null ? setting.getStrategyPreset() : null)
+                .contributionDeposited(setting != null && setting.isDeposited(yearMonth))
+                .feeRate(setting != null ? setting.feeRateOrDefault() : InvestSetting.DEFAULT_FEE_RATE)
+                .priceBuffer(setting != null ? setting.priceBufferOrDefault() : InvestSetting.DEFAULT_PRICE_BUFFER)
                 .totalPlanned(totalPlanned).totalActual(totalActual)
                 .pensionYtdActual(pensionYtd)
                 .accounts(dashAccounts)

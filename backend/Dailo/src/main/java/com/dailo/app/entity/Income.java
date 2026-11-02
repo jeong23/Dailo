@@ -29,11 +29,15 @@ public class Income extends BaseEntity {
 
     private String memo;
 
-    public void update(Integer amount, LocalDate incomeDate, String settleMonth, String source, String memo) {
+    // 돈이 들어온 현금 계좌 — null이면 기본 계좌
+    private Long cashAccountId;
+
+    public void update(Integer amount, LocalDate incomeDate, String settleMonth, String source, String memo, Long cashAccountId) {
         this.amount = amount;
         this.incomeDate = incomeDate;
         this.settleMonth = settleMonth;
         this.source = source;
         this.memo = memo;
+        this.cashAccountId = cashAccountId;
     }
 }

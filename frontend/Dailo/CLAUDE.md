@@ -202,6 +202,12 @@ src/
 - 표 ↔ 카드 리스트 전환은 **lg** 기준(`lg:hidden` / `hidden lg:block`) — md 기준이면 폴드 펼침 화면에서 표가 너무 좁음
 - TodoPage: min-w-[800px] 금지 — 1열(모바일) → 2열+TimeBox 전체폭(md) → 3열(xl), 터치 기기는 Shift 대신 두 번째 칸 탭으로 블록 생성
 
+## 세션 타임아웃 (2026-10-30)
+- 1시간 무활동 → 자동 로그아웃: `utils/session.ts`(상수·판정) + `components/SessionTimeout.tsx`(Layout에 1개)
+  → 활동은 localStorage 'lastActivity'(탭 공유, 15초 스로틀), 55분부터 카운트다운 시트, 60분 endSession('timeout') → 로그인 화면 안내 문구
+  → 토큰 남은 시간 30분 미만이면 /auth/refresh — 서버 토큰도 1시간이라 둘 다 같이 바꿔야 함(IDLE_LIMIT_MS ↔ JwtUtil.EXPIRATION_MS)
+  → 로그아웃은 항상 endSession()/logout() — localStorage 키를 직접 지우지 말 것. 401은 axios 인터셉터가 endSession('expired')
+
 ## 공통 UI (2026-10-29 정리)
 - 알림은 전부 useToast() + <Toast /> — alert() 금지 (confirm은 삭제 확인에만)
 - 달별 메모는 서버: hooks/useServerNote(key, legacyKey) — GET/PUT /notes/{budget|planner}-YYYY-MM, 예전 localStorage 값은 처음 열 때 옮기고 지움
@@ -292,6 +298,20 @@ src/
   → 중복 종목코드·현재가 없는 보유 종목이 있으면 계산 안 하고 blockers로 안내
   → '매도 없이 납입금으로만' 토글(localStorage 'themeAllowSell') = rebalanceByTheme(..., { sell: false }) — 주식 테마 매도 생략, 현금성 '사용'은 유지
   → 테마 없으면 예전 계좌 단위 추천(rebalancePlan) 그대로
+- 위성 테마(satellite, 2026-11-02 — 코어-새틀라이트): 테마 설정 '위성' 칩(현금성과 배타). 목표 % = **상한**
+  → rebalanceByTheme·assetGuide 둘 다: 위성은 납입금으로 매수 안 함, 상한+밴드 넘으면 매도(sell)·HOLD_BUY만
+  → 코어 테마 목표 = (전체 − min(위성 보유, 상한)) × 코어끼리 비율 — 상한 전체를 비워두면 코어가 다 찬 걸로 보여 납입금이 '남는 돈'이 됨
+  → ThemePanels: 위성은 '최대 N%' · '상한 안/상한 N%p 초과' 칩, 상한 넘으면 할 일 카드에 보라 안내
+- '이번 달 납입금 포함' 토글 = 서버 InvestSetting.depositedMonth (PUT /invest/setting/deposited, 응답 contributionDeposited) — localStorage 금지
+  → 납입금을 이미 예수금(현금성 금액)에 넣었으면 끔. 켜 두면 예수금 '현금 사용' + 납입금이 두 번 잡혀 쓸 돈이 부풀려짐 (기기마다 달라서 실제로 160만 원 추천이 나왔음)
+  → 계좌 '쓸 돈' 표시 = budget + 그 계좌 USE_CASH 합계
+- 매매 비용(2026-11-02): InvestSetting.feeRate(기본 0.015%)·priceBuffer(기본 0.5%) — PUT /invest/setting/trade-costs, 대시보드 응답에 기본값 채워 옴
+  → rebalanceByTheme {feeRate, buffer}: 1주 비용 = 가격 + ceil(수수료) + ceil(가격 여유)로 쓸 돈 판정, TRAction.amount는 체결 금액(수수료 제외)·fee 별도, 결과 reserve(계좌별 여유)·fees
+  → 매도는 수수료만큼 덜 들어옴. 세금은 계산에 안 넣고 화면 안내만: ISA·연금·IRP '지금 세금 없음', 일반 계좌 매도는 (체결가−평균단가)×주수×15.4% '최대'(국내 주식형은 비과세)
+  → 환율은 국내 상장 ETF 원화 가격에 포함돼 따로 계산 안 함 — 안내 문구만
+- 체결 → 예수금 연동(2026-11-02): POST trades가 같은 계좌 예수금 줄(종목코드 없음 + manualValue + 이름에 예수금/현금잔고)을 매수 −(금액+수수료, 남은 만큼만)/매도 +(금액−수수료) 조정, invest_trade.cashDelta에 기록 → 되돌리기 때 원복
+  → 화면 쓸 돈 net은 tradeNet(): cashDelta 있으면 매도 0, 매수는 예수금으로 못 낸 부분만 (안 그러면 예수금과 체결이 두 번 빠짐)
+- 현금성 테마는 밴드와 상관없이 목표 초과분을 꺼내 씀(USE_CASH) — 예수금이 밴드(5%p) 안이면 놀고 있었음. 매수 후 못 쓴 돈은 USE_CASH에서 되돌려 예수금에 둠
 - 계좌 종류 PENSION/IRP/ISA/GENERAL — 라벨·인출 조건 문구는 `utils/accountLiquidity.ts` 단일 소스(세법 바뀌면 여기만), 페이지에 TYPE_LABEL 다시 만들지 말 것
   → 연금저축·IRP = 55세까지 묶인 돈, ISA·일반 = 꺼낼 수 있는 돈. 화면엔 LIQUIDITY_DISCLAIMER(참고용) 같이 표시
 - 금액 줄(예수금·MMF·펀드): 종목코드 없이 manualValue — 평균단가만 있고 코드·수량 없는 줄은 불러올 때·저장할 때 manualValue로 옮김(priceOnlyToAmount), 계좌 단위 리밸런싱에선 제외
@@ -318,9 +338,23 @@ src/
   → 서버가 그 달 cash_asset.balance = 켜진 계좌 합계로 맞춤 → 현금 자산 추이·자산 배분 CASH 칸은 그대로 cash_asset을 읽음
   → 계좌가 0개면 예전 방식(현금 자산 화면 직접 입력). 계좌가 있으면 EmergencyPage 입력 폼 대신 '현금 계좌 관리 →' 안내
   → 계좌 0개 + 기록 있음이면 최신 잔액을 '기본 현금' 계좌로 가져오기 버튼 (자동 생성 안 함 — 다 지운 사용자에게 다시 생기면 안 됨)
+- 현금 잔액 자동 반영(2026-11-02, 서버 CashFlow — backend CLAUDE.md): 계좌 balance는 서버 계산 현재 잔액, baseBalance = 마지막으로 맞춘 값
+  → 반영 항목: 지출·수입·카드값(정산월 끝)·월급−고정비(다음 달부터)·적금·청약 납입(납입일)
+  → 적금 이체는 지출 폼 '적금·청약 납입' select(savingsId)로 적음 — 그 정산월 자동 납입 대신 지출이 빠짐(두 번 안 빠짐). 고르면 빈 이름·금액 채우고 카드→이체
+  → 적금 카드 PaymentStrip: utils/savings.ts recentRounds(최근 3회 + 다음, 정산월 매칭 — 테스트 __tests__/savingsRounds.test.ts) 기록됨 ✓ / 기록 없음 / 예정
+  → GET /cash-accounts·/cash-assets는 항상 ?settleMonth=getCurrentSettleMonth() 붙여 호출 (현금 자산·자산 현황·예산 설정·내 계좌 4곳)
+  → 수정 시트 잔액에 현재 잔액을 채워 보냄 — 다른 값이면 서버가 '잔액 맞추기'. 프론트에서 잔액을 더하고 빼지 말 것
+  → 지출 폼 칸은 components/ExpenseLinkFields.tsx 공용(useExpenseLinks, ExpenseAccountField, SavingsSelect, SavingsBadge) — 지출 / 수입 화면과 대시보드 지출 등록 둘 다 ('' = 기본 계좌, 카드는 '카드값 나가는 계좌')
+  → 현금 자산 화면: auto 달은 '자동' 배지, 최신 달이 auto면 '이번 달 말 예상 잔액'(이번 달 카드값까지 뺀 값)
 - 예산 항목 연결: 투자 계좌(investAccountId) 또는 적금·청약(savingsId) 중 하나 — select 값 'invest:ID' / 'savings:ID'
   → 최신 달 저장 시 적금 monthlyAmount도 예산 금액으로 바뀜(원금 = 월납 × 회차 계산이라 과거 회차 원금도 같이 바뀜 — 금액이 바뀐 적금은 paidOverride/잔액 확인)
   → suggestLinks(items, accounts, savings): 적금 이름 포함 매칭 먼저, '청약' 항목 → 주택청약, 그다음 투자 계좌 규칙
+
+## 자산 현황 리밸런싱 가이드 (2026-10-29)
+- `utils/assetGuide.ts` assetGuide(buckets, themes, {band 2%p, themeBand = 투자 설정 리밸런싱 기준, allowSell}) — 테스트 __tests__/assetGuide.test.ts
+  → 칸 사이: 넘치는 현금·투자 → 모자란 현금·투자·적금, 큰 차이끼리 먼저, 만원 단위 내림. 직접 입력(부동산)·적금 넘침은 옮기지 않고 stuck 안내
+  → 투자 안: '옮긴 뒤 투자 금액' × 테마 목표% − 현재. allowSell=false면 넘친 테마는 HOLD_BUY, 매수 합계를 들어오는 돈에 맞춰 비례 축소
+- `components/AssetGuidePanel.tsx`: xl은 오른쪽 360px sticky, 모바일은 요약 → 가이드 → 목표 배분 순서 (grid-cols-1 + col/row-start)
 
 ## SavingsPage 규칙 (적금)
 - 고정비(사라지는 돈)와 분리 — 적금은 자산. 자산 배분 SAVINGS 칸 금액 = 적금 현재 원금 합계(만기 지나도 삭제 전까지 포함)
@@ -415,6 +449,11 @@ src/
 - `rounded-3xl shadow-2xl` — 테두리 없음
 
 ## 과거 실수 기록
+- 월급일은 로그인 때만 localStorage에 저장 → 다른 기기에서 바꾸면 정산월 어긋남. components/SalaryDaySync(Layout)가 앱 열 때 서버 값과 맞추고 바뀌었으면 한 번 새로고침 (2026-11-02)
+- 만기 지난 적금은 자산 현황 적금 칸·적금 합계에서 0 — 만기 수령액은 서버가 만기일에 현금 잔액에 더함 (currentPrincipal)
+- 날짜 문자열을 `new Date().toISOString().split('T')[0]`로 만들면 KST 0~9시엔 어제 — 25일 아침 지출이 지난 정산월로 들어갔음 (2026-11-02)
+  → 항상 utils/format.ts toYmd / todayYmd / parseYmd. '오늘'을 모듈 상수로 두지 말고 렌더 안에서 todayYmd() (자정 지나도 갱신)
+- 대시보드 지출 등록이 settleMonth: selectedMonth(보고 있는 달)였음 → getSettleMonthForDate(expenseDate). 서버도 정산월로 예산을 다시 찾음
 - TimeBox Block: 예전 table(rowSpan) 렌더링은 30분 경계 블록을 1시간으로 그렸음(저장은 30분 단위였는데 화면만 틀림)
   → CSS grid + blockPieces 조각 렌더링으로 해결 (2026-10-29)
 - flex 자식에 overflow-auto 줘도 스크롤 안 되는 경우: min-h-0 누락 (min-height:auto 기본값)

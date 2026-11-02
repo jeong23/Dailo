@@ -52,6 +52,20 @@ public class InvestDto {
         private Boolean active;
     }
 
+    // 매매 비용 (투자 현황 이번 달 할 일) — null = 기존 값 유지
+    @Getter @NoArgsConstructor @AllArgsConstructor
+    public static class TradeCostsRequest {
+        private Float feeRate;
+        private Float priceBuffer;
+    }
+
+    // 이 달 납입금을 이미 예수금에 넣었는지 (투자 현황 '납입금 포함' 토글)
+    @Getter @NoArgsConstructor @AllArgsConstructor
+    public static class DepositedRequest {
+        private String yearMonth;
+        private Boolean deposited;
+    }
+
     // 세액공제 계산기 입력만 저장 (월 투자금 등 다른 설정은 건드리지 않음)
     @Getter @NoArgsConstructor @AllArgsConstructor
     public static class TaxInputsRequest {
@@ -164,6 +178,9 @@ public class InvestDto {
         private Integer pensionLimit;
         private Boolean allowSell;
         private String strategyPreset;
+        private Boolean contributionDeposited; // 이 달 납입금이 이미 예수금에 있음 → 추천 재원에 납입금 안 더함
+        private Float feeRate;            // 매매 수수료 %
+        private Float priceBuffer;        // 가격 변동 여유 %
         private Integer totalPlanned;
         private Integer totalActual;
         private Integer pensionYtdActual; // 연간 연금 납입 누계
@@ -178,10 +195,11 @@ public class InvestDto {
         private String name;
         private Float targetPct;  // 투자 자산 전체 대비 %
         private Boolean cash;     // 현금성 테마 (금액으로 평가)
+        private Boolean satellite; // 위성 테마 — targetPct = 상한, 매수 추천 안 함
         private Integer sortOrder;
 
         public static ThemeDto from(com.dailo.app.entity.InvestTheme t) {
-            return new ThemeDto(t.getId(), t.getName(), t.getTargetPct(), t.getCash(), t.getSortOrder());
+            return new ThemeDto(t.getId(), t.getName(), t.getTargetPct(), t.getCash(), t.isSatelliteTheme(), t.getSortOrder());
         }
     }
 
@@ -231,6 +249,7 @@ public class InvestDto {
         private LocalDate tradeDate;
         private Float sharesAfter;  // 체결 후 보유 수량 (기록 시점)
         private Integer avgAfter;   // 체결 후 평균단가 (기록 시점)
+        private Integer cashDelta;  // 예수금 줄에 반영한 금액 (매수 음수, 반영 안 했으면 null)
 
         public static TradeResponse of(com.dailo.app.entity.InvestTrade t, Float sharesAfter, Integer avgAfter) {
             return TradeResponse.builder()
@@ -240,6 +259,7 @@ public class InvestDto {
                     .amount(Math.round((double) t.getShares() * t.getPrice()))
                     .tradeDate(t.getTradeDate())
                     .sharesAfter(sharesAfter).avgAfter(avgAfter)
+                    .cashDelta(t.getCashDelta())
                     .build();
         }
     }

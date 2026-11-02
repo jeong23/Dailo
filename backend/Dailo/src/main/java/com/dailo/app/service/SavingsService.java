@@ -2,12 +2,15 @@ package com.dailo.app.service;
 
 import com.dailo.app.dto.SavingsDto;
 import com.dailo.app.entity.Savings;
+import com.dailo.app.repository.DailyExpenseRepository;
 import com.dailo.app.repository.SavingsRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 import java.util.Set;
 
 @Service
@@ -16,12 +19,19 @@ import java.util.Set;
 public class SavingsService {
 
     private final SavingsRepository savingsRepo;
+    private final DailyExpenseRepository expenseRepo;
+    private final CashAccountService cashAccountService;
 
     private static final Set<String> KINDS = Set.of("SAVINGS", "HOUSING");
     private static final Set<String> REGIONS = Set.of("SEOUL_BUSAN", "METRO", "OTHER");
 
     public List<SavingsDto.Response> list(Long memberId) {
-        return savingsRepo.findByMemberIdOrderByStartDateAsc(memberId).stream().map(SavingsDto.Response::from).toList();
+        Map<Long, List<SavingsDto.PaymentRecord>> records = expenseRepo
+                .findByMonthlyBudgetMemberIdAndSavingsIdIsNotNullOrderByExpenseDateAsc(memberId).stream()
+                .collect(Collectors.groupingBy(e -> e.getSavingsId(), Collectors.mapping(e -> new SavingsDto.PaymentRecord(
+                        e.getId(), e.getExpenseDate(), e.getSettleMonth(), e.getAmount(), e.getItemName()), Collectors.toList())));
+        return savingsRepo.findByMemberIdOrderByStartDateAsc(memberId).stream()
+                .map(s -> SavingsDto.Response.from(s, records.getOrDefault(s.getId(), List.of()))).toList();
     }
 
     @Transactional
@@ -47,6 +57,7 @@ public class SavingsService {
     public SavingsDto.Response update(Long memberId, Long id, SavingsDto.Request req) {
         validate(req);
         Savings s = owned(memberId, id);
+        cashAccountService.snapshot(memberId); // 금액·시작일을 바꾸면 지난 납입이 다시 계산되므로 지금 잔액을 먼저 고정
         boolean housing = isHousing(req);
         s.update(req.getName().trim(), blankToNull(req.getBank()), req.getMonthlyAmount(), req.getStartDate(), housing ? 0 : req.getMonths(),
                 req.getRatePct() != null ? req.getRatePct() : 0f, !housing && Boolean.TRUE.equals(req.getTaxFree()),
@@ -59,7 +70,9 @@ public class SavingsService {
 
     @Transactional
     public void delete(Long memberId, Long id) {
-        savingsRepo.delete(owned(memberId, id));
+        Savings s = owned(memberId, id);
+        cashAccountService.snapshot(memberId); // 지운 뒤에도 이미 빠진 납입·받은 만기금은 현금 잔액에 남게
+        savingsRepo.delete(s);
     }
 
     private Savings owned(Long memberId, Long id) {

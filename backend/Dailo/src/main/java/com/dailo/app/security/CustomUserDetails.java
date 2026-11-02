@@ -17,6 +17,7 @@ public class CustomUserDetails implements UserDetails {
     private final String password;
     private final String name;
     private final Integer salaryDay;
+    private final boolean admin;   // member.role = ADMIN (DB에서만 지정 — 가입·회원 수정 API로는 못 바꿈)
 
     public CustomUserDetails(Member member) {
         this.memberId = member.getId();
@@ -24,11 +25,13 @@ public class CustomUserDetails implements UserDetails {
         this.password = member.getPassword();
         this.name = member.getName();
         this.salaryDay = member.getSalaryDay() != null ? member.getSalaryDay() : 25;
+        this.admin = "ADMIN".equals(member.getRole());
     }
 
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
-        return List.of(new SimpleGrantedAuthority("ROLE_USER"));
+        return admin ? List.of(new SimpleGrantedAuthority("ROLE_USER"), new SimpleGrantedAuthority("ROLE_ADMIN"))
+                : List.of(new SimpleGrantedAuthority("ROLE_USER"));
     }
 
     @Override public boolean isAccountNonExpired()     { return true; }

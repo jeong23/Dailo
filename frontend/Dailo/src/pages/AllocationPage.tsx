@@ -7,14 +7,18 @@ import { Toast, useToast } from '../components/Toast';
 import { THEME_COLORS } from '../utils/themeDefaults';
 import { currentPrincipal, toYmd } from '../utils/savings';
 import { LIQUIDITY_DISCLAIMER, accountTypeLabel, liquidityOf } from '../utils/accountLiquidity';
+import { assetGuide } from '../utils/assetGuide';
+import { AssetGuidePanel } from '../components/AssetGuidePanel';
+import { getCurrentSettleMonth } from '../utils/format';
 
 // 자산 현황 (/assets, 옛 /allocation) — 전체 자산을 칸(현금·투자·부동산·적금 …)으로 모아 보고, 맨 아래 '목표 배분'에서 목표 비중 대비 현재를 본다.
 //  CASH: 현금 자산 페이지 최신 잔액 / INVEST: 투자 현황 평가금액 합계(시세 반영) / SAVINGS: 적금 현재 원금 합계 / MANUAL: 직접 입력
 //  투자 칸 안은 테마 비중(투자 설정 > 테마)으로 한 번 더 나눠 보여줌
+//  오른쪽(모바일은 목표 배분 위) 리밸런싱 가이드: 칸 사이 이동 + 투자 안 테마별 매수·줄이기 (utils/assetGuide)
 //  꺼낼 수 있는 돈 / 묶인 돈: 현금·적금·일반·ISA vs 연금저축·IRP (계좌 종류로 판단 — utils/accountLiquidity), 직접 입력 칸은 제외
 
 interface Bucket { id?: number; name: string; kind: 'CASH' | 'INVEST' | 'SAVINGS' | 'MANUAL'; targetPct: number; manualAmount: number | null; sortOrder?: number }
-interface Theme { id: number; name: string; targetPct: number; cash: boolean }
+interface Theme { id: number; name: string; targetPct: number; cash: boolean; satellite?: boolean }
 interface Holding { stockCode: string | null; shares: number | null; currentPrice: number | null; evalAmt: number | null; manualValue: number | null; avgPurchasePrice: number | null; themeId: number | null }
 interface AccountValue { id: number; name: string; type: string; value: number }
 
@@ -44,6 +48,8 @@ export const AllocationPage = () => {
   const [savingsTotal, setSavingsTotal] = useState<number | null>(null);
   const [themes, setThemes] = useState<{ theme: Theme; value: number }[]>([]);
   const [accountValues, setAccountValues] = useState<AccountValue[]>([]);
+  // 투자 설정: 비중 맞출 때 팔기 / 리밸런싱 기준(%p) — 가이드가 '팔기' 대신 '새 돈 돌리기'로 안내할지, 테마 밴드
+  const [investPrefs, setInvestPrefs] = useState({ allowSell: true, threshold: 5 });
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<Bucket[] | null>(null);
   const [saving, setSaving] = useState(false);
@@ -52,7 +58,7 @@ export const AllocationPage = () => {
 
   const load = async () => {
     const [bRes, cRes, dRes, qRes, sRes] = await Promise.allSettled([
-      api.get('/assets/buckets'), api.get('/cash-assets'),
+      api.get('/assets/buckets'), api.get(`/cash-assets?settleMonth=${getCurrentSettleMonth()}`),
       api.get(`/invest/dashboard?yearMonth=${currentYm}`), api.get('/invest/quotes'), api.get('/savings'),
     ]);
     if (sRes.status === 'fulfilled') {
@@ -67,6 +73,7 @@ export const AllocationPage = () => {
     }
     if (dRes.status === 'fulfilled') {
       const d = dRes.value.data.data;
+      setInvestPrefs({ allowSell: d.allowSell !== false, threshold: d.rebalanceThreshold ?? 5 });
       const quotes = qRes.status === 'fulfilled' ? qRes.value.data.data?.quotes || {} : {};
       const holdings: Holding[] = (d.accounts || []).flatMap((a: any) => a.holdings);
       setInvestTotal(holdings.reduce((s, h) => s + holdingValue(h, quotes), 0));
@@ -94,6 +101,13 @@ export const AllocationPage = () => {
   const accessPct = total > 0 ? (accessibleTotal / total) * 100 : 0;
   const lockedPct = total > 0 ? (investLocked / total) * 100 : 0;
 
+  const BUCKET_BAND = 2;
+  const guide = assetGuide(
+    buckets.map((b, i) => ({ key: String(b.id ?? `i${i}`), name: b.name, kind: b.kind, amount: amountOf(b), targetPct: b.targetPct })),
+    themes.map(t => ({ id: t.theme.id, name: t.theme.name, value: t.value, targetPct: t.theme.targetPct, cash: t.theme.cash, satellite: !!t.theme.satellite })),
+    { band: BUCKET_BAND, themeBand: investPrefs.threshold, allowSell: investPrefs.allowSell },
+  );
+
   const editSum = editing?.reduce((s, b) => s + (b.targetPct || 0), 0) ?? 0;
   const editErr = editing && (Math.abs(editSum - 100) > 0.1 ? `목표 합계가 ${editSum.toFixed(1)}%예요` : editing.some(b => !b.name.trim()) ? '이름 없는 칸이 있어요' : null);
   const save = async () => {
@@ -111,7 +125,7 @@ export const AllocationPage = () => {
   const patch = (i: number, p: Partial<Bucket>) => setEditing(prev => prev && prev.map((b, idx) => idx === i ? { ...b, ...p } : b));
 
   return (
-    <div className="space-y-5 max-w-3xl">
+    <div className="space-y-5 max-w-3xl xl:max-w-6xl">
       <div className="flex items-end justify-between gap-3 flex-wrap">
         <div>
           <p className="text-xs font-medium text-slate-400 dark:text-slate-500 mb-1">현금 · 투자 · 부동산 · 적금 — 내 돈이 지금 어디에 얼마</p>
@@ -126,7 +140,9 @@ export const AllocationPage = () => {
       {loading ? (
         <div className={`${CARD} h-64 animate-pulse`} />
       ) : (
-        <>
+        // xl: 왼쪽 자산·목표 배분 / 오른쪽 sticky 가이드. 모바일 순서: 요약 → 가이드 → 목표 배분 (grid-cols-1 필수 — 가로 스크롤 방지)
+        <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_360px] gap-5 items-start">
+          <div className="space-y-5 min-w-0 xl:col-start-1">
           {/* 전체 자산 + 도넛 */}
           <section className={`${CARD} p-5 sm:p-6`}>
             <p className="text-sm text-slate-500 dark:text-slate-400">전체 자산</p>
@@ -202,8 +218,15 @@ export const AllocationPage = () => {
             </section>
           )}
 
+          </div>
+
+          <div className="min-w-0 xl:col-start-2 xl:row-start-1 xl:row-span-2 xl:sticky xl:top-4">
+            <AssetGuidePanel guide={guide} band={BUCKET_BAND} themeBand={investPrefs.threshold} allowSell={investPrefs.allowSell}
+              themeOrder={themes.map(t => t.theme.id)} hasThemes={themes.length > 0} />
+          </div>
+
           {/* 목표 배분 — 칸별 현재 vs 목표, 얼마나 옮겨야 하는지 */}
-          <section className="space-y-3">
+          <section className="space-y-3 min-w-0 xl:col-start-1">
             <div className="flex items-end justify-between gap-2 px-1 pt-2">
               <h2 className="text-base font-semibold text-slate-800 dark:text-dark-text">목표 배분</h2>
               <p className="text-xs text-slate-400">목표 대비 모자람·넘침</p>
@@ -279,7 +302,7 @@ export const AllocationPage = () => {
               );
             })}
           </section>
-        </>
+        </div>
       )}
 
       {/* 편집 시트 */}

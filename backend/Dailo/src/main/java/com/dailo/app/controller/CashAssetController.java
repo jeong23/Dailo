@@ -22,8 +22,9 @@ public class CashAssetController {
 
     @GetMapping
     public ResponseEntity<ApiResponse<List<CashAssetResponseDto>>> getHistory(
-            @AuthenticationPrincipal CustomUserDetails user) {
-        return ResponseEntity.ok(ApiResponse.ok(cashAssetService.getHistory(user.getMemberId())));
+            @AuthenticationPrincipal CustomUserDetails user,
+            @RequestParam(required = false) String settleMonth) {
+        return ResponseEntity.ok(ApiResponse.ok(cashAssetService.getHistory(user.getMemberId(), settleMonth)));
     }
 
     @PostMapping

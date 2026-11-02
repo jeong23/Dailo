@@ -46,10 +46,20 @@ export const getCurrentSettleMonth = (): string => {
   return `${settleDate.getFullYear()}-${String(settleDate.getMonth() + 1).padStart(2, '0')}`;
 };
 
+// 로컬 날짜 'YYYY-MM-DD' — toISOString()은 UTC라 KST 오전 9시 전엔 어제가 됨 (날짜 문자열은 항상 이걸로)
+export const toYmd = (d: Date): string =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+export const todayYmd = (): string => toYmd(new Date());
+// 'YYYY-MM-DD' → 로컬 자정 Date (new Date('YYYY-MM-DD')는 UTC 자정으로 읽힘)
+export const parseYmd = (ymd: string): Date => {
+  const [y, m, d] = ymd.split('-').map(Number);
+  return new Date(y, m - 1, d);
+};
+
 // 특정 날짜가 속하는 정산월 반환 (월급날 기준)
 export const getSettleMonthForDate = (dateStr: string): string => {
   const salaryDay = parseInt(localStorage.getItem('salaryDay') || '25', 10);
-  const d = new Date(dateStr);
+  const d = parseYmd(dateStr);
   const year = d.getFullYear();
   const month = d.getMonth(); // 0-based
   const day = d.getDate();

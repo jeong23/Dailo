@@ -2,6 +2,7 @@ package com.dailo.app.service;
 
 import com.dailo.app.dto.SavingsDto;
 import com.dailo.app.entity.Savings;
+import com.dailo.app.repository.DailyExpenseRepository;
 import com.dailo.app.repository.SavingsRepository;
 import org.junit.jupiter.api.Test;
 
@@ -16,7 +17,7 @@ import static org.mockito.Mockito.*;
 class SavingsServiceTest {
 
     private final SavingsRepository repo = mock(SavingsRepository.class);
-    private final SavingsService service = new SavingsService(repo);
+    private final SavingsService service = new SavingsService(repo, mock(DailyExpenseRepository.class), mock(CashAccountService.class));
 
     private SavingsDto.Request req(Long monthly, Integer months, Integer paid) {
         return new SavingsDto.Request("청년도약", "IBK", monthly, LocalDate.of(2026, 1, 25), months, 4.5f, false, paid, null, null, null, null, null, null, null);

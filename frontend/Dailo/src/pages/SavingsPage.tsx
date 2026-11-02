@@ -4,8 +4,9 @@ import api from '../api/axios';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 import { Toast, useToast } from '../components/Toast';
 import {
-  AREA_LABELS, FIRST_RANK, HousingRegion, RECOGNIZE_CAP, REGION_LABEL, housingSummary, savingsSummary, toYmd,
+  AREA_LABELS, FIRST_RANK, HousingRegion, PaymentRecord, RECOGNIZE_CAP, REGION_LABEL, housingSummary, recentRounds, savingsSummary, toYmd,
 } from '../utils/savings';
+import { getSettleMonthForDate } from '../utils/format';
 
 // 적금 — 매달 붓는 정기적금. 고정비(사라지는 돈)와 달리 쌓이는 자산이라 따로 관리하고,
 // 현재 원금 합계는 자산 현황의 '적금' 칸에 자동으로 들어감.
@@ -16,6 +17,7 @@ interface Savings {
   months: number; ratePct: number; taxFree: boolean; paidOverride: number | null; memo: string | null;
   kind: 'SAVINGS' | 'HOUSING'; balanceOverride: number | null; region: HousingRegion | null; householdHead: boolean;
   monthlyBonus: number | null; bonusBalance: number | null;
+  records?: PaymentRecord[];   // 지출 화면에서 이 적금 납입으로 적은 지출
 }
 interface Form {
   id?: number; name: string; bank: string; monthlyAmount: string; startDate: string;
@@ -69,7 +71,8 @@ export const SavingsPage = ({ embedded = false }: { embedded?: boolean }) => {
   const housings = list.filter(s => s.kind === 'HOUSING').map(s => ({ s, h: housingSummary(housingInput(s), today) }));
   const rows = list.filter(s => s.kind !== 'HOUSING').map(s => ({ s, sum: savingsSummary({ ...s, ratePct: s.ratePct ?? 0 }, today) }))
     .sort((a, b) => (a.sum.status === 'ACTIVE' ? 0 : 1) - (b.sum.status === 'ACTIVE' ? 0 : 1) || a.sum.daysLeft - b.sum.daysLeft);
-  const principalTotal = rows.reduce((t, r) => t + r.sum.current, 0) + housings.reduce((t, r) => t + r.h.principal, 0);
+  // 만기 지난 적금은 빼고 — 수령액은 만기일에 현금 자산으로 넘어감
+  const principalTotal = rows.filter(r => r.sum.status !== 'MATURED').reduce((t, r) => t + r.sum.current, 0) + housings.reduce((t, r) => t + r.h.principal, 0);
   const monthlyTotal = rows.filter(r => r.sum.status === 'ACTIVE').reduce((t, r) => t + r.s.monthlyAmount, 0)
     + housings.reduce((t, r) => t + r.s.monthlyAmount, 0);
   const maturityTotal = rows.filter(r => r.sum.status !== 'MATURED').reduce((t, r) => t + r.sum.maturityAmount, 0);
@@ -195,6 +198,7 @@ export const SavingsPage = ({ embedded = false }: { embedded?: boolean }) => {
             <li key={s.id}>
               <button onClick={() => openCard(s)} className={`${CARD} w-full text-left p-4 sm:p-5 hover:ring-2 hover:ring-primary-200 dark:hover:ring-primary-900/40 transition`}>
                 <HousingCard s={s} h={h} />
+                <PaymentStrip s={s} today={today} />
               </button>
             </li>
           ))}
@@ -227,10 +231,11 @@ export const SavingsPage = ({ embedded = false }: { embedded?: boolean }) => {
                   <div className="mt-1.5 flex justify-between text-[11px] text-slate-400 tabular-nums">
                     <span>{sum.paid} / {s.months}회 납입{s.paidOverride != null ? ' (직접 입력)' : ''}</span>
                     <span>
-                      {sum.status === 'MATURED' ? '만기 지남 — 수령 후 삭제' : sum.nextPayment ? `다음 납입 ${sum.nextPayment.slice(5).replace('-', '/')}` : ''}
+                      {sum.status === 'MATURED' ? '만기 — 수령액은 현금 자산에 반영됨' : sum.nextPayment ? `다음 납입 ${sum.nextPayment.slice(5).replace('-', '/')}` : ''}
                       {sum.status !== 'MATURED' && ` · D-${sum.daysLeft}`}
                     </span>
                   </div>
+                  {sum.status !== 'MATURED' && <PaymentStrip s={s} today={today} />}
                 </button>
               </li>
             );
@@ -480,3 +485,31 @@ const HousingPreview = ({ h, region, householdHead }: { h: HousingSum; region: H
     </div>
   </div>
 );
+
+// 최근 납입 회차 — 지출 기록(적금·청약 납입)이 있으면 ✓. 기록 없는 달은 현금 잔액에서 예상 금액이 빠짐
+const ROUND_CLS = {
+  RECORDED: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400',
+  MISSING:  'bg-amber-50 text-amber-600 dark:bg-amber-900/20 dark:text-amber-400',
+  UPCOMING: 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400',
+};
+const PaymentStrip = ({ s, today }: { s: Savings; today: string }) => {
+  const rounds = recentRounds(s.startDate, s.kind === 'HOUSING' ? 0 : s.months, today, s.records ?? [], getSettleMonthForDate);
+  if (rounds.length === 0) return null;
+  const missing = rounds.some(r => r.status === 'MISSING');
+  return (
+    <div className="mt-3 pt-3 border-t border-slate-100 dark:border-dark-border/60">
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <span className="text-[11px] text-slate-400 mr-0.5">납입 기록</span>
+        {rounds.map(r => (
+          <span key={r.date} title={r.recorded ? `${r.recorded.toLocaleString()}원 기록` : undefined}
+            className={`rounded-full px-2.5 py-1 text-[11px] font-medium tabular-nums ${ROUND_CLS[r.status]}`}>
+            {r.date.slice(5).replace('-', '/')} {r.status === 'RECORDED' ? '✓' : r.status === 'MISSING' ? '기록 없음' : '예정'}
+          </span>
+        ))}
+      </div>
+      {missing && (
+        <p className="text-[11px] text-slate-400 mt-1.5">지출 / 수입에서 이체를 적을 때 '적금·청약 납입'을 고르면 기록돼요 — 기록 없는 달은 예상 금액으로 현금에서 빠져요</p>
+      )}
+    </div>
+  );
+};

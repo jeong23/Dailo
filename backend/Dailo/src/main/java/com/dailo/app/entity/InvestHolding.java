@@ -47,6 +47,11 @@ public class InvestHolding extends BaseEntity {
     }
 
     /** 체결 반영 — 보유 수량·평균단가만 바꿈 (InvestTradeService) */
+    // 예수금 줄 금액 증감 (체결 반영·되돌리기) — 0 아래로는 안 내려감
+    public void adjustManualValue(int delta) {
+        this.manualValue = Math.max((manualValue != null ? manualValue : 0) + delta, 0);
+    }
+
     public void applyPosition(Float shares, Integer avgPurchasePrice) {
         this.shares = shares;
         this.avgPurchasePrice = avgPurchasePrice;

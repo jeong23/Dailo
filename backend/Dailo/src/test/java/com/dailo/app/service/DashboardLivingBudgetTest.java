@@ -39,7 +39,7 @@ class DashboardLivingBudgetTest {
         when(b.getLivingCarryover()).thenReturn(0);
         when(b.getCardGoal()).thenReturn(0);
         when(budgetRepo.findByMemberIdAndSettleMonth(1L, "2026-11")).thenReturn(Optional.of(b));
-        when(fixedRepo.sumActiveByMemberId(1L)).thenReturn(0);
+        when(fixedRepo.sumForSettleMonth(1L, "2026-11")).thenReturn(0);
         when(incomeRepo.sumByMemberIdAndSettleMonth(1L, "2026-11")).thenReturn(0);
         when(expenseRepo.sumLivingExpense(1L, "2026-11")).thenReturn(100_000);
         when(expenseRepo.sumCardExpense(1L, "2026-11")).thenReturn(0);

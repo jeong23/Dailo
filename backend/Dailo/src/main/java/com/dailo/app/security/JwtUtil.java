@@ -15,7 +15,8 @@ public class JwtUtil {
     @Value("${jwt.secret:dailo-jwt-secret-key-must-be-at-least-32-characters-long}")
     private String secret;
 
-    private static final long EXPIRATION_MS = 30L * 24 * 60 * 60 * 1000; // 30일
+    // 1시간 — 사용 중에는 프론트가 /api/auth/refresh로 계속 연장, 1시간 동안 아무 요청 없으면 만료되어 로그아웃
+    public static final long EXPIRATION_MS = 60L * 60 * 1000;
 
     private SecretKey getKey() {
         return Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));

@@ -23,3 +23,5 @@ frontend/Dailo/.env
 agents/
 logs/
 .claude/
+# 개인 금융 정보 문서 (투자 플랜 등)
+docs/private/

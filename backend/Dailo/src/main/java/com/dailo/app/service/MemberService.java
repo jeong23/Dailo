@@ -28,7 +28,7 @@ public class MemberService {
                 .username(request.getUsername())
                 .password(passwordEncoder.encode(request.getPassword()))
                 .name(request.getName())
-                .role(request.getRole() != null ? request.getRole() : "USER")
+                .role("USER") // role은 요청으로 못 정함 — 가입 body에 role:ADMIN 넣으면 관리자가 됐었음. 관리자는 DB에서만
                 .salaryGross(request.getSalaryGross())
                 .salaryDay(request.getSalaryDay() != null ? request.getSalaryDay() : 25)
                 .build();
@@ -62,7 +62,7 @@ public class MemberService {
                 request.getUsername() != null ? request.getUsername() : member.getUsername(),
                 encodedPassword,
                 request.getName() != null ? request.getName() : member.getName(),
-                request.getRole() != null ? request.getRole() : member.getRole(),
+                member.getRole(), // 본인 수정으로 role 변경 금지 (권한 상승 방지)
                 request.getSalaryGross() != null ? request.getSalaryGross() : member.getSalaryGross(),
                 request.getSalaryDay() != null ? request.getSalaryDay() : member.getSalaryDay()
         );

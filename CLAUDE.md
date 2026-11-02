@@ -65,6 +65,6 @@ dailo                      # /Users/user/Desktop/workspace/Dailo 로 이동
 
 ## 다음 작업 후보
 - [x] ~~🔴 DailyExpense 지출 집계 IDOR~~ — 2026-10-29 수정: member 컬럼 추가 대신 monthlyBudget.member로 소유자 판정, 지출·수입·습관·러닝·대시보드 통계 전부 회원 범위로 (backend CLAUDE.md 'IDOR 회원 범위 규칙')
-- [ ] 카테고리(category)는 전 회원 공용 + CategoryController 인증 사용자 누구나 생성·수정·삭제 가능 — 런칭 전 회원별 카테고리 or 관리자 전용으로 결정 필요 [backend]
+- [x] ~~카테고리 누구나 수정·삭제~~ — 2026-11-02: 공용 유지 + 생성·수정·삭제는 member.role=ADMIN만(403). 가입·회원 수정 API로 role 지정하던 권한 상승도 막음 (관리자는 DB에서 지정)
 - [ ] 런칭 전 법률 검토: 계좌별 매수 수량 안내가 투자자문/유사투자자문에 해당하는지 (현재는 사용자가 넣은 종목·규칙만 계산, 상품 추천 없음) [공통]
-- [ ] N+1 쿼리 개선 (getMonthlyReport/getEmergencyHistory — 월 수 × 2 쿼리 발생) [backend]
+- [x] ~~N+1 쿼리 개선~~ — 2026-11-02: DailyExpenseRepository.sumByMonth / IncomeRepository.sumByMonth 정산월별 그룹 쿼리 1번씩

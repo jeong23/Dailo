@@ -3,6 +3,7 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 
 import { useEscapeKey } from '../hooks/useEscapeKey';
 import api from '../api/axios';
 import { WeightTab } from '../components/WeightTab';
+import { toYmd, todayYmd } from '../utils/format';
 
 // ── 타입 ──────────────────────────────────────────────
 interface LatLng { lat: number; lng: number; }
@@ -83,7 +84,6 @@ const getDayLabel = (dateStr: string) => {
   return days[new Date(dateStr).getDay()];
 };
 
-const todayStr = new Date().toISOString().split('T')[0];
 
 // ── 탭 타입 ───────────────────────────────────────────
 type Tab = '주' | '월' | '년';
@@ -92,6 +92,7 @@ type Tab = '주' | '월' | '년';
 type MainTab = '러닝' | '웨이트';
 
 export const RunningPage = () => {
+  const todayStr = todayYmd(); // 렌더마다 — 모듈 상수면 자정 지나도 안 바뀜
   const now = new Date();
   const [mainTab, setMainTab] = useState<MainTab>('러닝');
   const [tab, setTab] = useState<Tab>('월');
@@ -141,7 +142,6 @@ export const RunningPage = () => {
   const overlaysRef = useRef<any[]>([]);
   const pathRef = useRef<LatLng[]>([]);
 
-  const toDateStr = (d: Date) => d.toISOString().split('T')[0];
 
   const getWeekOfMonth = (d: Date) => {
     const firstDay = new Date(d.getFullYear(), d.getMonth(), 1).getDay();
@@ -161,8 +161,8 @@ export const RunningPage = () => {
   const fetchWeekData = useCallback(async (start: Date) => {
     const end = new Date(start);
     end.setDate(start.getDate() + 6);
-    const startStr = toDateStr(start);
-    const endStr = toDateStr(end);
+    const startStr = toYmd(start);
+    const endStr = toYmd(end);
     const y1 = start.getFullYear(), m1 = start.getMonth() + 1;
     const y2 = end.getFullYear(), m2 = end.getMonth() + 1;
 
@@ -210,7 +210,7 @@ export const RunningPage = () => {
     ? Array.from({ length: 7 }, (_, i) => {
         const d = new Date(weekStart);
         d.setDate(weekStart.getDate() + i);
-        const ds = toDateStr(d);
+        const ds = toYmd(d);
         const rec = weekRecords.find(r => r.runDate === ds);
         const dayLabels = ['일', '월', '화', '수', '목', '금', '토'];
         return { day: dayLabels[d.getDay()], dist: rec?.ran ? (rec.distanceKm || 0) : 0 };

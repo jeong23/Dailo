@@ -27,9 +27,9 @@ export const EmergencyPage = () => {
   const fetchAll = () => {
     setLoading(true);
     return Promise.allSettled([
-      api.get('/cash-assets'),
+      api.get(`/cash-assets?settleMonth=${getCurrentSettleMonth()}`),
       api.get(`/dashboard/summary?month=${currentSettleMonth}`),
-      api.get('/cash-accounts'),
+      api.get(`/cash-accounts?settleMonth=${getCurrentSettleMonth()}`),
     ]).then(([historyRes, summaryRes, accountsRes]) => {
       setCashAccountCount(accountsRes.status === 'fulfilled' ? (accountsRes.value.data.data || []).length : 0);
       if (historyRes.status === 'fulfilled') {
@@ -123,7 +123,7 @@ export const EmergencyPage = () => {
       {/* 요약 카드 */}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
         <SummaryCard
-          label="현재 잔액"
+          label={latest?.auto ? '이번 달 말 예상 잔액' : '현재 잔액'}
           value={latest ? `${fmt(latest.balance)}원` : '—'}
           color="text-amber-500"
         />
@@ -176,19 +176,17 @@ export const EmergencyPage = () => {
         </div>
       </div>
 
-      {/* 현금 계좌가 있으면: 이번 달 잔액 = 계좌 합계 (내 계좌에서 관리) */}
+      {/* 현금 계좌가 있으면: 잔액 = 계좌 기준 잔액 + 지출·수입·월급·고정비 자동 반영 (내 계좌에서 잔액 맞추기) */}
       {cashAccountCount > 0 && (
         <div className="bg-white dark:bg-dark-card rounded-2xl shadow-[0_1px_8px_rgba(0,0,0,0.06)] dark:shadow-none p-6 flex flex-col sm:flex-row sm:items-center gap-4">
           <div className="flex-1 min-w-0">
-            <h3 className="text-lg font-semibold mb-1 dark:text-dark-text">이번 달 잔액은 현금 계좌 합계로 기록돼요</h3>
+            <h3 className="text-lg font-semibold mb-1 dark:text-dark-text">지출·수입이 잔액에 자동 반영돼요</h3>
             <p className="text-sm text-slate-500 dark:text-dark-muted">
-              {currentSettleMonth} · 현금 계좌 {cashAccountCount}개 — 통장 잔액을 고치면 여기 추이도 바로 바뀌어요
+              현금 계좌 {cashAccountCount}개 기준 잔액 + 그 뒤 현금·이체 지출과 수입(그날), 카드값(정산월 끝), 적금·청약 납입(납입일), 적금 만기 수령액(만기일), 다음 달 월급 − 고정비
             </p>
-            {livingBalance !== null && (
-              <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
-                이번 달 생활비 잉여금 <span className={`font-semibold tabular-nums ${livingBalance < 0 ? 'text-red-500' : 'text-emerald-500'}`}>{sign(livingBalance)}{fmt(livingBalance)}원</span> — 남은 돈이 들어간 통장의 잔액을 고쳐 주세요
-              </p>
-            )}
+            <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
+              {currentSettleMonth}은 이번 달 카드값까지 뺀 예상 잔액이에요. 은행 잔액과 다르면 내 계좌에서 실제 잔액으로 맞춰 주세요
+            </p>
           </div>
           <Link to="/accounts?tab=cash" className="shrink-0 h-11 px-5 inline-flex items-center justify-center rounded-full bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium">현금 계좌 관리 →</Link>
         </div>
@@ -283,7 +281,7 @@ export const EmergencyPage = () => {
                 return (
                   <div key={h.settleMonth} className="px-4 py-3">
                     <div className="flex justify-between items-center gap-2">
-                      <span className="text-sm font-medium dark:text-dark-text min-w-0 truncate">{h.settleMonth.replace('-', '년 ')}월</span>
+                      <span className="text-sm font-medium dark:text-dark-text min-w-0 truncate">{h.settleMonth.replace('-', '년 ')}월{h.auto && <AutoBadge />}</span>
                       <span className="text-sm font-bold text-amber-500 tabular-nums shrink-0">{fmt(h.balance)}원</span>
                     </div>
                     <div className="flex gap-3 mt-1 text-xs text-slate-400 items-center">
@@ -314,7 +312,7 @@ export const EmergencyPage = () => {
                     return (
                       <tr key={h.settleMonth} className="hover:bg-primary-50/30 dark:hover:bg-slate-800/30 transition-colors">
                         <td className="px-6 py-4 font-medium dark:text-dark-text">
-                          {h.settleMonth.replace('-', '년 ')}월
+                          {h.settleMonth.replace('-', '년 ')}월{h.auto && <AutoBadge />}
                         </td>
                         <td className="px-6 py-4 text-right font-bold text-amber-500 tabular-nums">
                           {fmt(h.balance)}원
@@ -343,4 +341,9 @@ const SummaryCard = ({ label, value, color }: { label: string; value: string; co
     <p className="text-xs text-slate-500 dark:text-dark-muted">{label}</p>
     <p className={`text-xl font-bold mt-1 tabular-nums ${color}`}>{value}</p>
   </div>
+);
+
+// 현금 계좌 기준으로 계산한 달 — 지출·수입을 고치면 같이 바뀜
+const AutoBadge = () => (
+  <span className="ml-2 align-middle rounded-full px-2 py-0.5 text-[10px] font-medium bg-primary-50 dark:bg-primary-900/20 text-primary-600 dark:text-primary-400">자동</span>
 );

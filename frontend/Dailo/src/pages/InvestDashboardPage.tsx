@@ -31,9 +31,16 @@ interface DashAccount {
   accountPlannedAmt: number; accountActualAmt: number;
   holdings: DashHolding[];
 }
+// 체결이 쓸 돈에 주는 영향. 예수금 줄에 반영된 체결(cashDelta)은 예수금 금액이 이미 바뀌었으니
+// 매도는 0, 매수는 예수금으로 못 낸 부분(납입금에서 쓴 돈)만 뺌 — 수수료 차이로 +가 되지 않게 0에서 자름
+const tradeNet = (x: { side: 'BUY' | 'SELL'; amount: number; cashDelta?: number | null }) =>
+  x.cashDelta == null ? (x.side === 'SELL' ? x.amount : -x.amount)
+    : x.side === 'SELL' ? 0 : Math.min(-x.amount - x.cashDelta, 0);
+
 interface Trade {
   id: number; accountId: number; holdingId: number; ticker: string; stockCode: string | null;
   side: 'BUY' | 'SELL'; shares: number; price: number; amount: number; tradeDate: string;
+  cashDelta?: number | null; // 예수금 줄에 이미 반영한 금액 (매수 음수) — 쓸 돈 계산에서 두 번 빼지 않게
 }
 interface TradeSheet { holdingId: number; side: 'BUY' | 'SELL'; shares: string; price: string; suggested: number | null }
 
@@ -42,7 +49,9 @@ interface Dashboard {
   pensionLimit: number; totalPlanned: number; totalActual: number;
   pensionYtdActual: number; accounts: DashAccount[];
   allowSell: boolean; strategyPreset: string | null;
-  themes: { id: number; name: string; targetPct: number; cash: boolean; sortOrder: number }[];
+  contributionDeposited?: boolean; // 이 달 납입금이 이미 예수금에 있음
+  feeRate?: number; priceBuffer?: number; // 매매 수수료 % / 가격 변동 여유 %
+  themes: { id: number; name: string; targetPct: number; cash: boolean; satellite?: boolean; sortOrder: number }[];
 }
 
 const TYPE_BADGE: Record<string, string> = {
@@ -235,7 +244,32 @@ export const InvestDashboardPage = () => {
   const [savingSheet, setSavingSheet] = useState(false);
   const [savingRecord, setSavingRecord] = useState<Record<number, boolean>>({});
   // 리밸런싱 추천에 이번 달 납입금(월 투자금 × 계좌 비중)을 매수 재원으로 포함할지
-  const [withContribution, setWithContribution] = useState(true);
+  // 납입금을 이미 이체해 예수금(현금성 금액)에 넣었으면 끔 — 켜 두면 같은 돈이 두 번 잡힘.
+  // 기기마다 달라지면 안 돼서 서버에 달별 저장 (PUT /invest/setting/deposited), 낙관적 반영 후 실패 시 되돌림
+  const withContribution = data?.contributionDeposited !== true;
+  const feeRate = data?.feeRate ?? 0.015;
+  const priceBuffer = data?.priceBuffer ?? 0.5;
+  const saveTradeCosts = async (next: { feeRate: number; priceBuffer: number }) => {
+    const prev = { feeRate, priceBuffer };
+    setData(d => d && { ...d, ...next });
+    try {
+      await api.put('/invest/setting/trade-costs', next);
+      show('매매 비용을 저장했어요');
+    } catch (e: any) {
+      setData(d => d && { ...d, ...prev });
+      show(e?.response?.data?.message || '매매 비용을 저장하지 못했어요', 'error');
+    }
+  };
+  const setWithContribution = async (fn: (v: boolean) => boolean) => {
+    const next = fn(withContribution);
+    setData(d => d && { ...d, contributionDeposited: !next });
+    try {
+      await api.put('/invest/setting/deposited', { yearMonth: ym, deposited: !next });
+    } catch {
+      setData(d => d && { ...d, contributionDeposited: next });
+      show('저장하지 못했어요', 'error');
+    }
+  };
   // 테마 리밸런싱 매도 허용 — 기기별 선호라 localStorage (기본: 허용)
   // 비중 맞출 때 팔기 — 회원 설정(서버). 토글은 낙관적 반영 후 저장, 실패 시 되돌림
   const allowSell = data?.allowSell !== false;
@@ -459,7 +493,7 @@ export const InvestDashboardPage = () => {
         const dupCodes = duplicateCodes(acc.holdings);
         // 이번 달 체결을 반영한 남은 현금 = 납입금 + 판 돈 − 산 돈 (체결 완료 후 같은 추천이 또 나오지 않게)
         const accTrades = trades.filter(t => t.accountId === acc.id);
-        const net = accTrades.reduce((t, x) => t + (x.side === 'SELL' ? x.amount : -x.amount), 0);
+        const net = accTrades.reduce((t, x) => t + tradeNet(x), 0);
         const contribution = withContribution ? acc.contribution : 0;
         const accBudget = Math.max(contribution + net, 0);
         const stats = statsOf(acc.holdings);
@@ -484,7 +518,7 @@ export const InvestDashboardPage = () => {
   const todoCount = sellCount + buyCount;
 
   // ── 테마 모드: 테마가 있으면 비중·리밸런싱을 테마 기준으로 ──
-  const themes = (view.themes ?? []).map(t => ({ id: t.id, name: t.name, targetPct: t.targetPct, cash: !!t.cash }));
+  const themes = (view.themes ?? []).map(t => ({ id: t.id, name: t.name, targetPct: t.targetPct, cash: !!t.cash, satellite: !!t.satellite }));
   const themeMode = themes.length > 0;
   const isCashTheme = (id: number | null) => themes.some(t => t.id === id && t.cash);
   const themeHoldings = view.accounts.flatMap(acc => acc.holdings.map(h => ({
@@ -493,9 +527,9 @@ export const InvestDashboardPage = () => {
   })));
   // 꺼진 계좌는 돈도 안 들어오고 매매도 안 함 — 종목 평가금액은 themeHoldings로 테마 비중에만 들어감
   const themeAccounts = view.accounts.filter(acc => acc.active !== false).map(acc => {
-    const net = trades.filter(t => t.accountId === acc.id).reduce((t, x) => t + (x.side === 'SELL' ? x.amount : -x.amount), 0);
+    const net = trades.filter(t => t.accountId === acc.id).reduce((t, x) => t + tradeNet(x), 0);
     const contribution = withContribution ? acc.contribution : 0;
-    return { id: acc.id, name: acc.name, contribution, budget: Math.max(contribution + net, 0), tradeCount: trades.filter(t => t.accountId === acc.id).length };
+    return { id: acc.id, name: acc.name, type: acc.type, contribution, budget: Math.max(contribution + net, 0), tradeCount: trades.filter(t => t.accountId === acc.id).length };
   });
   const blockers: Blocker[] = [];
   if (themeMode) {
@@ -514,7 +548,7 @@ export const InvestDashboardPage = () => {
           price: isCashTheme(h.themeId) ? null : h.currentPrice,
         })),
         themeAccounts.map(a => ({ id: a.id, budget: a.budget })),
-        view.rebalanceThreshold, { sell: allowSell })
+        view.rebalanceThreshold, { sell: allowSell, feeRate, buffer: priceBuffer })
     : null;
   const openTrade = (holdingId: number, side: 'BUY' | 'SELL', shares: number | null) => {
     const h = holdingById[holdingId];
@@ -562,7 +596,8 @@ export const InvestDashboardPage = () => {
         <ThemeTodo themes={themes} holdings={themeHoldings} accounts={themeAccounts} plan={themePlan} blockers={blockers}
           threshold={view.rebalanceThreshold} monthlyBudget={view.monthlyBudget}
           withContribution={withContribution} onToggleContribution={() => setWithContribution(v => !v)}
-          allowSell={allowSell} onToggleSell={toggleAllowSell} onTrade={openTrade}>
+          allowSell={allowSell} onToggleSell={toggleAllowSell} onTrade={openTrade}
+          feeRate={feeRate} priceBuffer={priceBuffer} onSaveCosts={saveTradeCosts}>
           {tradeHistory}
         </ThemeTodo>
       )}

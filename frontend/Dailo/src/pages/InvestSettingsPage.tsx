@@ -16,7 +16,8 @@ interface Holding {
   themeKey?: string | null;   // 화면용: 저장 전 새 테마도 가리킬 수 있게 'id:5' / 'new:xxx'
 }
 // 투자 테마: 투자 자산 전체 대비 목표 % (합계 100). cash = 현금성(금액으로 평가)
-interface ThemeRow { key: string; id?: number; name: string; targetPct: number; cash: boolean }
+// satellite = 위성 테마(코어-새틀라이트): 목표 %가 상한 — 납입금으로 사라고 추천 안 함, 넘으면 안내
+interface ThemeRow { key: string; id?: number; name: string; targetPct: number; cash: boolean; satellite: boolean }
 interface Account {
   id?: number; name: string; type: string; targetPct: number; sortOrder: number; holdings: Holding[];
   monthlyAmount?: number | null;   // 매달 납입금 (null = 월 투자금 × 계좌 %)
@@ -147,8 +148,8 @@ export const InvestSettingsPage = ({ embedded = false }: { embedded?: boolean })
   const withThemeKeys = (list: Account[]): Account[] => offLast(list).map(acc => ({
     ...acc, holdings: acc.holdings.map(h => ({ ...priceOnlyToAmount(h), themeKey: h.themeId ? `id:${h.themeId}` : null })),
   }));
-  const toThemeRows = (list: { id: number; name: string; targetPct: number; cash: boolean }[]): ThemeRow[] =>
-    list.map(t => ({ key: `id:${t.id}`, id: t.id, name: t.name, targetPct: t.targetPct, cash: !!t.cash }));
+  const toThemeRows = (list: { id: number; name: string; targetPct: number; cash: boolean; satellite?: boolean }[]): ThemeRow[] =>
+    list.map(t => ({ key: `id:${t.id}`, id: t.id, name: t.name, targetPct: t.targetPct, cash: !!t.cash, satellite: !!t.satellite }));
 
   useEffect(() => {
     Promise.allSettled([api.get('/invest/setting'), api.get('/invest/accounts'), api.get('/invest/themes')]).then(([sRes, aRes, tRes]) => {
@@ -229,7 +230,7 @@ export const InvestSettingsPage = ({ embedded = false }: { embedded?: boolean })
 
   // ── 테마 편집 ──
   const newKey = () => `new:${Math.random().toString(36).slice(2, 9)}`;
-  const addTheme = () => setThemes(prev => [...prev, { key: newKey(), name: '', targetPct: Math.max(0, 100 - themeSum), cash: false }]);
+  const addTheme = () => setThemes(prev => [...prev, { key: newKey(), name: '', targetPct: Math.max(0, 100 - themeSum), cash: false, satellite: false }]);
   const updateTheme = (i: number, patch: Partial<ThemeRow>) => setThemes(prev => prev.map((t, idx) => idx === i ? { ...t, ...patch } : t));
   const removeTheme = (i: number) => {
     const key = themes[i].key;
@@ -238,7 +239,7 @@ export const InvestSettingsPage = ({ embedded = false }: { embedded?: boolean })
   };
   // 추천 테마 만들고, 테마 없는 종목은 이름으로 자동 배정 (현금성은 평균단가 칸에 넣어 둔 금액을 금액으로 옮김)
   const startWithDefaults = () => {
-    const rows: ThemeRow[] = DEFAULT_THEMES.map(d => ({ key: newKey(), name: d.name, targetPct: d.targetPct, cash: d.cash }));
+    const rows: ThemeRow[] = DEFAULT_THEMES.map(d => ({ key: newKey(), name: d.name, targetPct: d.targetPct, cash: d.cash, satellite: false }));
     setThemes(rows);
     setAccounts(prev => prev.map(a => ({
       ...a, holdings: a.holdings.map(h => {
@@ -355,7 +356,7 @@ export const InvestSettingsPage = ({ embedded = false }: { embedded?: boolean })
         strategyPreset: strategy.preset,
       });
       // 테마 먼저 저장 → 새 테마 id를 받아 종목에 연결 (응답은 보낸 순서 그대로)
-      const tr = await api.post('/invest/themes', themes.map((t, i) => ({ id: t.id ?? null, name: t.name.trim(), targetPct: t.targetPct, cash: t.cash, sortOrder: i })));
+      const tr = await api.post('/invest/themes', themes.map((t, i) => ({ id: t.id ?? null, name: t.name.trim(), targetPct: t.targetPct, cash: t.cash, satellite: t.satellite, sortOrder: i })));
       const savedThemes = toThemeRows(tr.data.data || []);
       const idByKey: Record<string, number> = {};
       themes.forEach((t, i) => { if (savedThemes[i]?.id) idByKey[t.key] = savedThemes[i].id!; });
@@ -627,8 +628,9 @@ export const InvestSettingsPage = ({ embedded = false }: { embedded?: boolean })
                           onChange={e => updateTheme(i, { name: e.target.value })} className={FIELD_INPUT} />
                       </div>
                       <div className={`${FIELD} w-24 shrink-0 bg-white`}>
+                        {t.satellite && <span className="text-[10px] text-violet-500 mr-1 shrink-0">최대</span>}
                         <input type="text" inputMode="decimal" value={t.targetPct}
-                          onChange={e => updateTheme(i, { targetPct: parseFloat(e.target.value) || 0 })} className={`${FIELD_INPUT} text-right`} />
+                          onChange={e => updateTheme(i, { targetPct: parseFloat(e.target.value) || 0 })} className={`${FIELD_INPUT} text-right min-w-0`} />
                         <span className="text-xs text-slate-400 ml-1">%</span>
                       </div>
                       <button onClick={() => removeTheme(i)} aria-label="테마 삭제"
@@ -638,10 +640,16 @@ export const InvestSettingsPage = ({ embedded = false }: { embedded?: boolean })
                       <p className="text-[11px] text-slate-400 min-w-0 truncate">
                         {members.length > 0 ? members.map(m => m.h.ticker || '이름 없음').join(' · ') : '배정된 종목 없음 — 계좌 & 종목 탭에서 고르세요'}
                       </p>
-                      <button onClick={() => updateTheme(i, { cash: !t.cash })} aria-pressed={t.cash}
-                        className={`shrink-0 h-9 px-3 rounded-full text-xs font-medium ${t.cash ? 'bg-emerald-500 text-white' : 'bg-white dark:bg-dark-card text-slate-500 ring-1 ring-slate-200 dark:ring-dark-border'}`}>
-                        {t.cash ? '✓ 현금성' : '현금성'}
-                      </button>
+                      <div className="flex gap-1.5 shrink-0">
+                        <button onClick={() => updateTheme(i, { satellite: !t.satellite, cash: t.satellite ? t.cash : false })} aria-pressed={t.satellite}
+                          className={`h-9 px-3 rounded-full text-xs font-medium ${t.satellite ? 'bg-violet-500 text-white' : 'bg-white dark:bg-dark-card text-slate-500 ring-1 ring-slate-200 dark:ring-dark-border'}`}>
+                          {t.satellite ? '✓ 위성' : '위성'}
+                        </button>
+                        <button onClick={() => updateTheme(i, { cash: !t.cash, satellite: t.cash ? t.satellite : false })} aria-pressed={t.cash}
+                          className={`h-9 px-3 rounded-full text-xs font-medium ${t.cash ? 'bg-emerald-500 text-white' : 'bg-white dark:bg-dark-card text-slate-500 ring-1 ring-slate-200 dark:ring-dark-border'}`}>
+                          {t.cash ? '✓ 현금성' : '현금성'}
+                        </button>
+                      </div>
                     </div>
                   </div>
                 );
@@ -654,6 +662,10 @@ export const InvestSettingsPage = ({ embedded = false }: { embedded?: boolean })
                 </p>
               )}
               <p className="text-[11px] text-slate-400">현금성 테마의 종목(예수금·디폴트옵션 등)은 주수 대신 금액으로 입력해요.</p>
+              <p className="text-[11px] text-slate-400">
+                <b className="text-violet-500">위성</b> 테마(AI·반도체 같은 성장주)는 % 가 <b>상한</b>이에요 — 매달 납입금은 나머지 코어 테마로만 가고,
+                위성은 남는 돈으로 직접 사요. 상한을 넘으면 투자 현황에서 알려줘요.
+              </p>
             </section>
           )}
         </div>

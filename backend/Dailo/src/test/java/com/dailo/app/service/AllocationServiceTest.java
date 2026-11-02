@@ -36,9 +36,9 @@ class AllocationServiceTest {
         when(other.getMemberId()).thenReturn(2L);
         when(themeRepo.findById(9L)).thenReturn(Optional.of(other));
 
-        assertThatThrownBy(() -> service.saveThemes(1L, List.of(new InvestDto.ThemeDto(9L, "AI", 100f, false, 0))))
+        assertThatThrownBy(() -> service.saveThemes(1L, List.of(new InvestDto.ThemeDto(9L, "AI", 100f, false, false, 0))))
                 .isInstanceOf(IllegalArgumentException.class);
-        verify(other, never()).update(any(), any(), any(), any());
+        verify(other, never()).update(any(), any(), any(), any(), any());
     }
 
     @Test

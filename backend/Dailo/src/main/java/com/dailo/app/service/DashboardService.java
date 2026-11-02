@@ -38,8 +38,8 @@ public class DashboardService {
         MonthlyBudget budget = monthlyBudgetRepository.findByMemberIdAndSettleMonth(memberId, month)
                 .orElseThrow(() -> new IllegalArgumentException("해당 월 예산이 없습니다."));
 
-        // 고정비 실시간 조회
-        Integer fixedCostTotal = fixedCostRepository.sumActiveByMemberId(budget.getMember().getId());
+        // 고정비 — 그 정산월 기준 (오늘 기준이면 할부가 끝난 뒤 지난 달 가용금액이 바뀜)
+        Integer fixedCostTotal = fixedCostRepository.sumForSettleMonth(budget.getMember().getId(), month);
 
         // 기타 수입 (표시용만 - 가용금액 계산에서 제외)
         Integer extraIncomeTotal = incomeRepository.sumByMemberIdAndSettleMonth(memberId, month);
@@ -66,9 +66,12 @@ public class DashboardService {
         Integer emergencyExpenseTotal = dailyExpenseRepository.sumEmergencyExpense(memberId, month);
 
         // 계산값
-        Integer livingBalance = livingBudget + budget.getLivingCarryover() - livingExpenseTotal;
-        Integer cardAchievementRate = budget.getCardGoal() > 0
-                ? (cardExpenseTotal * 100) / budget.getCardGoal()
+        // 이월액·카드 목표는 nullable — API로 빼고 만든 예산이면 null이라 언박싱 NPE(500)가 났음
+        int livingCarryover = budget.getLivingCarryover() != null ? budget.getLivingCarryover() : 0;
+        int cardGoal = budget.getCardGoal() != null ? budget.getCardGoal() : 0;
+        Integer livingBalance = livingBudget + livingCarryover - livingExpenseTotal;
+        Integer cardAchievementRate = cardGoal > 0
+                ? (cardExpenseTotal * 100) / cardGoal
                 : 0;
 
         return DashboardSummaryDto.builder()
@@ -82,8 +85,8 @@ public class DashboardService {
                 .discretionaryBudget(discretionaryBudget)
                 .allocationItems(allocationItems)
                 .allocationTotal(allocationTotal)
-                .cardGoal(budget.getCardGoal())
-                .livingCarryover(budget.getLivingCarryover())
+                .cardGoal(cardGoal)
+                .livingCarryover(livingCarryover)
                 .emergencyCumulative(budget.getEmergencyCumulative())
                 .livingExpenseTotal(livingExpenseTotal)
                 .cardExpenseTotal(cardExpenseTotal)
@@ -107,6 +110,7 @@ public class DashboardService {
     @Transactional(readOnly = true)
     public List<EmergencyHistoryDto> getEmergencyHistory(Long memberId) {
         List<MonthlyBudget> budgets = monthlyBudgetRepository.findByMemberIdOrderBySettleMonthAsc(memberId);
+        Map<String, long[]> sums = expenseSumsByMonth(memberId);
 
         int cumulative = 0;
         List<EmergencyHistoryDto> result = new java.util.ArrayList<>();
@@ -117,7 +121,7 @@ public class DashboardService {
             Integer fixedCostTotal   = budget.getFixedCostTotal() != null ? budget.getFixedCostTotal() : 0;
             Integer availableAmount  = Math.max(budget.getNetSalary() - fixedCostTotal, 0);
             Integer emergencyBudget  = (int)(availableAmount * budget.getEmergencyRate());
-            Integer emergencyExpense = dailyExpenseRepository.sumEmergencyExpense(memberId, month);
+            Integer emergencyExpense = (int) sums.getOrDefault(month, NO_SUMS)[1];
             Integer emergencyNet     = emergencyBudget - emergencyExpense;
 
             cumulative += emergencyNet;
@@ -147,11 +151,14 @@ public class DashboardService {
                 .findByMonthlyBudgetIdIn(budgetIds).stream()
                 .sorted(java.util.Comparator.comparing(i -> i.getSortOrder() != null ? i.getSortOrder() : 0))
                 .collect(Collectors.groupingBy(i -> i.getMonthlyBudget().getId()));
+        Map<String, long[]> sums = expenseSumsByMonth(memberId);
+        Map<String, Integer> incomes = new java.util.HashMap<>();
+        incomeRepository.sumByMonth(memberId).forEach(r -> incomes.put((String) r[0], ((Number) r[1]).intValue()));
 
         return budgets.stream().map(budget -> {
             String month = budget.getSettleMonth();
             Integer fixedCostTotal   = budget.getFixedCostTotal() != null ? budget.getFixedCostTotal() : 0;
-            Integer extraIncomeTotal = incomeRepository.sumByMemberIdAndSettleMonth(memberId, month);
+            Integer extraIncomeTotal = incomes.getOrDefault(month, 0);
             Integer availableAmount  = Math.max(budget.getNetSalary() - fixedCostTotal, 0);
             List<AllocationItemResponseDto> items = liveItems(itemsByBudgetId.getOrDefault(budget.getId(), List.of()), availableAmount);
             Integer allocationTotal  = items.stream().mapToInt(AllocationItemResponseDto::getBudgetAmount).sum();
@@ -160,9 +167,10 @@ public class DashboardService {
             Integer pensionAmount    = (int)(availableAmount * budget.getPensionRate());
             Integer emergencyBudget  = labeledAmount(items, EMERGENCY, (int)(availableAmount * budget.getEmergencyRate()));
 
-            Integer livingExpenseTotal   = dailyExpenseRepository.sumLivingExpense(memberId, month);
-            Integer emergencyExpenseTotal = dailyExpenseRepository.sumEmergencyExpense(memberId, month);
-            Integer cardExpenseTotal     = dailyExpenseRepository.sumCardExpense(memberId, month);
+            long[] s = sums.getOrDefault(month, NO_SUMS);
+            Integer livingExpenseTotal   = (int) s[0];
+            Integer emergencyExpenseTotal = (int) s[1];
+            Integer cardExpenseTotal     = (int) s[2];
 
             Integer livingCarryover = budget.getLivingCarryover() != null ? budget.getLivingCarryover() : 0;
             Integer livingBalance   = livingBudget + livingCarryover - livingExpenseTotal;
@@ -192,6 +200,16 @@ public class DashboardService {
                     .cardAchievementRate(cardAchievementRate)
                     .build();
         }).collect(Collectors.toList());
+    }
+
+    private static final long[] NO_SUMS = {0, 0, 0};
+
+    // 정산월 → [생활비, 비상금, 카드] 지출 합계 (쿼리 1번)
+    private Map<String, long[]> expenseSumsByMonth(Long memberId) {
+        Map<String, long[]> out = new java.util.HashMap<>();
+        dailyExpenseRepository.sumByMonth(memberId).forEach(r -> out.put((String) r[0], new long[]{
+                ((Number) r[1]).longValue(), ((Number) r[2]).longValue(), ((Number) r[3]).longValue()}));
+        return out;
     }
 
     private static final String LIVING = "생활비";

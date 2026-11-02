@@ -38,14 +38,15 @@ public class MonthlyBudgetService {
     private final BudgetAllocationItemRepository budgetAllocationItemRepository;
     private final InvestAccountRepository investAccountRepository;
     private final SavingsRepository savingsRepository;
+    private final CashAccountService cashAccountService;
 
     private static double safe(Double v) { return v != null ? v : 0.0; }
 
     // 고정 5항목(living/isa/pension/emergency/discretionary)만 계산 — 가변 항목은 buildAllocationItems()에서 별도 계산
     // rate는 호출부에서 이미 null-fallback 처리된 값을 받는다 (create: 0.0 기본값 / update: 기존 budget 값 유지)
-    private int[] calcDistribution(Long memberId, Integer netSalary, double livingRate, double isaRate,
+    private int[] calcDistribution(Long memberId, String settleMonth, Integer netSalary, double livingRate, double isaRate,
                                     double pensionRate, double emergencyRate, double discretionaryRate) {
-        int fixedCostTotal = fixedCostRepository.sumActiveByMemberId(memberId);
+        int fixedCostTotal = fixedCostRepository.sumForSettleMonth(memberId, settleMonth);
         int available = Math.max(netSalary - fixedCostTotal, 0);
         return new int[]{
             fixedCostTotal,
@@ -124,7 +125,7 @@ public class MonthlyBudgetService {
         double emergencyRate = safe(request.getEmergencyRate());
         double discretionaryRate = safe(request.getDiscretionaryRate());
 
-        int[] dist = calcDistribution(member.getId(), request.getNetSalary(),
+        int[] dist = calcDistribution(member.getId(), request.getSettleMonth(), request.getNetSalary(),
                 livingRate, isaRate, pensionRate, emergencyRate, discretionaryRate);
         // dist: [fixedCostTotal, available, living, isa, pension, emergency, discretionary]
 
@@ -139,8 +140,8 @@ public class MonthlyBudgetService {
                 .pensionAmount(dist[4])
                 .emergencyBudget(dist[5])
                 .discretionaryBudget(dist[6])
-                .cardGoal(request.getCardGoal())
-                .livingCarryover(request.getLivingCarryover())
+                .cardGoal(request.getCardGoal() != null ? request.getCardGoal() : 0)
+                .livingCarryover(request.getLivingCarryover() != null ? request.getLivingCarryover() : 0)
                 .emergencyCumulative(request.getEmergencyCumulative())
                 .livingRate(livingRate)
                 .isaRate(isaRate)
@@ -207,7 +208,7 @@ public class MonthlyBudgetService {
         double emergencyRate = request.getEmergencyRate() != null ? request.getEmergencyRate() : safe(budget.getEmergencyRate());
         double discretionaryRate = request.getDiscretionaryRate() != null ? request.getDiscretionaryRate() : safe(budget.getDiscretionaryRate());
 
-        int[] dist = calcDistribution(budget.getMember().getId(), request.getNetSalary(),
+        int[] dist = calcDistribution(budget.getMember().getId(), budget.getSettleMonth(), request.getNetSalary(),
                 livingRate, isaRate, pensionRate, emergencyRate, discretionaryRate);
 
         budget.update(
@@ -219,8 +220,8 @@ public class MonthlyBudgetService {
                 dist[4],
                 dist[5],
                 dist[6],
-                request.getCardGoal(),
-                request.getLivingCarryover(),
+                request.getCardGoal() != null ? request.getCardGoal() : budget.getCardGoal(),
+                request.getLivingCarryover() != null ? request.getLivingCarryover() : budget.getLivingCarryover(),
                 request.getEmergencyCumulative(),
                 livingRate,
                 isaRate,
@@ -281,6 +282,11 @@ public class MonthlyBudgetService {
         boolean latest = monthlyBudgetRepository.findByMemberIdOrderBySettleMonthDesc(memberId).stream()
                 .findFirst().map(b -> b.getId().equals(budget.getId())).orElse(false);
         if (!latest) return;
+        // 적금 월 납입액이 바뀌면 지난 납입까지 다시 계산되므로 현금 잔액을 먼저 고정 (바꾸기 전에 — 바꾼 뒤엔 flush돼 새 값으로 계산됨)
+        boolean savingsChanges = items.stream().anyMatch(item -> item.getSavingsId() != null && savingsRepository.findById(item.getSavingsId())
+                .map(s -> !java.util.Objects.equals(s.getMonthlyAmount(), (long) (item.getBudgetAmount() != null ? item.getBudgetAmount() : 0)))
+                .orElse(false));
+        if (savingsChanges) cashAccountService.snapshot(memberId);
         for (BudgetAllocationItem item : items) {
             if (item.getSavingsId() != null) {
                 savingsRepository.findById(item.getSavingsId())
