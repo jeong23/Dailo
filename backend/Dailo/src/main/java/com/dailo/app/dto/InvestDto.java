@@ -19,7 +19,7 @@ public class InvestDto {
         private String strategyPreset;    // null = 기존 값 유지
     }
 
-    @Getter @Builder
+    @Getter @Builder(toBuilder = true)
     public static class SettingResponse {
         private Long id;
         private Integer monthlyBudget;
@@ -30,6 +30,8 @@ public class InvestDto {
         private Integer taxJoinMonth;     // null = 아직 입력 안 함
         private Boolean taxProbation;
         private Integer taxProbEndMonth;
+        private Boolean rebalanceMode;        // 목표 비중 맞추기 기능 켜짐
+        private Boolean rebalanceModeChosen;  // false = 아직 안 고름 → 화면에서 한 번 물어봄
 
         public static SettingResponse from(InvestSetting s) {
             return SettingResponse.builder()
@@ -44,6 +46,12 @@ public class InvestDto {
                     .taxProbEndMonth(s.getTaxProbEndMonth())
                     .build();
         }
+    }
+
+    // 리밸런싱 모드 켜기/끄기 (PUT /setting/rebalance-mode)
+    @Getter @NoArgsConstructor @AllArgsConstructor
+    public static class RebalanceModeRequest {
+        private Boolean enabled;
     }
 
     // 계좌 켜기/끄기 (PATCH /accounts/{id}/active)
@@ -179,6 +187,8 @@ public class InvestDto {
         private Boolean allowSell;
         private String strategyPreset;
         private Boolean contributionDeposited; // 이 달 납입금이 이미 예수금에 있음 → 추천 재원에 납입금 안 더함
+        private Boolean rebalanceMode;    // false면 기록 모드 — 할 일·목표 비중 화면 숨김
+        private Boolean rebalanceModeChosen;
         private Float feeRate;            // 매매 수수료 %
         private Float priceBuffer;        // 가격 변동 여유 %
         private Integer totalPlanned;

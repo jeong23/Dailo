@@ -11,6 +11,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDateTime;
+
 @RestController
 @RequestMapping("/api/members")
 @RequiredArgsConstructor
@@ -45,12 +47,12 @@ public class MemberController {
         return ResponseEntity.ok(ApiResponse.ok("회원 정보가 수정되었습니다.", response));
     }
 
-    // 본인 계정만 삭제 가능
+    // 본인 계정만 탈퇴 가능 — 30일 유예 후 데이터 삭제, data = 삭제 예정 시각
     @DeleteMapping("/{id}")
-    public ResponseEntity<ApiResponse<Void>> delete(
+    public ResponseEntity<ApiResponse<LocalDateTime>> delete(
             @AuthenticationPrincipal CustomUserDetails user,
             @PathVariable Long id) {
-        memberService.delete(user.getMemberId(), id);
-        return ResponseEntity.ok(ApiResponse.ok("회원이 삭제되었습니다.", null));
+        LocalDateTime purgeAt = memberService.withdraw(user.getMemberId(), id);
+        return ResponseEntity.ok(ApiResponse.ok("탈퇴 처리됐어요. 30일 안에 다시 로그인하면 복구할 수 있어요.", purgeAt));
     }
 }

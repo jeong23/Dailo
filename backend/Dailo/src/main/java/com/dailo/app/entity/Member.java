@@ -3,6 +3,8 @@ package com.dailo.app.entity;
 import jakarta.persistence.*;
 import lombok.*;
 
+import java.time.LocalDateTime;
+
 @Entity
 @Table(name = "member")
 @Getter
@@ -29,6 +31,10 @@ public class Member extends BaseEntity {
     @Column(columnDefinition = "INTEGER DEFAULT 25")
     private Integer salaryDay;
 
+    // 탈퇴 시각 — 값이 있으면 로그인·토큰 차단, 30일 유예 뒤 MemberPurgeService가 회원 데이터를 전부 삭제
+    @Column
+    private LocalDateTime deletedAt;
+
     public void update(String username, String password, String name, String role, Integer salaryGross, Integer salaryDay) {
         this.username = username;
         this.password = password;
@@ -36,5 +42,17 @@ public class Member extends BaseEntity {
         this.role = role;
         this.salaryGross = salaryGross;
         this.salaryDay = salaryDay;
+    }
+
+    public void withdraw() {
+        this.deletedAt = LocalDateTime.now();
+    }
+
+    public void restore() {
+        this.deletedAt = null;
+    }
+
+    public boolean isWithdrawn() {
+        return deletedAt != null;
     }
 }

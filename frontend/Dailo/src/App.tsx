@@ -21,6 +21,7 @@ import { DisplaySettingsPage } from './pages/DisplaySettingsPage';
 import { AllocationPage } from './pages/AllocationPage';
 import { SavingsPage } from './pages/SavingsPage';
 import { LoginPage } from './pages/LoginPage';
+import { SignupPage } from './pages/SignupPage';
 import { isAuthenticated } from './api/axios';
 import { expireStaleSession } from './utils/session';
 import { BudgetType, DailyExpense, Category, DashboardSummary, DailyStats, CategoryStats } from './types';
@@ -938,6 +939,7 @@ function App() {
     <Router>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/signup" element={<SignupPage />} />
         <Route path="/*" element={
           <PrivateRoute>
             <Layout>

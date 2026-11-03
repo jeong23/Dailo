@@ -6,6 +6,7 @@ import { InstallPrompt } from './InstallPrompt';
 import { SessionTimeout } from './SessionTimeout';
 import { SalaryDaySync } from './SalaryDaySync';
 import { useTheme } from '../utils/theme';
+import { NavIcon, NavIconName } from './NavIcon';
 
 interface LayoutProps {
   children: ReactNode;
@@ -15,41 +16,41 @@ const NAV_GROUPS = [
   {
     label: '가계부',
     items: [
-      { path: '/',               label: '대시보드',    icon: '📊' },
-      { path: '/expenses',       label: '지출 / 수입', icon: '💳' },
-      { path: '/fixed-costs',    label: '고정비',      icon: '📌' },
-      { path: '/report',         label: '리포트',      icon: '📈' },
-      { path: '/settings',       label: '예산 설정',    icon: '⚙️' },
+      { path: '/',               label: '대시보드',    icon: 'dashboard' as NavIconName },
+      { path: '/expenses',       label: '지출 / 수입', icon: 'card' as NavIconName },
+      { path: '/fixed-costs',    label: '고정비',      icon: 'repeat' as NavIconName },
+      { path: '/report',         label: '리포트',      icon: 'report' as NavIconName },
+      { path: '/settings',       label: '예산 설정',    icon: 'sliders' as NavIconName },
     ],
   },
   {
     // 가계부 = 돈의 흐름, 자산 = 쌓인 돈 (보는 곳). 등록·수정은 하단 '내 계좌'
     label: '자산',
     items: [
-      { path: '/assets',         label: '자산 현황',   icon: '🧭' },
-      { path: '/cash',           label: '현금 자산',    icon: '💰' },
-      { path: '/savings',        label: '적금 · 청약',  icon: '🏦' },
-      { path: '/invest',         label: '투자 현황',   icon: '💹' },
-      { path: '/invest/diary',   label: '투자일기',    icon: '📖' },
+      { path: '/assets',         label: '자산 현황',   icon: 'pie' as NavIconName },
+      { path: '/cash',           label: '현금 자산',    icon: 'wallet' as NavIconName },
+      { path: '/savings',        label: '적금 · 청약',  icon: 'coins' as NavIconName },
+      { path: '/invest',         label: '투자 현황',   icon: 'trend' as NavIconName },
+      { path: '/invest/diary',   label: '투자일기',    icon: 'book' as NavIconName },
     ],
   },
   {
     label: 'Daily',
     items: [
-      { path: '/planner-board', label: '월간 플래너',   icon: '🗓️' },
-      { path: '/todo',          label: '오늘 플래너',   icon: '📅' },
-      { path: '/running',       label: '운동 기록',     icon: '🏃' },
-      { path: '/habits',        label: '습관 트래커',   icon: '✅' },
+      { path: '/planner-board', label: '월간 플래너',   icon: 'calendar' as NavIconName },
+      { path: '/todo',          label: '오늘 플래너',   icon: 'checklist' as NavIconName },
+      { path: '/running',       label: '운동 기록',     icon: 'activity' as NavIconName },
+      { path: '/habits',        label: '습관 트래커',   icon: 'habit' as NavIconName },
     ],
   },
 ];
 
 // 모바일(폴드 커버 화면 포함) 하단 탭 — 자주 쓰는 4개 + 전체 메뉴(드로어)
 const BOTTOM_TABS = [
-  { path: '/',         label: '홈',     icon: '📊' },
-  { path: '/expenses', label: '지출',   icon: '💳' },
-  { path: '/todo',     label: '플래너', icon: '📅' },
-  { path: '/running',  label: '운동',   icon: '🏃' },
+  { path: '/',         label: '홈',     icon: 'dashboard' as NavIconName },
+  { path: '/expenses', label: '지출',   icon: 'card' as NavIconName },
+  { path: '/todo',     label: '플래너', icon: 'checklist' as NavIconName },
+  { path: '/running',  label: '운동',   icon: 'activity' as NavIconName },
 ];
 
 const PaletteIcon = ({ className }: { className: string }) => (
@@ -149,11 +150,11 @@ export const Layout = ({ children }: LayoutProps) => {
                   onClick={() => toggleGroup(group.label)}
                   className="w-full flex items-center justify-between px-5 py-1 mb-1 group"
                 >
-                  <span className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-600 group-hover:text-slate-500 dark:group-hover:text-slate-500 transition-colors">
+                  <span className="text-[11px] font-semibold tracking-wide text-slate-500 dark:text-slate-400 group-hover:text-slate-700 dark:group-hover:text-slate-200 transition-colors">
                     {group.label}
                   </span>
                   <svg
-                    className={`w-3 h-3 text-slate-300 dark:text-slate-600 transition-transform duration-200 ${isCollapsed ? '-rotate-90' : ''}`}
+                    className={`w-3 h-3 text-slate-400 dark:text-slate-500 transition-transform duration-200 ${isCollapsed ? '-rotate-90' : ''}`}
                     fill="none" stroke="currentColor" viewBox="0 0 24 24"
                   >
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />
@@ -183,7 +184,7 @@ export const Layout = ({ children }: LayoutProps) => {
                               : 'border-transparent text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/60 hover:text-slate-800 dark:hover:text-slate-200 font-medium'
                         }`}
                       >
-                        <span className="text-base leading-none flex-shrink-0">{item.icon}</span>
+                        <NavIcon name={item.icon} />
                         {collapsed
                           ? <span className="text-[10px] leading-tight max-w-full px-0.5 truncate">{item.label}</span>
                           : <span className="text-sm">{item.label}</span>}
@@ -300,7 +301,7 @@ export const Layout = ({ children }: LayoutProps) => {
                   className={`flex flex-col items-center justify-center gap-0.5 text-[11px] font-medium transition-colors ${
                     active ? 'text-primary-600 dark:text-primary-400' : 'text-slate-400 dark:text-slate-500'
                   }`}>
-                  <span className={`text-lg leading-none transition-transform ${active ? 'scale-110' : 'grayscale opacity-70'}`}>{tab.icon}</span>
+                  <NavIcon name={tab.icon} className="w-5 h-5" />
                   {tab.label}
                 </Link>
               );

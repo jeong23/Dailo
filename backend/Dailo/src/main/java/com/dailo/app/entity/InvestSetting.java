@@ -43,6 +43,10 @@ public class InvestSetting extends BaseEntity {
     private Float feeRate;      // 증권사 수수료 % (매수·매도 각각)
     private Float priceBuffer;  // 주문 사이 가격이 오를 때 대비해 남겨둘 % (시장가로 사도 돈이 모자라지 않게)
 
+    // 리밸런싱 모드 — 켜면 목표 비중·테마·이번 달 할 일(매수 수량)·자산 배분 가이드를 보여줌. 끄면 보유·평가·손익 기록만
+    //  null = 아직 안 고름 → InvestService.rebalanceMode가 테마·프리셋 유무로 추정 (기존 사용자는 켜진 채로)
+    private Boolean rebalanceMode;
+
     public static final float DEFAULT_FEE_RATE = 0.015f;
     public static final float DEFAULT_PRICE_BUFFER = 0.5f;
 
@@ -56,6 +60,10 @@ public class InvestSetting extends BaseEntity {
     public void updateStrategy(Boolean allowSell, String strategyPreset) {
         if (allowSell != null) this.allowSell = allowSell;
         if (strategyPreset != null) this.strategyPreset = strategyPreset;
+    }
+
+    public void updateRebalanceMode(boolean enabled) {
+        this.rebalanceMode = enabled;
     }
 
     public void updateTaxInputs(Integer joinMonth, Boolean probation, Integer probEndMonth) {

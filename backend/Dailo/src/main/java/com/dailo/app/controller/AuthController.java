@@ -4,6 +4,7 @@ import com.dailo.app.common.ApiResponse;
 import com.dailo.app.dto.AuthDto;
 import com.dailo.app.security.CustomUserDetails;
 import com.dailo.app.security.JwtUtil;
+import com.dailo.app.service.MemberService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -20,14 +21,23 @@ public class AuthController {
 
     private final AuthenticationManager authenticationManager;
     private final JwtUtil jwtUtil;
+    private final MemberService memberService;
 
     @PostMapping("/login")
-    public ResponseEntity<ApiResponse<AuthDto.LoginResponse>> login(@RequestBody AuthDto.LoginRequest request) {
+    public ResponseEntity<ApiResponse<?>> login(@RequestBody AuthDto.LoginRequest request) {
         Authentication authentication = authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(request.getUsername(), request.getPassword())
         );
 
         CustomUserDetails userDetails = (CustomUserDetails) authentication.getPrincipal();
+        // 탈퇴 유예 중: 비밀번호가 맞을 때만 알려줌. restore=true면 되살리고 로그인
+        if (userDetails.isWithdrawn()) {
+            if (!Boolean.TRUE.equals(request.getRestore())) {
+                return ResponseEntity.status(HttpStatus.CONFLICT).body(new ApiResponse<>(false, "탈퇴 처리된 계정이에요.",
+                        new AuthDto.WithdrawnResponse("WITHDRAWN", MemberService.purgeAt(userDetails.getDeletedAt()))));
+            }
+            memberService.restore(userDetails.getMemberId());
+        }
         String token = jwtUtil.generateToken(userDetails.getMemberId(), userDetails.getUsername());
 
         return ResponseEntity.ok(ApiResponse.ok(

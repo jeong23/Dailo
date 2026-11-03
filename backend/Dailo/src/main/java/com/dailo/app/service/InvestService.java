@@ -30,14 +30,37 @@ public class InvestService {
     // ─── Setting ───────────────────────────────────────────────
 
     public InvestDto.SettingResponse getSetting(Long memberId) {
-        return settingRepo.findByMemberId(memberId)
-                .map(InvestDto.SettingResponse::from)
-                .orElse(InvestDto.SettingResponse.builder()
+        InvestSetting setting = settingRepo.findByMemberId(memberId).orElse(null);
+        return withMode(memberId, setting, setting != null ? InvestDto.SettingResponse.from(setting)
+                : InvestDto.SettingResponse.builder()
                         .monthlyBudget(0)
                         .rebalanceThreshold(5.0f)
                         .pensionLimit(6_000_000)
                         .allowSell(true)
                         .build());
+    }
+
+    private InvestDto.SettingResponse withMode(Long memberId, InvestSetting setting, InvestDto.SettingResponse r) {
+        boolean[] mode = rebalanceMode(memberId, setting);
+        return r.toBuilder().rebalanceMode(mode[0]).rebalanceModeChosen(mode[1]).build();
+    }
+
+    // 리밸런싱 모드 {켜짐, 고른 적 있음} — 안 골랐으면 테마·전략 프리셋이 있는 사용자(이미 목표 비중으로 쓰던 사람)는 켜진 걸로 보고 묻지 않음
+    //  새 사용자는 기록 모드로 시작 + 화면에서 한 번 물어봄
+    boolean[] rebalanceMode(Long memberId, InvestSetting setting) {
+        if (setting != null && setting.getRebalanceMode() != null) return new boolean[]{setting.getRebalanceMode(), true};
+        boolean inferred = (setting != null && setting.getStrategyPreset() != null)
+                || !themeRepo.findByMemberIdOrderBySortOrderAsc(memberId).isEmpty();
+        return new boolean[]{inferred, inferred};
+    }
+
+    @Transactional
+    public InvestDto.SettingResponse setRebalanceMode(Long memberId, InvestDto.RebalanceModeRequest req) {
+        if (req.getEnabled() == null) throw new IllegalArgumentException("enabled 값이 필요해요");
+        InvestSetting setting = settingRepo.findByMemberId(memberId).orElseGet(() -> settingRepo.save(InvestSetting.builder()
+                .memberId(memberId).monthlyBudget(0).rebalanceThreshold(5.0f).pensionLimit(6_000_000).build()));
+        setting.updateRebalanceMode(req.getEnabled());
+        return withMode(memberId, setting, InvestDto.SettingResponse.from(setting));
     }
 
     @Transactional
@@ -59,7 +82,7 @@ public class InvestService {
             );
             setting.updateStrategy(req.getAllowSell(), normalizePreset(req.getStrategyPreset()));
         }
-        return InvestDto.SettingResponse.from(setting);
+        return withMode(memberId, setting, InvestDto.SettingResponse.from(setting));
     }
 
     // 최신 정산월 예산에서 투자 계좌에 연결된 항목 → {계좌 id: 항목명}. 이 계좌들의 월 납입금은 예산 설정이 기준
@@ -81,7 +104,7 @@ public class InvestService {
         InvestSetting setting = settingRepo.findByMemberId(memberId).orElseGet(() -> settingRepo.save(InvestSetting.builder()
                 .memberId(memberId).monthlyBudget(0).rebalanceThreshold(5.0f).pensionLimit(6_000_000).build()));
         setting.updateTaxInputs(join, probation, probEnd);
-        return InvestDto.SettingResponse.from(setting);
+        return withMode(memberId, setting, InvestDto.SettingResponse.from(setting));
     }
 
     @Transactional
@@ -382,12 +405,14 @@ public class InvestService {
         int pensionYtd = recordRepo.sumPensionYtdActual(memberId, yearPrefix);
 
         int contributionTotal = accounts.stream().mapToInt(a -> a.contribution(budget)).sum();
+        boolean[] mode = rebalanceMode(memberId, setting);
         return InvestDto.DashboardResponse.builder()
                 .yearMonth(yearMonth).monthlyBudget(contributionTotal)
                 .rebalanceThreshold(threshold).pensionLimit(pensionLimit)
                 .allowSell(setting == null || setting.isSellAllowed())
                 .strategyPreset(setting != null ? setting.getStrategyPreset() : null)
                 .contributionDeposited(setting != null && setting.isDeposited(yearMonth))
+                .rebalanceMode(mode[0]).rebalanceModeChosen(mode[1])
                 .feeRate(setting != null ? setting.feeRateOrDefault() : InvestSetting.DEFAULT_FEE_RATE)
                 .priceBuffer(setting != null ? setting.priceBufferOrDefault() : InvestSetting.DEFAULT_PRICE_BUFFER)
                 .totalPlanned(totalPlanned).totalActual(totalActual)

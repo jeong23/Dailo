@@ -15,6 +15,7 @@ import { getCurrentSettleMonth } from '../utils/format';
 //  CASH: 현금 자산 페이지 최신 잔액 / INVEST: 투자 현황 평가금액 합계(시세 반영) / SAVINGS: 적금 현재 원금 합계 / MANUAL: 직접 입력
 //  투자 칸 안은 테마 비중(투자 설정 > 테마)으로 한 번 더 나눠 보여줌
 //  오른쪽(모바일은 목표 배분 위) 리밸런싱 가이드: 칸 사이 이동 + 투자 안 테마별 매수·줄이기 (utils/assetGuide)
+//  기록 모드(투자 설정 '목표 비중 맞추기' 꺼짐): 목표 %·가이드·테마 비중을 숨기고 칸별 금액·비중만 — 투자 방식은 사람마다 달라서
 //  꺼낼 수 있는 돈 / 묶인 돈: 현금·적금·일반·ISA vs 연금저축·IRP (계좌 종류로 판단 — utils/accountLiquidity), 직접 입력 칸은 제외
 
 interface Bucket { id?: number; name: string; kind: 'CASH' | 'INVEST' | 'SAVINGS' | 'MANUAL'; targetPct: number; manualAmount: number | null; sortOrder?: number }
@@ -49,7 +50,7 @@ export const AllocationPage = () => {
   const [themes, setThemes] = useState<{ theme: Theme; value: number }[]>([]);
   const [accountValues, setAccountValues] = useState<AccountValue[]>([]);
   // 투자 설정: 비중 맞출 때 팔기 / 리밸런싱 기준(%p) — 가이드가 '팔기' 대신 '새 돈 돌리기'로 안내할지, 테마 밴드
-  const [investPrefs, setInvestPrefs] = useState({ allowSell: true, threshold: 5 });
+  const [investPrefs, setInvestPrefs] = useState({ allowSell: true, threshold: 5, rebalance: true });
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<Bucket[] | null>(null);
   const [saving, setSaving] = useState(false);
@@ -73,7 +74,7 @@ export const AllocationPage = () => {
     }
     if (dRes.status === 'fulfilled') {
       const d = dRes.value.data.data;
-      setInvestPrefs({ allowSell: d.allowSell !== false, threshold: d.rebalanceThreshold ?? 5 });
+      setInvestPrefs({ allowSell: d.allowSell !== false, threshold: d.rebalanceThreshold ?? 5, rebalance: d.rebalanceMode !== false });
       const quotes = qRes.status === 'fulfilled' ? qRes.value.data.data?.quotes || {} : {};
       const holdings: Holding[] = (d.accounts || []).flatMap((a: any) => a.holdings);
       setInvestTotal(holdings.reduce((s, h) => s + holdingValue(h, quotes), 0));
@@ -108,13 +109,19 @@ export const AllocationPage = () => {
     { band: BUCKET_BAND, themeBand: investPrefs.threshold, allowSell: investPrefs.allowSell },
   );
 
+  const rebalance = investPrefs.rebalance;
   const editSum = editing?.reduce((s, b) => s + (b.targetPct || 0), 0) ?? 0;
-  const editErr = editing && (Math.abs(editSum - 100) > 0.1 ? `목표 합계가 ${editSum.toFixed(1)}%예요` : editing.some(b => !b.name.trim()) ? '이름 없는 칸이 있어요' : null);
+  const editErr = editing && (rebalance && Math.abs(editSum - 100) > 0.1 ? `목표 합계가 ${editSum.toFixed(1)}%예요` : editing.some(b => !b.name.trim()) ? '이름 없는 칸이 있어요' : null);
   const save = async () => {
     if (!editing || editErr) return;
     setSaving(true);
     try {
-      const r = await api.post('/assets/buckets', editing.map((b, i) => ({ ...b, name: b.name.trim(), sortOrder: i })));
+      // 기록 모드는 목표 % 칸이 없음 — 서버는 합계 100을 요구하니 칸을 빼고 더해 어긋났으면 균등으로 채움
+      const even = editing.length > 0 && Math.abs(editSum - 100) > 0.1 ? Math.floor(1000 / editing.length) / 10 : null;
+      const r = await api.post('/assets/buckets', editing.map((b, i) => ({
+        ...b, name: b.name.trim(), sortOrder: i,
+        targetPct: even == null ? b.targetPct : i === 0 ? Math.round((100 - even * (editing.length - 1)) * 10) / 10 : even,
+      })));
       setBuckets(r.data.data);
       setEditing(null);
       show('저장했어요');
@@ -133,7 +140,7 @@ export const AllocationPage = () => {
         </div>
         <button onClick={() => setEditing(buckets.map(b => ({ ...b })))}
           className="h-11 px-4 rounded-full bg-white dark:bg-dark-card shadow-[0_1px_8px_rgba(0,0,0,0.06)] dark:shadow-none text-sm font-medium text-slate-600 dark:text-slate-300 hover:text-primary-600">
-          목표·금액 수정
+          {rebalance ? '목표·금액 수정' : '칸·금액 수정'}
         </button>
       </div>
 
@@ -141,7 +148,7 @@ export const AllocationPage = () => {
         <div className={`${CARD} h-64 animate-pulse`} />
       ) : (
         // xl: 왼쪽 자산·목표 배분 / 오른쪽 sticky 가이드. 모바일 순서: 요약 → 가이드 → 목표 배분 (grid-cols-1 필수 — 가로 스크롤 방지)
-        <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_360px] gap-5 items-start">
+        <div className={`grid grid-cols-1 gap-5 items-start ${rebalance ? 'xl:grid-cols-[minmax(0,1fr)_360px]' : ''}`}>
           <div className="space-y-5 min-w-0 xl:col-start-1">
           {/* 전체 자산 + 도넛 */}
           <section className={`${CARD} p-5 sm:p-6`}>
@@ -168,7 +175,7 @@ export const AllocationPage = () => {
                       <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: BUCKET_COLORS[i % BUCKET_COLORS.length] }} />
                       <span className="flex-1 truncate text-slate-600 dark:text-slate-300">{b.name}</span>
                       <span className="tabular-nums font-semibold text-slate-800 dark:text-dark-text">{cur.toFixed(1)}%</span>
-                      <span className="tabular-nums text-xs text-slate-400 w-12 text-right">{b.targetPct}%</span>
+                      {rebalance && <span className="tabular-nums text-xs text-slate-400 w-12 text-right">{b.targetPct}%</span>}
                     </li>
                   );
                 })}
@@ -220,16 +227,18 @@ export const AllocationPage = () => {
 
           </div>
 
+          {rebalance && (
           <div className="min-w-0 xl:col-start-2 xl:row-start-1 xl:row-span-2 xl:sticky xl:top-4">
             <AssetGuidePanel guide={guide} band={BUCKET_BAND} themeBand={investPrefs.threshold} allowSell={investPrefs.allowSell}
               themeOrder={themes.map(t => t.theme.id)} hasThemes={themes.length > 0} />
           </div>
+          )}
 
           {/* 목표 배분 — 칸별 현재 vs 목표, 얼마나 옮겨야 하는지 */}
           <section className="space-y-3 min-w-0 xl:col-start-1">
             <div className="flex items-end justify-between gap-2 px-1 pt-2">
-              <h2 className="text-base font-semibold text-slate-800 dark:text-dark-text">목표 배분</h2>
-              <p className="text-xs text-slate-400">목표 대비 모자람·넘침</p>
+              <h2 className="text-base font-semibold text-slate-800 dark:text-dark-text">{rebalance ? '목표 배분' : '칸별 자산'}</h2>
+              <p className="text-xs text-slate-400">{rebalance ? '목표 대비 모자람·넘침' : '전체 자산 대비 비중'}</p>
             </div>
             {buckets.map((b, i) => {
               const amount = amountOf(b);
@@ -247,9 +256,9 @@ export const AllocationPage = () => {
                   <div className="mt-2 flex items-end justify-between gap-3">
                     <div className="min-w-0">
                       <p className="text-2xl font-bold tabular-nums text-slate-900 dark:text-dark-text truncate">{fmt(amount)}원</p>
-                      <p className="text-xs text-slate-400 tabular-nums">현재 {cur.toFixed(1)}% · 목표 {b.targetPct}%</p>
+                      <p className="text-xs text-slate-400 tabular-nums">현재 {cur.toFixed(1)}%{rebalance && ` · 목표 ${b.targetPct}%`}</p>
                     </div>
-                    {total > 0 && !missing && Math.abs(gap) >= 1 && (
+                    {rebalance && total > 0 && !missing && Math.abs(gap) >= 1 && (
                       <p className={`text-sm font-semibold tabular-nums shrink-0 ${gap > 0 ? 'text-rose-500' : 'text-blue-500'}`}>
                         {gap > 0 ? `${fmt(gap)}원 부족` : `${fmt(-gap)}원 초과`}
                       </p>
@@ -257,7 +266,7 @@ export const AllocationPage = () => {
                   </div>
                   <div className="relative mt-3 h-2 rounded-full bg-slate-100 dark:bg-slate-800">
                     <div className="absolute inset-y-0 left-0 rounded-full" style={{ width: `${Math.min(cur, 100)}%`, background: color }} />
-                    <div className="absolute -top-1 -bottom-1 w-0.5 bg-slate-500 dark:bg-slate-300" style={{ left: `${Math.min(b.targetPct, 100)}%` }} />
+                    {rebalance && <div className="absolute -top-1 -bottom-1 w-0.5 bg-slate-500 dark:bg-slate-300" style={{ left: `${Math.min(b.targetPct, 100)}%` }} />}
                   </div>
                   {missing && (
                     <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
@@ -266,7 +275,7 @@ export const AllocationPage = () => {
                         : <>금액이 비어 있어요 — 위의 '목표·금액 수정'에서 입력</>}
                     </p>
                   )}
-                  {b.kind === 'INVEST' && (
+                  {b.kind === 'INVEST' && rebalance && (
                     <div className="mt-3 pt-3 border-t border-slate-100 dark:border-dark-border/60">
                       {themes.length > 0 ? (
                         <>
@@ -292,6 +301,9 @@ export const AllocationPage = () => {
                       )}
                     </div>
                   )}
+                  {b.kind === 'INVEST' && !rebalance && (
+                    <Link to="/invest" className="mt-2 inline-block text-xs font-medium text-primary-500 min-h-[32px] leading-8">투자 현황 →</Link>
+                  )}
                   {b.kind === 'CASH' && (
                     <Link to="/cash" className="mt-2 inline-block text-xs font-medium text-primary-500 min-h-[32px] leading-8">현금 자산 →</Link>
                   )}
@@ -310,7 +322,7 @@ export const AllocationPage = () => {
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setEditing(null)}>
           <div className="bg-white dark:bg-dark-card w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl shadow-2xl max-h-[92vh] flex flex-col" onClick={e => e.stopPropagation()}>
             <div className="px-6 pt-5 pb-3 flex items-center justify-between gap-3">
-              <h3 className="text-lg font-bold text-slate-900 dark:text-dark-text">목표·금액 수정</h3>
+              <h3 className="text-lg font-bold text-slate-900 dark:text-dark-text">{rebalance ? '목표·금액 수정' : '칸·금액 수정'}</h3>
               <button onClick={() => setEditing(null)} aria-label="닫기" className="w-11 h-11 -mr-2 rounded-full text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 text-xl">×</button>
             </div>
             <div className="px-6 overflow-y-auto flex-1 space-y-3 pb-3">
@@ -320,10 +332,10 @@ export const AllocationPage = () => {
                     <div className={`${FIELD} flex-1 bg-white`}>
                       <input value={b.name} maxLength={50} placeholder="이름 (예: 부동산)" onChange={e => patch(i, { name: e.target.value })} className={FIELD_INPUT} />
                     </div>
-                    <div className={`${FIELD} w-24 bg-white`}>
+                    {rebalance && <div className={`${FIELD} w-24 bg-white`}>
                       <input inputMode="decimal" value={b.targetPct} onChange={e => patch(i, { targetPct: parseFloat(e.target.value) || 0 })} className={`${FIELD_INPUT} text-right`} />
                       <span className="text-xs text-slate-400 ml-1">%</span>
-                    </div>
+                    </div>}
                     <button onClick={() => setEditing(prev => prev && prev.filter((_, idx) => idx !== i))} aria-label="삭제"
                       className="w-11 h-11 shrink-0 rounded-xl text-slate-300 hover:text-rose-500 text-lg">×</button>
                   </div>
@@ -348,7 +360,7 @@ export const AllocationPage = () => {
                 className="w-full h-11 rounded-xl border border-dashed border-slate-300 dark:border-dark-border text-sm font-medium text-slate-500">+ 칸 추가</button>
             </div>
             <div className="px-6 py-4 border-t border-slate-100 dark:border-dark-border/60 flex items-center gap-3 pb-[calc(1rem+env(safe-area-inset-bottom))]">
-              <p className={`flex-1 text-xs ${editErr ? 'text-rose-500' : 'text-slate-400'}`}>{editErr ?? `목표 합계 ${editSum.toFixed(1)}%`}</p>
+              <p className={`flex-1 text-xs ${editErr ? 'text-rose-500' : 'text-slate-400'}`}>{editErr ?? (rebalance ? `목표 합계 ${editSum.toFixed(1)}%` : '칸 이름과 직접 입력 금액만 바꿔요')}</p>
               <button onClick={save} disabled={!!editErr || saving}
                 className="h-12 px-6 rounded-xl bg-primary-600 text-white text-sm font-bold disabled:opacity-40">{saving ? '저장 중...' : '저장'}</button>
             </div>

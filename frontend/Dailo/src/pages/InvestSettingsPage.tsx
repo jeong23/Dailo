@@ -136,6 +136,9 @@ export const InvestSettingsPage = ({ embedded = false }: { embedded?: boolean })
   const [themes, setThemes] = useState<ThemeRow[]>([]);
   const [strategy, setStrategy] = useState<Strategy>({ allowSell: true, preset: null });
   const [quiz, setQuiz] = useState<PresetAnswers | null>(null); // 전략 질문 패널 (null = 닫힘)
+  // 목표 비중 맞추기(리밸런싱 모드) — 끄면 기록만: 전략·테마·종목 % 입력을 숨김. 저장바 없이 바로 저장
+  const [rebalance, setRebalance] = useState(true);
+  const [savingMode, setSavingMode] = useState(false);
   const { toast, show } = useToast();
 
   // 세액공제 추천 — 회원의 최신 실수령액(월별 예산) + 서버에 저장된 계산기 입력으로 여기서 직접 계산
@@ -161,6 +164,7 @@ export const InvestSettingsPage = ({ embedded = false }: { embedded?: boolean })
         p = s.pensionLimit ? s.pensionLimit.toLocaleString() : '6,000,000';
         t = s.rebalanceThreshold != null ? String(s.rebalanceThreshold) : '5';
         st = { allowSell: s.allowSell !== false, preset: s.strategyPreset ?? null };
+        setRebalance(s.rebalanceMode !== false);
       }
       if (aRes.status === 'fulfilled') a = withThemeKeys(aRes.value.data.data || []);
       if (tRes.status === 'fulfilled') th = toThemeRows(tRes.value.data.data || []);
@@ -203,6 +207,22 @@ export const InvestSettingsPage = ({ embedded = false }: { embedded?: boolean })
       : `'${PRESETS[preset].name}'을 적용했어요 — 저장을 눌러야 반영돼요`);
   };
   const useThemes = themes.length > 0;   // 테마가 있으면 계좌 안 종목 %는 안 씀 (리밸런싱은 테마 기준)
+  const holdingPctOff = useThemes || !rebalance; // 기록 모드도 종목 %를 안 씀 — 저장 때 균등으로 채움
+  const toggleRebalance = async () => {
+    const next = !rebalance;
+    setRebalance(next);
+    setSavingMode(true);
+    try {
+      await api.put('/invest/setting/rebalance-mode', { enabled: next });
+      if (!next && activeTab === 'themes') setActiveTab('basic');
+      show(next ? '목표 비중 맞추기를 켰어요 — 투자 현황에 이번 달 할 일이 나와요' : '기록 모드로 바꿨어요 — 보유·평가금액·손익만 보여요');
+    } catch (e: any) {
+      setRebalance(!next);
+      show(e?.response?.data?.message || '저장하지 못했어요', 'error');
+    } finally {
+      setSavingMode(false);
+    }
+  };
   const themeSum = themes.reduce((s, t) => s + (t.targetPct || 0), 0);
   const themeOf = (h: Holding) => themes.find(t => t.key === h.themeKey) ?? null;
   // 예수금·펀드처럼 종목코드 없이 금액으로 입력하는 줄 — 현금성 테마이거나, 테마 없이 '금액으로 입력'을 고른 줄
@@ -216,17 +236,17 @@ export const InvestSettingsPage = ({ embedded = false }: { embedded?: boolean })
     const sum = acc.holdings.reduce((s, h) => s + (h.targetPct || 0), 0);
     const name = acc.name.trim() || `${i + 1}번째 계좌`;
     if (!acc.name.trim()) errors.push(`${i + 1}번째 계좌 이름을 입력해주세요`);
-    if (!useThemes && acc.holdings.length > 0 && !isHundred(sum)) errors.push(`${name} 종목 비중 합계가 ${sum.toFixed(1)}%예요`);
+    if (!holdingPctOff && acc.holdings.length > 0 && !isHundred(sum)) errors.push(`${name} 종목 비중 합계가 ${sum.toFixed(1)}%예요`);
     if (acc.holdings.some(h => !h.ticker.trim())) errors.push(`${name}에 이름 없는 종목이 있어요`);
     acc.holdings
       .filter(h => h.stockCode && !/^[0-9A-Za-z]{6}$/.test(h.stockCode))
       .forEach(h => errors.push(`${h.ticker.trim() || '종목'} 종목코드는 6자리예요`));
     duplicateCodes(acc.holdings).forEach(c => errors.push(`${name}에 종목코드 ${c}가 두 줄 있어요 — 한 줄로 합쳐주세요`));
   });
-  if (useThemes && !isHundred(themeSum)) errors.push(`테마 비중 합계가 ${themeSum.toFixed(1)}%예요`);
-  if (themes.some(t => !t.name.trim())) errors.push('이름 없는 테마가 있어요');
+  if (rebalance && useThemes && !isHundred(themeSum)) errors.push(`테마 비중 합계가 ${themeSum.toFixed(1)}%예요`);
+  if (rebalance && themes.some(t => !t.name.trim())) errors.push('이름 없는 테마가 있어요');
   const threshold = parseFloat(thresholdInput);
-  if (isNaN(threshold) || threshold <= 0) errors.push('리밸런싱 기준을 입력해주세요');
+  if (rebalance && (isNaN(threshold) || threshold <= 0)) errors.push('리밸런싱 기준을 입력해주세요');
 
   // ── 테마 편집 ──
   const newKey = () => `new:${Math.random().toString(36).slice(2, 9)}`;
@@ -350,7 +370,7 @@ export const InvestSettingsPage = ({ embedded = false }: { embedded?: boolean })
     try {
       await api.post('/invest/setting', {
         monthlyBudget: parseNum(budgetInput),
-        rebalanceThreshold: threshold,
+        rebalanceThreshold: isNaN(threshold) || threshold <= 0 ? 5 : threshold,
         pensionLimit: parseNum(pensionInput),
         allowSell: strategy.allowSell,
         strategyPreset: strategy.preset,
@@ -362,14 +382,14 @@ export const InvestSettingsPage = ({ embedded = false }: { embedded?: boolean })
       themes.forEach((t, i) => { if (savedThemes[i]?.id) idByKey[t.key] = savedThemes[i].id!; });
 
       const accountsPayload = accounts.map((a, si) => {
-        // 테마로 관리하면 계좌 안 종목 %는 의미 없음 → 균등으로 맞춰 둠 (이달 납입 계획 계산용)
+        // 테마로 관리하거나 기록 모드면 계좌 안 종목 %는 의미 없음 → 균등으로 맞춰 둠 (이달 납입 계획 계산용)
         const n = a.holdings.length;
         const even = n > 0 ? Math.floor(1000 / n) / 10 : 0;
         return {
           ...a, sortOrder: si,
           holdings: a.holdings.map(priceOnlyToAmount).map((h, hi) => ({
             id: h.id, ticker: h.ticker, sortOrder: hi,
-            targetPct: useThemes ? (hi === 0 ? Math.round((100 - even * (n - 1)) * 10) / 10 : even) : h.targetPct,
+            targetPct: holdingPctOff ? (hi === 0 ? Math.round((100 - even * (n - 1)) * 10) / 10 : even) : h.targetPct,
             avgPurchasePrice: h.avgPurchasePrice, shares: h.shares, stockCode: h.stockCode,
             themeId: h.themeKey ? idByKey[h.themeKey] ?? null : null,
             manualValue: h.manualValue ?? null,
@@ -389,11 +409,11 @@ export const InvestSettingsPage = ({ embedded = false }: { embedded?: boolean })
     }
   };
 
-  const TABS = [
+  const TABS = ([
     { key: 'basic', label: '기본 설정' },
     { key: 'themes', label: '테마' },
     { key: 'accounts', label: '계좌 & 종목' },
-  ] as const;
+  ] as const).filter(t => rebalance || t.key !== 'themes');
 
   return (
     <div className="space-y-5 max-w-3xl">
@@ -425,8 +445,25 @@ export const InvestSettingsPage = ({ embedded = false }: { embedded?: boolean })
       {/* ── 기본 설정 탭 ── */}
       {activeTab === 'basic' && (
         <div className="space-y-4">
+          {/* 목표 비중 맞추기 — 투자 방식은 사람마다 달라서 기본은 기록만, 원하는 사람만 켬 */}
+          <section className={`${CARD} p-4 sm:p-5 flex items-center gap-4`}>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-slate-800 dark:text-dark-text">목표 비중 맞추기</p>
+              <p className="text-xs text-slate-400 mt-0.5">
+                {rebalance
+                  ? '켜짐 — 내가 정한 목표 비중·테마로 이번 달 사고팔 수량을 계산해요'
+                  : '꺼짐 — 보유 종목·평가금액·손익만 기록해요. 목표 비중을 정해 두고 맞추는 분만 켜세요'}
+              </p>
+            </div>
+            <button type="button" role="switch" aria-checked={rebalance} aria-label="목표 비중 맞추기"
+              onClick={toggleRebalance} disabled={savingMode}
+              className={`relative w-12 h-7 shrink-0 rounded-full transition-colors disabled:opacity-50 ${rebalance ? 'bg-primary-600' : 'bg-slate-300 dark:bg-slate-600'}`}>
+              <span className={`absolute top-1 left-1 w-5 h-5 rounded-full bg-white shadow transition-transform ${rebalance ? 'translate-x-5' : ''}`} />
+            </button>
+          </section>
+
           {/* 투자 전략: 프리셋 = 납입 정책 + 매도 허용 + 계좌 목적을 한 번에 채우는 출발점 */}
-          <section className={`${CARD} p-4 sm:p-5 space-y-3`}>
+          {rebalance && <section className={`${CARD} p-4 sm:p-5 space-y-3`}>
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-sm font-semibold text-slate-800 dark:text-dark-text">투자 전략</p>
@@ -483,7 +520,7 @@ export const InvestSettingsPage = ({ embedded = false }: { embedded?: boolean })
               ))}
             </div>
             <p className="text-[11px] text-slate-400">프리셋은 출발점이에요 — 적용 후 계좌별 납입금·매도 허용을 따로 바꿀 수 있어요. 종목은 추천하지 않아요.</p>
-          </section>
+          </section>}
 
           <section className={`${CARD} divide-y divide-slate-100 dark:divide-dark-border/60`}>
             {/* 설정 행: 왼쪽 라벨·설명 / 오른쪽 입력 (토스 설정 화면 구조) */}
@@ -503,6 +540,7 @@ export const InvestSettingsPage = ({ embedded = false }: { embedded?: boolean })
                 <span className="text-xs text-slate-400 ml-1">원</span>
               </div>
             </div>
+            {rebalance && <>
             <div className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-6">
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-slate-800 dark:text-dark-text">리밸런싱 기준</p>
@@ -536,6 +574,7 @@ export const InvestSettingsPage = ({ embedded = false }: { embedded?: boolean })
                 <span className={`absolute top-1 left-1 w-5 h-5 rounded-full bg-white shadow transition-transform ${strategy.allowSell ? 'translate-x-5' : ''}`} />
               </button>
             </div>
+            </>}
             <div className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-6">
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-slate-800 dark:text-dark-text">연금 세액공제 한도</p>
@@ -596,7 +635,7 @@ export const InvestSettingsPage = ({ embedded = false }: { embedded?: boolean })
       )}
 
       {/* ── 테마 탭: 투자 자산을 테마로 나눈 목표 비중 ── */}
-      {activeTab === 'themes' && (
+      {activeTab === 'themes' && rebalance && (
         <div className="space-y-4">
           {themes.length === 0 ? (
             <section className={`${CARD} p-5 sm:p-6 space-y-3`}>
@@ -804,9 +843,9 @@ export const InvestSettingsPage = ({ embedded = false }: { embedded?: boolean })
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2 min-w-0">
                       <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">종목 {acc.holdings.length}개</p>
-                      <SumLabel label="" sum={holdingSum} show={!useThemes && acc.holdings.length > 0} />
+                      <SumLabel label="" sum={holdingSum} show={!holdingPctOff && acc.holdings.length > 0} />
                     </div>
-                    {!useThemes && acc.holdings.length > 1 && (
+                    {!holdingPctOff && acc.holdings.length > 1 && (
                       <button onClick={() => splitEvenly(ai)} className="text-xs text-primary-500 hover:text-primary-600 font-medium min-h-[32px] shrink-0">균등 분배</button>
                     )}
                   </div>
@@ -819,7 +858,7 @@ export const InvestSettingsPage = ({ embedded = false }: { embedded?: boolean })
                         className="shrink-0 h-11 sm:h-9 px-3.5 rounded-full bg-amber-500 hover:bg-amber-600 text-white text-xs font-semibold">한 줄로 합치기</button>
                     </div>
                   )}
-                  {!useThemes && acc.holdings.length > 0 && (
+                  {!holdingPctOff && acc.holdings.length > 0 && (
                     <AllocationBar items={acc.holdings.map((h, hi) => ({ key: hi, pct: h.targetPct, color: SEGMENT_COLORS[(ai + hi + 1) % SEGMENT_COLORS.length] }))} />
                   )}
 
@@ -833,7 +872,7 @@ export const InvestSettingsPage = ({ embedded = false }: { embedded?: boolean })
                             <input type="text" value={h.ticker} placeholder="종목명 (예: TIGER 미국S&P500)"
                               onChange={e => updateHolding(ai, hi, 'ticker', e.target.value)} className={FIELD_INPUT} />
                           </div>
-                          {!useThemes && (
+                          {!holdingPctOff && (
                             <div className={`${FIELD} w-20 shrink-0`}>
                               <input type="text" inputMode="decimal" value={h.targetPct}
                                 onChange={e => updateHolding(ai, hi, 'targetPct', parseFloat(e.target.value) || 0)}
@@ -844,7 +883,7 @@ export const InvestSettingsPage = ({ embedded = false }: { embedded?: boolean })
                           <button onClick={() => removeHolding(ai, hi)} aria-label="종목 삭제"
                             className="w-11 h-11 shrink-0 rounded-xl text-slate-300 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 text-lg transition-colors">×</button>
                         </div>
-                        {useThemes && (
+                        {useThemes && rebalance && (
                           <label className={`${FIELD} ml-3`}>
                             <span className="text-xs text-slate-400 mr-2 shrink-0">테마</span>
                             <select value={h.themeKey ?? ''} onChange={e => updateHolding(ai, hi, 'themeKey', e.target.value || null)}
@@ -905,8 +944,8 @@ export const InvestSettingsPage = ({ embedded = false }: { embedded?: boolean })
                         {!isAmountRow(h) && (
                         <div className="flex items-center justify-between gap-2 pl-3">
                           <p className="text-[11px] text-slate-400 tabular-nums min-w-0">
-                            {!useThemes && budget > 0 && `매달 ${Math.round(holdingAmount).toLocaleString()}원 납입`}
-                            {!useThemes && budget > 0 && h.avgPurchasePrice && h.shares ? ' · ' : ''}
+                            {!holdingPctOff && budget > 0 && `매달 ${Math.round(holdingAmount).toLocaleString()}원 납입`}
+                            {!holdingPctOff && budget > 0 && h.avgPurchasePrice && h.shares ? ' · ' : ''}
                             {h.avgPurchasePrice && h.shares ? `원금 ${Math.round(h.avgPurchasePrice * h.shares).toLocaleString()}원` : ''}
                           </p>
                           <div className="flex items-center gap-3 shrink-0">

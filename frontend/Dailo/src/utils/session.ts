@@ -9,7 +9,7 @@ export const REFRESH_WHEN_LEFT_MS = 30 * 60 * 1000;  // 토큰 남은 시간이 
 const ACTIVITY_KEY = 'lastActivity';
 const REASON_KEY = 'logoutReason';
 
-export type LogoutReason = 'timeout' | 'expired';
+export type LogoutReason = 'timeout' | 'expired' | 'withdrawn';
 
 export const markActivity = (now = Date.now()) => {
   try { localStorage.setItem(ACTIVITY_KEY, String(now)); } catch {}

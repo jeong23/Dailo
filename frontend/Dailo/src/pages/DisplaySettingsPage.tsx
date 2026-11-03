@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { WithdrawSection } from '../components/WithdrawSection';
 import { PRESETS, ColorTheme, ThemeMode, resolveColors, rgbToHex, setColorTheme, setThemeMode, useTheme } from '../utils/theme';
 
 const MODES: { id: ThemeMode; label: string; icon: string }[] = [
@@ -142,6 +143,8 @@ export const DisplaySettingsPage = () => {
           고른 색은 글자가 잘 읽히도록 밝기를 조금 옮겨 씁니다. 사이드바색은 다크 모드 기준이고, 라이트 모드에선 옅게 깔려요.
         </p>
       </section>
+
+      <WithdrawSection className={card} />
     </div>
   );
 };

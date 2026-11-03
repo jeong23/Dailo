@@ -1,7 +1,13 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import api from '../api/axios';
 import { markActivity, takeLogoutReason } from '../utils/session';
+
+// "2026-12-03T11:20:00" → "2026년 12월 3일"
+const formatPurgeDate = (iso: string) => {
+  const [y, m, d] = iso.slice(0, 10).split('-').map(Number);
+  return `${y}년 ${m}월 ${d}일`;
+};
 
 export const LoginPage = () => {
   const navigate = useNavigate();
@@ -10,21 +16,23 @@ export const LoginPage = () => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  // 탈퇴 유예 중 계정 — 서버가 비밀번호 확인 후 409로 알려줌. 복구하면 restore:true로 다시 로그인
+  const [withdrawnUntil, setWithdrawnUntil] = useState<string | null>(null);
   // 자동 로그아웃으로 왔으면 이유 안내 (한 번 읽고 지움)
   const [notice] = useState(() => {
     const reason = takeLogoutReason();
     if (reason === 'timeout') return '1시간 동안 사용하지 않아 자동 로그아웃됐어요. 다시 로그인해 주세요.';
     if (reason === 'expired') return '로그인이 만료됐어요. 다시 로그인해 주세요.';
+    if (reason === 'withdrawn') return '탈퇴 처리됐어요. 30일 안에 다시 로그인하면 계정을 복구할 수 있어요.';
     return '';
   });
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const login = async (restore = false) => {
     setError('');
     setLoading(true);
 
     try {
-      const res = await api.post('/auth/login', { username: username.trim(), password });
+      const res = await api.post('/auth/login', { username: username.trim(), password, restore });
       const { token, memberId, name, salaryDay } = res.data.data;
 
       localStorage.setItem('token', token);
@@ -36,13 +44,21 @@ export const LoginPage = () => {
       navigate('/', { replace: true });
     } catch (err: any) {
       const status = err?.response?.status;
-      if (!err?.response) setError('서버에 연결할 수 없습니다. 네트워크(Tailscale) 연결을 확인하세요.');
+      const withdrawn = err?.response?.data?.data;
+      if (status === 409 && withdrawn?.code === 'WITHDRAWN') setWithdrawnUntil(withdrawn.purgeAt);
+      else if (!err?.response) setError('서버에 연결할 수 없습니다. 네트워크(Tailscale) 연결을 확인하세요.');
       // 백엔드가 인증 실패(BadCredentialsException)를 500으로 반환하므로 500도 계정 오류로 안내
       else if (status === 401 || status === 400 || status === 500) setError('아이디 또는 비밀번호가 올바르지 않습니다.');
       else setError(`서버 오류가 발생했습니다. (${status})`);
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setWithdrawnUntil(null);
+    login();
   };
 
   return (
@@ -62,9 +78,9 @@ export const LoginPage = () => {
         <div className="bg-white dark:bg-dark-card rounded-3xl shadow-[0_4px_24px_rgba(0,0,0,0.08)] dark:shadow-none p-8">
           <h1 className="text-xl font-bold text-slate-900 dark:text-dark-text mb-6">로그인</h1>
 
-          {notice && !error && (
+          {notice && !error && !withdrawnUntil && (
             <p role="status" className="mb-5 rounded-2xl bg-amber-50 dark:bg-amber-900/20 px-4 py-3 text-sm font-medium text-amber-700 dark:text-amber-300">
-              ⏰ {notice}
+              {notice}
             </p>
           )}
 
@@ -129,6 +145,19 @@ export const LoginPage = () => {
               <p className="text-sm text-red-500 dark:text-red-400 font-medium">{error}</p>
             )}
 
+            {withdrawnUntil && (
+              <div role="alert" className="rounded-2xl bg-amber-50 dark:bg-amber-900/20 px-4 py-3 space-y-2">
+                <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">탈퇴 처리된 계정이에요</p>
+                <p className="text-xs text-amber-700 dark:text-amber-300">
+                  {formatPurgeDate(withdrawnUntil)}에 모든 기록이 삭제돼요. 그 전에는 지금 바로 복구할 수 있어요.
+                </p>
+                <button type="button" onClick={() => login(true)} disabled={loading}
+                  className="w-full min-h-[44px] rounded-xl bg-amber-500 text-white text-sm font-bold hover:bg-amber-600 disabled:opacity-60 transition-colors">
+                  계정 복구하고 로그인
+                </button>
+              </div>
+            )}
+
             <button
               type="submit"
               disabled={loading}
@@ -137,6 +166,13 @@ export const LoginPage = () => {
               {loading ? '로그인 중...' : '로그인'}
             </button>
           </form>
+
+          <p className="mt-5 text-center text-sm text-slate-500 dark:text-slate-400">
+            계정이 없나요?{' '}
+            <Link to="/signup" className="inline-flex items-center min-h-[44px] font-semibold text-primary-600 dark:text-primary-400 hover:underline">
+              회원가입
+            </Link>
+          </p>
         </div>
       </div>
     </div>

@@ -7,7 +7,6 @@ import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -31,7 +30,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             String token = header.substring(7);
             if (jwtUtil.validateToken(token)) {
                 String username = jwtUtil.getUsername(token);
-                UserDetails userDetails = userDetailsService.loadUserByUsername(username);
+                CustomUserDetails userDetails = (CustomUserDetails) userDetailsService.loadUserByUsername(username);
+                if (userDetails.isWithdrawn()) { // 탈퇴한 회원의 남은 토큰은 무효 — 인증 없이 통과시켜 401
+                    chain.doFilter(request, response);
+                    return;
+                }
 
                 UsernamePasswordAuthenticationToken auth =
                         new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());

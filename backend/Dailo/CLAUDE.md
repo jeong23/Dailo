@@ -85,10 +85,21 @@ com.dailo.app
   → MonthlyBudget.emergencyCumulative 필드는 사용하지 않음 (프론트에서 전송 안 함)
 
 ## MemberService 규칙
-- create(): BCrypt 인코딩, salaryDay 기본값 25
+- create(): BCrypt 인코딩, salaryDay 기본값 25, role은 항상 USER
+  → 입력 검증(2026-11-03, 프론트 SignupPage와 같은 규칙): 아이디 trim+소문자 `^[a-z0-9_]{4,20}$`, 비밀번호 영문+숫자 8~64자, 이름 1~30자, 월급일 1~31 — 테스트 MemberSignupTest
 - update(): null 필드는 기존 값 유지 (부분 업데이트 안전) — 프론트에서 salaryDay만 보낼 수 있음
 - 로그인 응답(AuthDto.LoginResponse): token, memberId, name, salaryDay 포함
 - 로그인 후 프론트 localStorage: token, memberId, memberName, salaryDay 저장
+
+## 회원 탈퇴 (2026-11-03 — 30일 유예 후 파기)
+- DELETE /members/{id} = member.deletedAt 기록만 (MemberService.withdraw). 데이터는 그대로, data = 삭제 예정 시각
+  → JwtAuthenticationFilter가 탈퇴 회원 토큰을 인증 안 함(401). 로그인은 비밀번호 확인 **후** 409 {code: WITHDRAWN, purgeAt}, body restore:true면 복구 후 로그인
+  → CustomUserDetails.isEnabled()로 막지 말 것 — DaoAuthenticationProvider가 비밀번호 확인 전에 걸러 탈퇴 여부가 드러나고 복구도 못 함
+- MemberPurgeJob(매일 04:30 KST, @EnableScheduling) → deletedAt 30일 지난 회원마다 MemberPurgeService.purge (회원별 트랜잭션)
+  → JdbcTemplate DELETE: CHILD_TABLES(member_id 없는 자식, FK 순서) 먼저 → MEMBER_TABLES → member
+  → **새 회원 데이터 테이블을 만들면 MemberPurgeService 목록에 추가** — MemberPurgeServiceTest가 엔티티 스캔으로 누락을 잡음
+  → 업로드 이미지 파일(R2·로컬)은 아직 안 지움 — DB 행만 삭제
+- 탈퇴 유예 중에도 username은 사용 중 (같은 아이디로 재가입 불가)
 
 ## IDOR 회원 범위 규칙 (2026-10-29)
 - daily_expense엔 member 컬럼이 없음 → 소유자 = monthlyBudget.member. 월 기준 쿼리는 `e.monthlyBudget.member.id = :memberId` 필수
@@ -106,6 +117,8 @@ com.dailo.app
   → 단독 변경 PATCH /api/invest/accounts/{id}/active {active} — 소유자 아니면 not-found와 같은 메시지
 - invest_account.purpose(RETIRE/HOUSE/WEDDING/OTHER) / target_date('YYYY-MM') — null = 미정, 서버에서 형식 검증
 - invest_setting.allow_sell(null=true) / strategy_preset(LIQUIDITY/TAX/EQUAL/CUSTOM) — updateStrategy는 null이면 기존 값 유지
+- invest_setting.rebalance_mode(2026-11-03): 목표 비중 맞추기 켜짐/꺼짐(기록 모드). null = 안 고름 → InvestService.rebalanceMode가 테마 있거나 strategy_preset 있으면 켜짐+고른 걸로(기존 사용자 그대로), 아니면 꺼짐+미선택
+  → SettingResponse·DashboardResponse의 rebalanceMode / rebalanceModeChosen, 변경은 PUT /invest/setting/rebalance-mode {enabled}
 - GET /invest/accounts 의 linkedBudgetLabel = 최신 정산월 예산에서 그 계좌에 연결된 항목명 (InvestService.budgetLinkedLabels)
 - budget_allocation_item.invest_account_id: 예산 항목 ↔ 투자 계좌. **최신 정산월 예산** 저장 때만 그 금액을 계좌 monthly_amount로 동기화 (syncInvestContributions)
 
@@ -202,6 +215,7 @@ com.dailo.app
 - Spring Boot 재시작은 수동으로 별도 진행
 
 ## 과거 실수 기록
+- 회원 삭제가 cash_asset만 지우고 나머지 회원 데이터 테이블 23개를 고아로 남겼음 (2026-11-03) → 30일 유예 + MemberPurgeService 일괄 파기로 교체
 - 가입(POST /members)·회원 수정 body의 role을 그대로 저장해 누구나 ADMIN이 될 수 있었음 (2026-11-02) → 항상 USER, 수정은 기존 role 유지. 관리자는 DB에서만
   → CustomUserDetails.admin(role=ADMIN) — 카테고리 생성·수정·삭제는 admin만 (AccessDeniedException → 403, GlobalExceptionHandler)
 - MonthlyBudget.livingCarryover·cardGoal null이면 대시보드 summary 500(언박싱) → 생성 시 0 기본값 + 조회 null 가드

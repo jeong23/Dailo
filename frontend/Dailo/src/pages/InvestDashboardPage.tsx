@@ -51,6 +51,8 @@ interface Dashboard {
   allowSell: boolean; strategyPreset: string | null;
   contributionDeposited?: boolean; // 이 달 납입금이 이미 예수금에 있음
   feeRate?: number; priceBuffer?: number; // 매매 수수료 % / 가격 변동 여유 %
+  rebalanceMode?: boolean;       // false = 기록 모드 (할 일·목표 비중 숨김)
+  rebalanceModeChosen?: boolean; // false = 아직 안 고름 → 맨 위에서 한 번 물어봄
   themes: { id: number; name: string; targetPct: number; cash: boolean; satellite?: boolean; sortOrder: number }[];
 }
 
@@ -284,6 +286,21 @@ export const InvestDashboardPage = () => {
       show('설정을 저장하지 못했어요', 'error');
     }
   };
+  // 목표 비중 맞추기(리밸런싱 모드) — 끄면 보유·평가·손익 기록만. 투자 방식은 사람마다 달라서 기본은 기록, 원하는 사람만 켬
+  const rebalance = data?.rebalanceMode !== false;
+  const [choosingMode, setChoosingMode] = useState(false);
+  const chooseMode = async (enabled: boolean) => {
+    setChoosingMode(true);
+    try {
+      await api.put('/invest/setting/rebalance-mode', { enabled });
+      setData(d => d && { ...d, rebalanceMode: enabled, rebalanceModeChosen: true });
+      show(enabled ? '목표 비중 맞추기를 켰어요 — 내 계좌 > 투자에서 목표 비중을 정해주세요' : '기록만 할게요 — 내 계좌 > 투자에서 언제든 켤 수 있어요');
+    } catch (e: any) {
+      show(e?.response?.data?.message || '저장하지 못했어요', 'error');
+    } finally {
+      setChoosingMode(false);
+    }
+  };
   // 계좌 켜기/끄기 — 바로 저장 후 다시 불러옴 (납입금·추천·정렬이 서버 계산값 기준이라). 실패 시 되돌림
   const [togglingAcc, setTogglingAcc] = useState<number | null>(null);
   const toggleAccount = async (acc: DashAccount) => {
@@ -478,7 +495,7 @@ export const InvestDashboardPage = () => {
   // 평가금액이 하나라도 있으면 현재 비중, 없으면 목표 비중으로 도넛을 그림
   const hasEval = totalEval > 0;
   const slices = allHoldings
-    .map(h => ({ id: h.holdingId, name: h.ticker, value: hasEval ? (h.evalAmt ?? 0) : h.overallTargetPct }))
+    .map(h => ({ id: h.holdingId, name: h.ticker, value: hasEval ? (h.evalAmt ?? 0) : rebalance ? h.overallTargetPct : 0 }))
     .filter(s => s.value > 0);
 
   const sheetAcc = data.accounts.find(a => a.id === sheetAccId) || null;
@@ -487,7 +504,7 @@ export const InvestDashboardPage = () => {
   // 보유 수량은 있는데 현재가가 없는 종목이 있으면 비중을 알 수 없어서 추천하지 않음
   const holdingById: Record<number, DashHolding> = {};
   allHoldings.forEach(h => { holdingById[h.holdingId] = h; });
-  const plans = isCurrentMonth
+  const plans = isCurrentMonth && rebalance
     ? view.accounts.filter(a => a.holdings.length > 0 && a.active !== false).map(acc => {
         const missing = acc.holdings.filter(h => (h.shares ?? 0) > 0 && h.evalAmt == null);
         const dupCodes = duplicateCodes(acc.holdings);
@@ -519,7 +536,7 @@ export const InvestDashboardPage = () => {
 
   // ── 테마 모드: 테마가 있으면 비중·리밸런싱을 테마 기준으로 ──
   const themes = (view.themes ?? []).map(t => ({ id: t.id, name: t.name, targetPct: t.targetPct, cash: !!t.cash, satellite: !!t.satellite }));
-  const themeMode = themes.length > 0;
+  const themeMode = themes.length > 0 && rebalance; // 기록 모드면 테마가 있어도 목표 비중 화면을 안 씀
   const isCashTheme = (id: number | null) => themes.some(t => t.id === id && t.cash);
   const themeHoldings = view.accounts.flatMap(acc => acc.holdings.map(h => ({
     holdingId: h.holdingId, accountId: acc.id, ticker: h.ticker, themeId: h.themeId,
@@ -590,6 +607,29 @@ export const InvestDashboardPage = () => {
           {monthPicker}
         </div>
       } />
+
+      {/* ── 처음 한 번: 목표 비중을 맞추는 사람인지 물어봄 (안 고른 새 사용자만) ── */}
+      {data.rebalanceModeChosen === false && (
+        <section className={`${CARD} p-4 sm:p-5`}>
+          <p className="text-base font-bold text-slate-900 dark:text-dark-text">목표 비중을 정해 두고 맞추시나요?</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+            예: '미국 지수 50%, 국내 30%, 현금 20%'처럼 정해 두고 매달 모자란 쪽을 사는 방식이에요.
+            켜면 내가 정한 비중으로 이번 달 사고팔 수량을 계산해 드려요. 아니면 보유 종목·평가금액·손익만 기록해요.
+          </p>
+          <div className="mt-3 flex gap-2 flex-wrap">
+            <button onClick={() => chooseMode(true)} disabled={choosingMode}
+              className="h-11 px-4 rounded-full bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white text-sm font-semibold">네, 맞춰요</button>
+            <button onClick={() => chooseMode(false)} disabled={choosingMode}
+              className="h-11 px-4 rounded-full bg-slate-100 dark:bg-slate-800 disabled:opacity-50 text-sm font-medium text-slate-600 dark:text-slate-300">아니요, 기록만 할게요</button>
+          </div>
+          <p className="text-[11px] text-slate-400 mt-2">나중에 내 계좌 › 투자 › 기본 설정에서 바꿀 수 있어요. 종목은 추천하지 않아요.</p>
+        </section>
+      )}
+
+      {/* ── 기록 모드: 이번 달 체결 내역만 (종목 행 '매매'로 기록) ── */}
+      {!rebalance && isCurrentMonth && trades.length > 0 && (
+        <section className={`${CARD} p-4 sm:p-5 [&>div]:mt-0`}>{tradeHistory}</section>
+      )}
 
       {/* ── 이번 달 할 일: 리밸런싱 추천 → 증권 앱에서 실행 → 체결 완료(보유 수량·평균단가 자동 반영) ── */}
       {themeMode && isCurrentMonth && (
@@ -802,11 +842,11 @@ export const InvestDashboardPage = () => {
         ) : (
         <div className={`${CARD} p-5 sm:p-6`}>
           <div className="flex items-center justify-between mb-3">
-            <p className="text-sm font-semibold text-slate-700 dark:text-dark-text">{hasEval ? '현재 비중' : '목표 비중'}</p>
-            <p className="text-xs text-slate-400">목표 대비</p>
+            <p className="text-sm font-semibold text-slate-700 dark:text-dark-text">{hasEval || !rebalance ? '현재 비중' : '목표 비중'}</p>
+            {rebalance && <p className="text-xs text-slate-400">목표 대비</p>}
           </div>
           {slices.length === 0 ? (
-            <p className="text-sm text-slate-400 py-10 text-center">종목 비중을 설정해주세요</p>
+            <p className="text-sm text-slate-400 py-10 text-center">{rebalance ? '종목 비중을 설정해주세요' : '현재가가 들어오면 종목별 비중이 보여요'}</p>
           ) : (
             <div className="flex items-center gap-4">
               <div className="w-28 h-28 sm:w-32 sm:h-32 shrink-0">
@@ -821,13 +861,13 @@ export const InvestDashboardPage = () => {
               </div>
               <ul className="flex-1 min-w-0 space-y-2">
                 {allHoldings.map(h => {
-                  const cur = hasEval ? h.currentPct : h.overallTargetPct;
+                  const cur = hasEval ? h.currentPct : rebalance ? h.overallTargetPct : 0;
                   return (
                     <li key={h.holdingId} className="flex items-center gap-2 text-xs min-w-0">
                       <span className="w-2 h-2 rounded-full shrink-0" style={{ background: colorOf[h.holdingId] }} />
                       <span className="truncate flex-1 text-slate-600 dark:text-slate-300">{h.ticker}</span>
-                      <span className={`tabular-nums font-semibold shrink-0 ${h.rebalanceNeeded ? 'text-amber-500' : 'text-slate-800 dark:text-dark-text'}`}>{cur.toFixed(1)}%</span>
-                      {hasEval && <span className="tabular-nums text-slate-400 shrink-0 w-12 text-right">{h.overallTargetPct.toFixed(1)}%</span>}
+                      <span className={`tabular-nums font-semibold shrink-0 ${rebalance && h.rebalanceNeeded ? 'text-amber-500' : 'text-slate-800 dark:text-dark-text'}`}>{cur.toFixed(1)}%</span>
+                      {hasEval && rebalance && <span className="tabular-nums text-slate-400 shrink-0 w-12 text-right">{h.overallTargetPct.toFixed(1)}%</span>}
                     </li>
                   );
                 })}
@@ -988,6 +1028,12 @@ export const InvestDashboardPage = () => {
                         <p className="text-sm text-slate-600 dark:text-slate-300">{h.currentPrice != null ? `${fmt(h.currentPrice)}원` : '—'}</p>
                         {h.live && <p className={`text-[11px] ${profitColor(h.live.changeRate)}`}>{fmtPct(h.live.changeRate)}</p>}
                       </div>
+                      {!rebalance && isCurrentMonth && !off && !(h.manualValue != null && !h.stockCode) && (
+                        <button onClick={() => openTrade(h.holdingId, 'BUY', null)} aria-label={`${h.ticker} 매매 기록`}
+                          className="order-last xl:order-none shrink-0 h-11 xl:h-8 px-3 rounded-full text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700">
+                          매매
+                        </button>
+                      )}
                       <div className="text-right shrink-0 xl:w-32">
                         <p className="text-sm font-bold tabular-nums text-slate-900 dark:text-dark-text">{h.evalAmt ? `${fmt(h.evalAmt)}원` : '—'}</p>
                         {h.profitAmt !== null && h.profitPct !== null ? (

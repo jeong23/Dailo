@@ -44,6 +44,7 @@ public class SecurityConfig {
                                 "/",
                                 "/index.html",
                                 "/login",
+                                "/signup",
                                 "/expenses",
                                 "/fixed-costs",
                                 "/report",

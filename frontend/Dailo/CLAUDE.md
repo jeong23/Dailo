@@ -25,6 +25,7 @@ src/
 |------|----------|------|
 | / | DashboardHome (App.tsx) | 대시보드 메인 |
 | /login | LoginPage | JWT 로그인 |
+| /signup | SignupPage | 회원가입 (가입 후 바로 로그인) |
 | /expenses | ExpensesPage | 지출/수입 통합 관리 (탭) |
 | /fixed-costs | FixedCostPage | 고정비 관리 |
 | /savings | SavingsPage | 적금·주택청약 (쌓이는 돈 — 고정비와 분리) |
@@ -208,6 +209,15 @@ src/
   → 토큰 남은 시간 30분 미만이면 /auth/refresh — 서버 토큰도 1시간이라 둘 다 같이 바꿔야 함(IDLE_LIMIT_MS ↔ JwtUtil.EXPIRATION_MS)
   → 로그아웃은 항상 endSession()/logout() — localStorage 키를 직접 지우지 말 것. 401은 axios 인터셉터가 endSession('expired')
 
+## 회원가입 (/signup, 2026-11-03)
+- SignupPage: 아이디·이름·비밀번호·확인·월급일 → POST /members → 바로 /auth/login 후 홈으로. 로그인 화면 하단 '회원가입' 링크
+  → 입력 규칙은 백엔드 MemberService.create와 같게 유지: 아이디 영문 소문자·숫자·_ 4~20자(입력 중 소문자 변환), 비밀번호 영문+숫자 8~64자, 이름 1~30자, 월급일 1~31
+  → 오류는 칸을 벗어난 뒤(touched)부터 표시, 서버 메시지(중복 아이디 등)는 그대로 보여줌
+
+## 회원 탈퇴 (2026-11-03)
+- 화면 설정(/preferences) 맨 아래 components/WithdrawSection — '탈퇴' 입력 확인 시트 → DELETE /members/{id} → endSession('withdrawn')
+- LoginPage: 409 + data.code==='WITHDRAWN'이면 삭제 예정일 + '계정 복구하고 로그인'(restore:true로 다시 로그인). 데이터는 30일 뒤 서버가 삭제 (backend CLAUDE.md '회원 탈퇴')
+
 ## 공통 UI (2026-10-29 정리)
 - 알림은 전부 useToast() + <Toast /> — alert() 금지 (confirm은 삭제 확인에만)
 - 달별 메모는 서버: hooks/useServerNote(key, legacyKey) — GET/PUT /notes/{budget|planner}-YYYY-MM, 예전 localStorage 값은 처음 열 때 옮기고 지움
@@ -221,6 +231,8 @@ src/
 - 그룹: 가계부(대시보드·지출/수입·고정비·리포트·현금 자산) / 투자(투자 현황·투자일기) / Daily — 그룹 헤더 클릭으로 접기/펼치기
   → 투자 설정은 사이드바에 없음: 투자 현황 헤더 ⚙️ 설정 버튼으로 진입, /invest/settings에선 '투자 현황'을 활성 표시 + 상단 '← 투자 현황' 링크
 - 설정(Config) 메뉴는 하단 버튼 영역에 위치 (nav 그룹에서 제거)
+- 메뉴 아이콘은 이모지 금지 — `components/NavIcon.tsx` 선 아이콘(currentColor, 사이드바·하단 탭 공용). 새 메뉴는 PATHS에 아이콘 추가
+- 그룹 레이블(가계부·자산·Daily)은 `text-slate-500 dark:text-slate-400` 11px — slate-400/600에 10px이면 색 테마 사이드바 배경에서 안 보였음 (2026-11-03)
 - 사이드바/그룹 접힘 상태 localStorage 저장 ('sidebarCollapsed', 'collapsedGroups')
 
 ## FixedCostPage 규칙
@@ -318,6 +330,10 @@ src/
 - 자산 배분 페이지: CASH=현금 자산 최신 잔액(/cash-assets 마지막), INVEST=투자 평가금액(시세 /invest/quotes 반영), MANUAL=직접 입력. 목표 대비 부족/초과 금액, 투자 칸 아래 테마 비중
 
 ## 투자 전략·납입 정책 (2026-10-29)
+- 리밸런싱 모드(2026-11-03): 투자 방식은 사람마다 달라서 **기본은 기록 모드**, 목표 비중 맞추기는 켜는 기능 — 서버 rebalanceMode (backend CLAUDE.md)
+  → 꺼지면: 투자 현황 할 일·테마 비중·목표 % 숨김, 종목 행 '매매' 버튼으로 체결 기록 / 자산 현황 목표 %·가이드 패널·테마 비중 숨김('칸별 자산') / 투자 설정 전략·리밸런싱 기준·매도·테마 탭 숨김, 종목 % 검증 생략(저장 때 균등)
+  → rebalanceModeChosen=false(새 사용자)면 투자 현황 맨 위에서 한 번 물어봄. 스위치는 투자 설정 기본 탭 맨 위(저장바 없이 바로 저장)
+  → 새 할 일·목표 화면을 만들면 rebalance 조건 안에 넣을 것
 - 사실(계좌·종목) / 전략(납입·목표·매도) / 계산(rebalance*) 분리. 전략은 서버 저장 — localStorage 'themeAllowSell'은 폐기
 - 계좌 납입금: acc.monthlyAmount (비우면 월 투자금 × 계좌 %). 대시보드는 응답의 acc.contribution 사용 — monthlyBudget × targetPct 직접 계산 금지
 - 프리셋 `utils/strategyPresets.ts` (테스트 __tests__/strategyPresets.test.ts): 질문 3개 → recommendPreset, splitContribution(LIQUIDITY=ISA 전부 / TAX=연금 50만→IRP 25만→ISA / EQUAL=계좌 %)

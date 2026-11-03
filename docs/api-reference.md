@@ -6,8 +6,10 @@
 > 다른 회원의 {id}로 PUT/DELETE 하면 400 "…을(를) 찾을 수 없습니다: {id}".
 
 - POST       /api/auth/login                        ← JWT 로그인 (token, memberId, name, salaryDay 반환)
-- GET/POST   /api/members                           ← GET 목록 / POST 회원가입 (permitAll)
+                                                       탈퇴 유예 중이면 409 data {code: WITHDRAWN, purgeAt} — body restore:true로 복구 후 로그인
+- GET/POST   /api/members                           ← GET 목록 / POST 회원가입 (permitAll — 아이디 소문자 4~20자, 비밀번호 영문+숫자 8자+, 이름 1~30자 검증, 실패 400)
 - GET/PUT    /api/members/{id}                      ← 조회 / 수정 (authenticated)
+- DELETE     /api/members/{id}                      ← 탈퇴 (본인만) — 30일 유예 후 MemberPurgeJob이 모든 데이터 삭제, data = 삭제 예정 시각
 - GET/POST   /api/monthly-budgets
 - GET        /api/monthly-budgets/member/{memberId}
 - GET        /api/monthly-budgets/member/{memberId}/month/{settleMonth}
@@ -50,6 +52,7 @@
 - GET        /api/habits/logs?year=YYYY&month=MM
 - POST       /api/habits/logs
 - GET/POST   /api/invest/setting
+- PUT        /api/invest/setting/rebalance-mode  {enabled} — 목표 비중 맞추기 켜기/끄기 (응답 SettingResponse, rebalanceMode·rebalanceModeChosen 포함)
 - GET/POST   /api/invest/accounts
 - PATCH      /api/invest/accounts/{id}/active   {active} — 계좌 켜기/끄기만 바로 저장
 - GET/POST   /api/cash-accounts                 (POST·PUT·DELETE·PATCH는 ?settleMonth=YYYY-MM 필수, GET은 선택 — balance = 기준 잔액 + 그 뒤 지출·수입·월급·고정비 계산값, baseBalance·balanceAsOf·pendingCard)

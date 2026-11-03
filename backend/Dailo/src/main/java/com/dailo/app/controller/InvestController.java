@@ -50,6 +50,14 @@ public class InvestController {
         return ResponseEntity.ok(ApiResponse.ok(null));
     }
 
+    // 리밸런싱 모드 켜기/끄기 — 끄면 투자 현황·자산 현황이 기록만 보여줌
+    @PutMapping("/setting/rebalance-mode")
+    public ResponseEntity<ApiResponse<InvestDto.SettingResponse>> setRebalanceMode(
+            @AuthenticationPrincipal CustomUserDetails user,
+            @RequestBody InvestDto.RebalanceModeRequest req) {
+        return ResponseEntity.ok(ApiResponse.ok(investService.setRebalanceMode(user.getMemberId(), req)));
+    }
+
     // 투자 현황 '납입금 포함' 토글 — 이 달 납입금을 이미 예수금에 넣었는지만 저장
     @PutMapping("/setting/deposited")
     public ResponseEntity<ApiResponse<Void>> setDeposited(
