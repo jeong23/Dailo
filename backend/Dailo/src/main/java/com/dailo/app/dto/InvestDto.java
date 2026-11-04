@@ -67,6 +67,13 @@ public class InvestDto {
         private Float priceBuffer;
     }
 
+    // 리밸런싱 방식 — style: THEME | VALUE, profitTakePct: VALUE 수익 실현 기준 % (0 = 팔지 않음). null = 기존 값 유지
+    @Getter @NoArgsConstructor @AllArgsConstructor
+    public static class RebalanceStyleRequest {
+        private String style;
+        private Float profitTakePct;
+    }
+
     // 이 달 납입금을 이미 예수금에 넣었는지 (투자 현황 '납입금 포함' 토글)
     @Getter @NoArgsConstructor @AllArgsConstructor
     public static class DepositedRequest {
@@ -191,6 +198,8 @@ public class InvestDto {
         private Boolean rebalanceModeChosen;
         private Float feeRate;            // 매매 수수료 %
         private Float priceBuffer;        // 가격 변동 여유 %
+        private String rebalanceStyle;    // THEME | VALUE (손해 큰 종목 우선 + 수익 실현)
+        private Float profitTakePct;      // VALUE 수익 실현 기준 % (0 = 팔지 않음)
         private Integer totalPlanned;
         private Integer totalActual;
         private Integer pensionYtdActual; // 연간 연금 납입 누계

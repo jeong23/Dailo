@@ -9,7 +9,7 @@ import { duplicateCodes } from '../utils/mergeHoldings';
 import { LIQUIDITY_DISCLAIMER, LiquidityLevel, accountTypeLabel, liquidityOf } from '../utils/accountLiquidity';
 import { checkGoal, isSafeHolding, purposeLabel } from '../utils/goalRisk';
 import { rebalanceByTheme } from '../utils/themeRebalance';
-import { Blocker, ThemeBreakdown, ThemeTodo, themeColor } from '../components/invest/ThemePanels';
+import { Blocker, PickStyle, ThemeBreakdown, ThemeTodo, themeColor } from '../components/invest/ThemePanels';
 import { Toast, useToast } from '../components/Toast';
 
 interface DashHolding {
@@ -51,6 +51,7 @@ interface Dashboard {
   allowSell: boolean; strategyPreset: string | null;
   contributionDeposited?: boolean; // 이 달 납입금이 이미 예수금에 있음
   feeRate?: number; priceBuffer?: number; // 매매 수수료 % / 가격 변동 여유 %
+  rebalanceStyle?: PickStyle; profitTakePct?: number; // 테마 안 종목 고르기 (VALUE = 손해 큰 종목 우선 + 수익 실현 %)
   rebalanceMode?: boolean;       // false = 기록 모드 (할 일·목표 비중 숨김)
   rebalanceModeChosen?: boolean; // false = 아직 안 고름 → 맨 위에서 한 번 물어봄
   themes: { id: number; name: string; targetPct: number; cash: boolean; satellite?: boolean; sortOrder: number }[];
@@ -260,6 +261,19 @@ export const InvestDashboardPage = () => {
     } catch (e: any) {
       setData(d => d && { ...d, ...prev });
       show(e?.response?.data?.message || '매매 비용을 저장하지 못했어요', 'error');
+    }
+  };
+  const pickStyle: PickStyle = data?.rebalanceStyle === 'VALUE' ? 'VALUE' : 'THEME';
+  const profitTake = data?.profitTakePct ?? 5;
+  const saveStyle = async (next: { style: PickStyle; profitTakePct: number }) => {
+    const prev = { rebalanceStyle: pickStyle, profitTakePct: profitTake };
+    setData(d => d && { ...d, rebalanceStyle: next.style, profitTakePct: next.profitTakePct });
+    try {
+      await api.put('/invest/setting/rebalance-style', { style: next.style, profitTakePct: next.profitTakePct });
+      show('종목 고르는 방식을 저장했어요');
+    } catch (e: any) {
+      setData(d => d && { ...d, ...prev });
+      show(e?.response?.data?.message || '저장하지 못했어요', 'error');
     }
   };
   const setWithContribution = async (fn: (v: boolean) => boolean) => {
@@ -563,9 +577,10 @@ export const InvestDashboardPage = () => {
         themeHoldings.map(h => ({
           id: h.holdingId, accountId: h.accountId, themeId: h.themeId, value: h.evalAmt ?? 0,
           price: isCashTheme(h.themeId) ? null : h.currentPrice,
+          shares: h.shares, cost: h.purchaseAmt,
         })),
         themeAccounts.map(a => ({ id: a.id, budget: a.budget })),
-        view.rebalanceThreshold, { sell: allowSell, feeRate, buffer: priceBuffer })
+        view.rebalanceThreshold, { sell: allowSell, feeRate, buffer: priceBuffer, style: pickStyle, profitTake })
     : null;
   const openTrade = (holdingId: number, side: 'BUY' | 'SELL', shares: number | null) => {
     const h = holdingById[holdingId];
@@ -637,7 +652,8 @@ export const InvestDashboardPage = () => {
           threshold={view.rebalanceThreshold} monthlyBudget={view.monthlyBudget}
           withContribution={withContribution} onToggleContribution={() => setWithContribution(v => !v)}
           allowSell={allowSell} onToggleSell={toggleAllowSell} onTrade={openTrade}
-          feeRate={feeRate} priceBuffer={priceBuffer} onSaveCosts={saveTradeCosts}>
+          feeRate={feeRate} priceBuffer={priceBuffer} onSaveCosts={saveTradeCosts}
+          pickStyle={pickStyle} profitTake={profitTake} onSaveStyle={saveStyle}>
           {tradeHistory}
         </ThemeTodo>
       )}

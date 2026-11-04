@@ -47,7 +47,14 @@ public class InvestSetting extends BaseEntity {
     //  null = 아직 안 고름 → InvestService.rebalanceMode가 테마·프리셋 유무로 추정 (기존 사용자는 켜진 채로)
     private Boolean rebalanceMode;
 
+    // 테마 안에서 종목 고르는 방식 — null/THEME = 평가금액 작은 종목부터, 비중 넘친 테마만 매도(밴드)
+    //  VALUE = 손해 큰 종목부터 1주씩(살 때마다 평균단가 다시 계산) + 수익률 profitTakePct% 넘은 종목은 수익 난 만큼만 매도
+    @Column(length = 10)
+    private String rebalanceStyle;
+    private Float profitTakePct; // VALUE 스타일 수익 실현 기준 % — null = 기본값, 0 = 팔지 않음
+
     public static final float DEFAULT_FEE_RATE = 0.015f;
+    public static final float DEFAULT_PROFIT_TAKE_PCT = 5f;
     public static final float DEFAULT_PRICE_BUFFER = 0.5f;
 
     public void update(Integer monthlyBudget, Float rebalanceThreshold, Integer pensionLimit) {
@@ -75,6 +82,19 @@ public class InvestSetting extends BaseEntity {
     public void updateTradeCosts(Float feeRate, Float priceBuffer) {
         if (feeRate != null) this.feeRate = feeRate;
         if (priceBuffer != null) this.priceBuffer = priceBuffer;
+    }
+
+    public void updateRebalanceStyle(String style, Float profitTakePct) {
+        if (style != null) this.rebalanceStyle = style;
+        if (profitTakePct != null) this.profitTakePct = profitTakePct;
+    }
+
+    public String rebalanceStyleOrDefault() {
+        return rebalanceStyle != null ? rebalanceStyle : "THEME";
+    }
+
+    public float profitTakePctOrDefault() {
+        return profitTakePct != null ? profitTakePct : DEFAULT_PROFIT_TAKE_PCT;
     }
 
     public float feeRateOrDefault() {

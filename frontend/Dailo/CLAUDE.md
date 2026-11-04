@@ -310,6 +310,11 @@ src/
   → 중복 종목코드·현재가 없는 보유 종목이 있으면 계산 안 하고 blockers로 안내
   → '매도 없이 납입금으로만' 토글(localStorage 'themeAllowSell') = rebalanceByTheme(..., { sell: false }) — 주식 테마 매도 생략, 현금성 '사용'은 유지
   → 테마 없으면 예전 계좌 단위 추천(rebalancePlan) 그대로
+- 종목 고르기 방식(2026-11-04, 서버 rebalanceStyle): 할 일 카드 '종목 고르기' 줄(ThemePanels PickStyleRow)에서 바꿈
+  → THEME(기본) = 테마 안에서 금액 작은 종목부터 + 테마 밴드 매도(allowSell)
+  → VALUE = 사용자 설계(밸류 리밸런싱 류): 테마별 금액은 그대로 목표 비중으로, 테마 안에선 1주 살 때마다 평균단가 다시 계산해 손해율 가장 큰 종목
+    매도는 테마 밴드 대신 수익률 profitTakePct%(기본 5) 넘은 종목을 '오른 만큼만'(원금 유지) — allowSell 무관이라 '매도 없이' 토글 숨김. 그 종목은 같은 달 다시 안 삼
+    보유 0주·원금 모름 = 손익 0. holdings에 shares·cost(purchaseAmt) 넘겨야 함 (테스트 __tests__/themeRebalanceValue.test.ts)
 - 위성 테마(satellite, 2026-11-02 — 코어-새틀라이트): 테마 설정 '위성' 칩(현금성과 배타). 목표 % = **상한**
   → rebalanceByTheme·assetGuide 둘 다: 위성은 납입금으로 매수 안 함, 상한+밴드 넘으면 매도(sell)·HOLD_BUY만
   → 코어 테마 목표 = (전체 − min(위성 보유, 상한)) × 코어끼리 비율 — 상한 전체를 비워두면 코어가 다 찬 걸로 보여 납입금이 '남는 돈'이 됨

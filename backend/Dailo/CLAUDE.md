@@ -119,6 +119,8 @@ com.dailo.app
 - invest_setting.allow_sell(null=true) / strategy_preset(LIQUIDITY/TAX/EQUAL/CUSTOM) — updateStrategy는 null이면 기존 값 유지
 - invest_setting.rebalance_mode(2026-11-03): 목표 비중 맞추기 켜짐/꺼짐(기록 모드). null = 안 고름 → InvestService.rebalanceMode가 테마 있거나 strategy_preset 있으면 켜짐+고른 걸로(기존 사용자 그대로), 아니면 꺼짐+미선택
   → SettingResponse·DashboardResponse의 rebalanceMode / rebalanceModeChosen, 변경은 PUT /invest/setting/rebalance-mode {enabled}
+- invest_setting.rebalance_style / profit_take_pct(2026-11-04): 테마 안 종목 고르기 — null·THEME = 금액 작은 종목부터, VALUE = 손해 큰 종목 우선 + 수익 profit_take_pct% 넘으면 수익만 매도(null = 5, 0 = 안 팖)
+  → 계산은 프론트 utils/themeRebalance.ts. 서버는 저장·DashboardResponse(rebalanceStyle, profitTakePct 기본값 채움)만, 변경은 PUT /invest/setting/rebalance-style {style, profitTakePct}
 - GET /invest/accounts 의 linkedBudgetLabel = 최신 정산월 예산에서 그 계좌에 연결된 항목명 (InvestService.budgetLinkedLabels)
 - budget_allocation_item.invest_account_id: 예산 항목 ↔ 투자 계좌. **최신 정산월 예산** 저장 때만 그 금액을 계좌 monthly_amount로 동기화 (syncInvestContributions)
 

@@ -58,6 +58,15 @@ public class InvestController {
         return ResponseEntity.ok(ApiResponse.ok(investService.setRebalanceMode(user.getMemberId(), req)));
     }
 
+    // 리밸런싱 방식(테마 안 종목 고르기) + 수익 실현 기준
+    @PutMapping("/setting/rebalance-style")
+    public ResponseEntity<ApiResponse<Void>> setRebalanceStyle(
+            @AuthenticationPrincipal CustomUserDetails user,
+            @RequestBody InvestDto.RebalanceStyleRequest req) {
+        investService.setRebalanceStyle(user.getMemberId(), req);
+        return ResponseEntity.ok(ApiResponse.ok(null));
+    }
+
     // 투자 현황 '납입금 포함' 토글 — 이 달 납입금을 이미 예수금에 넣었는지만 저장
     @PutMapping("/setting/deposited")
     public ResponseEntity<ApiResponse<Void>> setDeposited(

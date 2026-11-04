@@ -52,6 +52,7 @@
 - GET        /api/habits/logs?year=YYYY&month=MM
 - POST       /api/habits/logs
 - GET/POST   /api/invest/setting
+- PUT        /api/invest/setting/rebalance-style {style: THEME|VALUE, profitTakePct 0~100} — 테마 안 종목 고르기 (VALUE = 손해 큰 종목 우선 + 수익 실현), null = 기존 값 유지
 - PUT        /api/invest/setting/rebalance-mode  {enabled} — 목표 비중 맞추기 켜기/끄기 (응답 SettingResponse, rebalanceMode·rebalanceModeChosen 포함)
 - GET/POST   /api/invest/accounts
 - PATCH      /api/invest/accounts/{id}/active   {active} — 계좌 켜기/끄기만 바로 저장

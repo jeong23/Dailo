@@ -21,6 +21,14 @@
 //   (시장가 주문 사이 가격이 조금 올라도 돈이 모자라 주문이 실패하지 않게). 매도는 수수료만큼 덜 들어옴
 // 세금: ISA·연금 계좌 안 매매는 지금 과세 없음 — 일반 계좌 매도 세금은 화면(ThemePanels)에서 손익 기준으로 따로 안내
 
+// style='VALUE' (손해 큰 종목 우선 + 수익 실현 — 2026-11-04, 사용자 설계):
+//   테마별로 얼마를 살지는 위와 같이 목표 비중으로 정하고, 테마 안에서 어떤 종목을 살지만 바뀜
+//   - 매도: 테마 밴드 매도 대신, 수익률이 profitTake% 이상인 종목을 '수익 난 만큼만' 매도 (원금은 남김, 1주 단위 내림)
+//     → sell 옵션과 무관 (profitTake 0이면 안 팖). 현금성 '사용'은 그대로
+//   - 매수: 1주 살 때마다 평균단가를 다시 계산해서 그 순간 손해율이 가장 큰 종목의 다음 1주
+//     (손해가 클수록 여러 번 차례가 오고, 1주가 비싼 종목은 한 번에 평단이 많이 내려가 차례가 빨리 넘어감)
+//     보유 0주·원금 모름 = 손익 0으로 봄. 같은 달 수익 실현한 종목은 다시 사지 않음
+
 export interface TRTheme { id: number; targetPct: number; cash: boolean; satellite?: boolean }
 export interface TRHolding {
   id: number;
@@ -28,7 +36,10 @@ export interface TRHolding {
   themeId: number | null;   // null = 미분류 → 계산 제외
   value: number;            // 평가금액 (현금성은 직접 입력 금액)
   price: number | null;     // 1주 가격 — 현금성/가격 없음은 null
+  shares?: number | null;   // 보유 수량 (VALUE 스타일 손익 계산용)
+  cost?: number | null;     // 매입 원금 = 평균단가 × 수량 (VALUE 스타일)
 }
+export type TRStyle = 'THEME' | 'VALUE';
 export interface TRAccount { id: number; budget: number }
 
 export type TRSide = 'BUY' | 'SELL' | 'USE_CASH' | 'KEEP_CASH';
@@ -53,13 +64,18 @@ const CASH_UNIT = 10_000;
 
 export function rebalanceByTheme(
   themes: TRTheme[], holdings: TRHolding[], accounts: TRAccount[], threshold: number,
-  { sell = true, feeRate = 0, buffer = 0 }: { sell?: boolean; feeRate?: number; buffer?: number } = {},
+  { sell = true, feeRate = 0, buffer = 0, style = 'THEME', profitTake = 5 }:
+    { sell?: boolean; feeRate?: number; buffer?: number; style?: TRStyle; profitTake?: number } = {},
 ): TRResult {
+  const valueStyle = style === 'VALUE';
   const feeOf = (amount: number) => Math.ceil((amount * Math.max(feeRate, 0)) / 100);
   const reserveOf = (price: number) => Math.ceil((price * Math.max(buffer, 0)) / 100);
   const costOf = (price: number) => price + feeOf(price) + reserveOf(price); // 1주 사는 데 잡아둘 돈
   const themeIds = new Set(themes.map(t => t.id));
-  const hs = holdings.filter(h => h.themeId !== null && themeIds.has(h.themeId)).map(h => ({ ...h, value: Math.max(h.value, 0) }));
+  const hs = holdings.filter(h => h.themeId !== null && themeIds.has(h.themeId)).map(h => ({ ...h, value: Math.max(h.value, 0), shares: Math.max(h.shares ?? 0, 0), cost: Math.max(h.cost ?? 0, 0) }));
+  // 손익률 — 보유 0주·원금 모름이면 0 (손해도 수익도 아닌 걸로)
+  const returnOf = (h: { price: number | null; shares: number; cost: number }) =>
+    h.price && h.price > 0 && h.shares > 0 && h.cost > 0 ? (h.price * h.shares) / h.cost - 1 : 0;
   const totalWeight = themes.reduce((s, t) => s + Math.max(t.targetPct, 0), 0);
   const w = (t: TRTheme) => (totalWeight > 0 ? Math.max(t.targetPct, 0) / totalWeight : 0);
 
@@ -79,10 +95,32 @@ export function rebalanceByTheme(
 
   const actions: TRAction[] = [];
   const sold = new Set<number>();
+  const profitTaken = new Set<number>(); // VALUE: 수익 실현한 종목 — 같은 달 다시 안 삼
 
-  // 1) 밴드를 넘은 테마 덜어내기
+  // 1-VALUE) 수익률 profitTake% 넘은 종목은 수익 난 만큼만 매도
+  if (valueStyle && profitTake > 0) {
+    const stockTheme = new Set(themes.filter(t => !t.cash).map(t => t.id));
+    for (const h of hs) {
+      if (!stockTheme.has(h.themeId!) || !(h.accountId in cash) || !h.price || h.price <= 0) continue;
+      if (returnOf(h) * 100 < profitTake) continue;
+      const shares = Math.min(Math.floor((h.value - h.cost) / h.price), h.shares);
+      if (shares <= 0) continue;
+      const amount = shares * h.price;
+      const fee = feeOf(amount);
+      actions.push({ side: 'SELL', accountId: h.accountId, holdingId: h.id, themeId: h.themeId!, shares, amount, fee });
+      h.cost -= (h.cost / h.shares) * shares; // 매도는 평균단가 유지
+      h.shares -= shares;
+      h.value -= amount;
+      valueOf[h.themeId!] -= amount;
+      cash[h.accountId] = (cash[h.accountId] ?? 0) + amount - fee;
+      profitTaken.add(h.id);
+    }
+  }
+
+  // 1) 밴드를 넘은 테마 덜어내기 (VALUE는 현금성 '사용'만)
   if (current > 0 && totalWeight > 0) {
     for (const t of themes) {
+      if (valueStyle && !t.cash) continue;
       if (!sell && !t.cash) continue;
       const pct = (valueOf[t.id] / current) * 100;
       if (!t.cash && pct - w(t) * 100 <= threshold) continue;
@@ -132,7 +170,7 @@ export function rebalanceByTheme(
   // 살 수 있는 테마가 적은 계좌부터 끝까지 — 선택지가 많은 계좌가 공용 테마를 먼저 채워버리면
   // 선택지 적은 계좌(예: ISA는 원자재만)의 돈이 갈 곳 없이 남음
   const buyableThemes = (accId: number) => new Set(hs
-    .filter(h => h.accountId === accId && h.themeId !== null && !sold.has(h.themeId)
+    .filter(h => h.accountId === accId && h.themeId !== null && !sold.has(h.themeId) && !profitTaken.has(h.id)
       && !themes.find(t => t.id === h.themeId)?.satellite
       && (themes.find(t => t.id === h.themeId)?.cash || (h.price && h.price > 0)))
     .map(h => h.themeId)).size;
@@ -152,8 +190,9 @@ export function rebalanceByTheme(
           if (unit > 0) cand = { unit, cost: unit, holding: hs.find(h => h.accountId === acc.id && h.themeId === t.id) ?? null };
         } else {
           const pick = hs
-            .filter(h => h.accountId === acc.id && h.themeId === t.id && h.price && h.price > 0 && costOf(h.price) <= money)
-            .sort((a, b) => a.value - b.value)[0];
+            .filter(h => h.accountId === acc.id && h.themeId === t.id && h.price && h.price > 0 && costOf(h.price) <= money
+              && !profitTaken.has(h.id))
+            .sort((a, b) => (valueStyle ? returnOf(a) - returnOf(b) : 0) || a.value - b.value)[0];
           if (pick) cand = { unit: pick.price!, cost: costOf(pick.price!), holding: pick };
         }
         if (cand && (!best || deficitRatio(t) > deficitRatio(best.t))) best = { t, ...cand };
@@ -161,7 +200,10 @@ export function rebalanceByTheme(
       if (!best) break;
       cash[acc.id] -= best.cost;
       valueOf[best.t.id] += best.unit;
-      if (best.holding) best.holding.value += best.unit;
+      if (best.holding) {
+        best.holding.value += best.unit;
+        if (!best.t.cash) { best.holding.shares += 1; best.holding.cost += best.unit; } // 평균단가 다시 계산 (VALUE 다음 차례 판단)
+      }
       record(best.t.cash ? 'KEEP_CASH' : 'BUY', acc.id, best.holding?.id ?? null, best.t.id, best.unit, !best.t.cash);
     }
   }

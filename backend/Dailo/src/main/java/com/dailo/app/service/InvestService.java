@@ -117,6 +117,16 @@ public class InvestService {
     }
 
     @Transactional
+    public void setRebalanceStyle(Long memberId, InvestDto.RebalanceStyleRequest req) {
+        String style = req.getStyle();
+        if (style != null && !style.equals("THEME") && !style.equals("VALUE")) throw new IllegalArgumentException("리밸런싱 방식은 THEME 또는 VALUE예요");
+        if (req.getProfitTakePct() != null && (req.getProfitTakePct() < 0 || req.getProfitTakePct() > 100)) throw new IllegalArgumentException("수익 실현 기준은 0~100% 사이로 입력해주세요");
+        InvestSetting setting = settingRepo.findByMemberId(memberId).orElseGet(() -> settingRepo.save(InvestSetting.builder()
+                .memberId(memberId).monthlyBudget(0).rebalanceThreshold(5.0f).pensionLimit(6_000_000).build()));
+        setting.updateRebalanceStyle(style, req.getProfitTakePct());
+    }
+
+    @Transactional
     public void setDeposited(Long memberId, InvestDto.DepositedRequest req) {
         String ym = req.getYearMonth();
         if (ym == null || !ym.matches("\\d{4}-(0[1-9]|1[0-2])")) throw new IllegalArgumentException("yearMonth 형식은 yyyy-MM이에요");
@@ -415,6 +425,8 @@ public class InvestService {
                 .rebalanceMode(mode[0]).rebalanceModeChosen(mode[1])
                 .feeRate(setting != null ? setting.feeRateOrDefault() : InvestSetting.DEFAULT_FEE_RATE)
                 .priceBuffer(setting != null ? setting.priceBufferOrDefault() : InvestSetting.DEFAULT_PRICE_BUFFER)
+                .rebalanceStyle(setting != null ? setting.rebalanceStyleOrDefault() : "THEME")
+                .profitTakePct(setting != null ? setting.profitTakePctOrDefault() : InvestSetting.DEFAULT_PROFIT_TAKE_PCT)
                 .totalPlanned(totalPlanned).totalActual(totalActual)
                 .pensionYtdActual(pensionYtd)
                 .accounts(dashAccounts)
