@@ -282,7 +282,11 @@ src/
 - 현재가/이달 납입 입력은 계좌 단위 바텀시트(sheetAccId), 저장은 Promise.allSettled + 실패 개수 토스트
 
 - 실시간 시세: `hooks/useLiveQuotes.ts` (SSE를 fetch 스트림으로 읽음 — EventSource는 Authorization 헤더 불가) → applyLiveQuotes로 현재가·평가금액·손익·비중 재계산
-  → **이번 달 화면에만** 적용 (지난 달은 저장된 현재가), 종목코드(stockCode) 있는 종목만, 헤더 LiveBadge: 실시간 / 네이버 시세 · 20초(status.provider==='NAVER', KIS 키 없을 때) / 장 마감·종가 기준 / 시세 연결 중 / 수동 현재가
+  → **이번 달·다음 달 이후 화면에만** 적용(isLive — 지난 달은 저장된 현재가), 종목코드(stockCode) 있는 종목만, 헤더 LiveBadge: 실시간 / 네이버 시세 · 20초(status.provider==='NAVER', KIS 키 없을 때) / 장 마감·종가 기준 / 시세 연결 중 / 수동 현재가
+- 할 일 카드 제목 옆 '?'(2026-11-04): ThemePanels RecommendExplain — 이번 plan 결과로 ①테마 비중(지금→목표→실행 후, 산/안 산 이유) ②계좌별 쓸 돈 ③테마 안 종목 고르기(종목 하나뿐 / 손해순) + 넘친 테마의 손해 종목을 왜 안 사는지 ④팔기 이유
+  → 고정 문구 말고 계산 결과에서 만들 것 — 테마·종목·스타일이 바뀌면 설명도 같이 바뀌어야 함
+- 다음 달 이후(isPreview, 2026-11-04): 'N월 할 일 미리 보기' — 지금 시세 + 그 달 납입금으로 계산, 체결 완료 버튼 숨김(체결은 그 달 화면에서)
+  → 예전엔 isCurrentMonth만 계산·시세 적용이라 12월로 넘기면 직접 입력 금액(예수금·MMF)만 합쳐져 평가금액 약 5만 원·추천 없음으로 보였음
 - 페이지 목적 = 매달 "이번 달 할 일" → 증권 앱 실행 → '체결 완료' 순환. 맨 위가 할 일 카드, 평가금액·도넛·계좌는 그 아래 근거
   → 체결 완료 시트: POST /invest/holdings/{id}/trades {side, shares, price} — 백엔드가 보유 수량·평균단가(매수 가중평균, 매도 유지) 갱신
   → 이번 달 체결 내역은 GET /invest/trades?yearMonth, 되돌리기는 종목별 가장 최근 체결만(DELETE /invest/trades/{id})

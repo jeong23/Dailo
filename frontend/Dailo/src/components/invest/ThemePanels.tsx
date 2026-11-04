@@ -6,6 +6,7 @@ import { THEME_COLORS } from '../../utils/themeDefaults';
 // 투자 현황 — 테마 모드 화면 조각 (InvestDashboardPage에서 테마가 있을 때 사용)
 //  ThemeTodo: 이번 달 할 일 (계좌별 매수·매도 → 체결 완료)
 //  ThemeBreakdown: 테마별 현재 비중 vs 목표 + 소속 종목
+//  RecommendExplain: 할 일 카드 '?' — 이 추천이 나온 이유(테마 비중 → 쓸 돈 → 테마 안 종목 → 팔기)를 이번 계산 결과로 풀어 씀
 //  위성 테마(satellite)는 목표 대신 '최대 N%' — 상한 아래면 할 일 없음, 넘으면 안내 (납입금으로 사지 않음)
 
 export interface ThemeInfo { id: number; name: string; targetPct: number; cash: boolean; satellite?: boolean }
@@ -144,6 +145,135 @@ const PickStyleRow = ({ style, profitTake, onSave }: {
   );
 };
 
+// '?' 패널 — 추천 이유를 이번 계산 값으로 설명 (고정 문구 아님: 테마·종목·계좌가 바뀌면 같이 바뀜)
+const RecommendExplain = ({ themes, holdings, accounts, plan, pickStyle, profitTake, allowSell, threshold }: {
+  themes: ThemeInfo[]; holdings: ThemeHolding[]; accounts: ThemeAccount[]; plan: TRResult;
+  pickStyle: PickStyle; profitTake: number; allowSell: boolean; threshold: number;
+}) => {
+  const name = (id: number) => themes.find(t => t.id === id)?.name ?? '';
+  const acts = plan.actions;
+  const accIds = new Set(accounts.map(a => a.id));
+  const accName = (id: number) => shortAcc(accounts.find(a => a.id === id)?.name ?? '');
+  const pct = (v: number) => `${v.toFixed(1)}%`;
+  const profitOf = (h: ThemeHolding) => (h.profitPct != null ? fmtPct(h.profitPct) : '손익 모름');
+  const tradable = (h: ThemeHolding) => accIds.has(h.accountId) && (h.currentPrice ?? 0) > 0;
+  const sold = new Set(acts.filter(a => a.side === 'SELL').map(a => a.holdingId));
+
+  const rows = themes.map(t => {
+    const r = plan.themes.find(x => x.id === t.id);
+    if (!r) return null;
+    const used = acts.filter(a => a.themeId === t.id && a.side === 'USE_CASH').reduce((s, a) => s + a.amount, 0);
+    const bought = acts.some(a => a.themeId === t.id && (a.side === 'BUY' || a.side === 'KEEP_CASH'));
+    const over = r.currentPct > r.targetPct + 0.5;
+    let why: string;
+    if (t.cash) why = used > 0 ? `목표 ${pct(r.targetPct)}보다 많아서 예수금 ${fmt(used)}원을 꺼내 씀` : bought ? '모자라서 현금으로 남김' : '할 일 없음';
+    else if (t.satellite) why = `위성 — 최대 ${pct(t.targetPct)}까지만, 납입금으로는 안 삼`;
+    else if (bought) why = over ? '목표보다 많지만 이 계좌 돈이 갈 곳이 여기뿐이라 삼' : '목표보다 모자라서 삼';
+    else if (over) why = '목표보다 많아서 이번엔 안 삼';
+    else why = '다른 테마가 더 모자라서(또는 1주 가격보다 돈이 적어서) 이번엔 안 삼';
+    return { t, r, why, over };
+  }).filter((x): x is NonNullable<typeof x> => x !== null);
+
+  // 넘친 테마 안에서 손해 중인데 안 사는 종목 — "왜 떨어진 걸 안 사지?"에 대한 답
+  const skippedLosers = rows.filter(x => x.over && !x.t.cash && !acts.some(a => a.themeId === x.t.id && a.side === 'BUY')).map(x => ({
+    theme: x.t, list: holdings.filter(h => h.themeId === x.t.id && tradable(h) && (h.profitPct ?? 0) < 0),
+  })).filter(x => x.list.length > 0);
+
+  // 계좌별로 산 테마 → 그 계좌에서 고를 수 있던 종목
+  const picks = accounts.flatMap(acc => {
+    const themeIds = Array.from(new Set(acts.filter(a => a.accountId === acc.id && a.side === 'BUY').map(a => a.themeId)));
+    return themeIds.map(tid => ({
+      acc, tid,
+      cands: holdings.filter(h => h.accountId === acc.id && h.themeId === tid && tradable(h) && !sold.has(h.holdingId))
+        .sort((a, b) => (a.profitPct ?? 0) - (b.profitPct ?? 0)),
+      shares: (hid: number) => acts.filter(a => a.side === 'BUY' && a.holdingId === hid).reduce((s, a) => s + (a.shares ?? 0), 0),
+    }));
+  });
+  const offHeld = holdings.some(h => h.themeId !== null && !accIds.has(h.accountId) && (h.evalAmt ?? 0) > 0);
+  const sells = acts.filter(a => a.side === 'SELL');
+  const overNames = rows.filter(x => x.over && !x.t.cash && !x.t.satellite).map(x => x.t.name);
+
+  const H = ({ n, children }: { n: number; children: React.ReactNode }) => (
+    <p className="text-xs font-semibold text-slate-700 dark:text-slate-200"><span className="text-primary-500 mr-1">{n}</span>{children}</p>
+  );
+  return (
+    <div className="mt-3 rounded-xl bg-slate-50/80 dark:bg-slate-800/30 p-3 sm:p-4 space-y-4 text-xs text-slate-600 dark:text-slate-300">
+      <div className="space-y-2">
+        <H n={1}>테마 비중부터 맞춰요</H>
+        <p className="text-slate-500 dark:text-slate-400">어느 테마를 살지는 목표 비중으로 먼저 정해요. 모자란 비율이 큰 테마부터 1주씩 담아요.</p>
+        <ul className="divide-y divide-slate-100 dark:divide-dark-border/50">
+          {rows.map(({ t, r, why }) => (
+            <li key={t.id} className="py-1.5 flex items-start gap-2 min-w-0">
+              <span className="mt-1 w-2 h-2 rounded-full shrink-0" style={{ background: themeColor(themes, t.id) }} />
+              <div className="min-w-0 flex-1">
+                <p className="flex flex-wrap gap-x-2">
+                  <span className="font-medium text-slate-700 dark:text-slate-200">{t.name}</span>
+                  <span className="tabular-nums text-slate-400">지금 {pct(r.currentPct)} → 목표 {pct(r.targetPct)} · 실행 후 {pct(r.afterPct)}</span>
+                </p>
+                <p className="text-slate-500 dark:text-slate-400">{why}</p>
+              </div>
+            </li>
+          ))}
+        </ul>
+        {offHeld && <p className="text-[11px] text-slate-400">꺼진 계좌(연금 등)의 종목도 테마 비중에는 들어가요 — 그 계좌에서는 사고팔지 않아요.</p>}
+      </div>
+
+      <div className="space-y-1.5">
+        <H n={2}>쓸 돈</H>
+        {accounts.map(acc => {
+          const used = acts.filter(a => a.accountId === acc.id && a.side === 'USE_CASH').reduce((s, a) => s + a.amount, 0);
+          const sellIn = acts.filter(a => a.accountId === acc.id && a.side === 'SELL').reduce((s, a) => s + a.amount - a.fee, 0);
+          if (acc.budget + used + sellIn <= 0) return null;
+          return (
+            <p key={acc.id} className="tabular-nums">
+              <b className="font-medium">{shortAcc(acc.name)}</b>: 납입금·체결 반영 {fmt(acc.budget)}원
+              {used > 0 && <> + 예수금 {fmt(used)}원</>}{sellIn > 0 && <> + 판 돈 {fmt(sellIn)}원</>}
+            </p>
+          );
+        })}
+        <p className="text-[11px] text-slate-400">돈은 계좌 밖으로 못 나가서, 각 계좌 돈으로 그 계좌에 있는 종목만 사요.</p>
+      </div>
+
+      <div className="space-y-1.5">
+        <H n={3}>테마 안에서 종목 고르기 — {pickStyle === 'VALUE' ? '손해 큰 종목 우선' : '금액 작은 종목부터'}</H>
+        {picks.length === 0 && <p className="text-slate-500 dark:text-slate-400">이번엔 살 종목이 없어요.</p>}
+        {picks.map(({ acc, tid, cands, shares }) => (
+          <p key={`${acc.id}-${tid}`}>
+            <b className="font-medium">{name(tid)}</b>
+            {cands.length <= 1
+              ? <> — {accName(acc.id)}에 이 테마 종목이 {cands[0]?.ticker ?? '하나'} 하나뿐이라 고를 게 없어요.</>
+              : <> — {cands.map((h, i) => <span key={h.holdingId}>{i > 0 && ' · '}{h.ticker} {profitOf(h)} <span className="text-rose-500">{shares(h.holdingId)}주</span></span>)}
+                  {pickStyle === 'VALUE' && <span className="text-slate-400"> (1주 살 때마다 평균단가를 다시 계산해 그때 가장 손해 큰 종목)</span>}</>}
+          </p>
+        ))}
+        {skippedLosers.map(({ theme, list }) => (
+          <p key={theme.id} className="rounded-lg bg-amber-50 dark:bg-amber-900/15 px-2.5 py-2 text-amber-700 dark:text-amber-300">
+            {theme.name}의 {list.map(h => `${h.ticker}(${profitOf(h)})`).join(', ')}{josaIGa(list[list.length - 1].ticker)} 떨어져 있지만, 테마가 목표 {pct(theme.targetPct)}보다 많아서 이번엔 안 사요.
+            더 사고 싶으면 투자 설정 › 테마에서 {theme.name} 목표 %를 올리세요.
+          </p>
+        ))}
+      </div>
+
+      <div className="space-y-1.5">
+        <H n={4}>팔기</H>
+        {pickStyle === 'VALUE' ? (
+          sells.length > 0
+            ? sells.map((a, i) => {
+                const h = holdings.find(x => x.holdingId === a.holdingId);
+                return <p key={i}>{h?.ticker} {h ? profitOf(h) : ''} — 수익 +{profitTake}% 넘어서 오른 만큼만 {a.shares}주 팔아요 (원금은 그대로).</p>;
+              })
+            : <p>{profitTake > 0 ? `수익 +${profitTake}% 넘은 종목이 없어서 팔 게 없어요.` : '수익 실현 기준이 0이라 팔지 않아요.'} 손해 중인 종목은 팔지 않아요.
+                {overNames.length > 0 && ` 그래서 넘친 테마(${overNames.join(', ')})도 팔지 않고, 모자란 테마를 사서 비중을 천천히 맞춰가요.`}</p>
+        ) : (
+          sells.length > 0
+            ? <p>목표보다 {threshold}%p 넘게 많은 테마({Array.from(new Set(sells.map(a => name(a.themeId)))).join(', ')})를 목표까지 팔아요.</p>
+            : <p>{allowSell ? `목표보다 ${threshold}%p 넘게 많은 테마가 없어서 팔 게 없어요.` : "'매도 없이 납입금으로만'이 켜져 있어서 팔지 않아요."}</p>
+        )}
+      </div>
+    </div>
+  );
+};
+
 export const themeColor = (themes: ThemeInfo[], id: number | null) => {
   const i = themes.findIndex(t => t.id === id);
   return i < 0 ? '#cbd5e1' : THEME_COLORS[i % THEME_COLORS.length];
@@ -151,8 +281,9 @@ export const themeColor = (themes: ThemeInfo[], id: number | null) => {
 
 export const ThemeTodo = ({
   themes, holdings, accounts, plan, blockers, threshold, monthlyBudget, withContribution, onToggleContribution, allowSell, onToggleSell, onTrade, children,
-  feeRate, priceBuffer, onSaveCosts, pickStyle, profitTake, onSaveStyle,
+  feeRate, priceBuffer, onSaveCosts, pickStyle, profitTake, onSaveStyle, preview = null,
 }: {
+  preview?: number | null; // 다음 달 이후 미리 보기면 그 달(1~12) — 체결 완료 버튼 숨김
   pickStyle: PickStyle; profitTake: number; onSaveStyle: (v: { style: PickStyle; profitTakePct: number }) => void;
   feeRate: number; priceBuffer: number; onSaveCosts: (v: { feeRate: number; priceBuffer: number }) => void;
   themes: ThemeInfo[]; holdings: ThemeHolding[]; accounts: ThemeAccount[]; plan: TRResult | null; blockers: Blocker[];
@@ -169,12 +300,23 @@ export const ThemeTodo = ({
   const tradeActions = actions.filter(a => a.side === 'BUY' || a.side === 'SELL');
   const overCap = overCapSatellites(themes, holdings, threshold);
   const hasSatellite = themes.some(t => t.satellite);
+  const [why, setWhy] = React.useState(false);
 
   return (
     <section className={`${CARD} p-4 sm:p-5`}>
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div className="min-w-0">
-          <p className="text-lg font-bold text-slate-900 dark:text-dark-text">이번 달 할 일</p>
+          <div className="flex items-center gap-1.5">
+            <p className="text-lg font-bold text-slate-900 dark:text-dark-text">{preview ? `${preview}월 할 일 미리 보기` : '이번 달 할 일'}</p>
+            {plan && (
+              <button onClick={() => setWhy(v => !v)} aria-expanded={why} aria-label="추천 이유 보기" title="왜 이렇게 추천했나요?"
+                className="w-11 h-11 sm:w-8 sm:h-8 -my-2 inline-flex items-center justify-center rounded-full shrink-0">
+                <span className={`w-6 h-6 inline-flex items-center justify-center rounded-full text-xs font-bold transition-colors ${
+                  why ? 'bg-primary-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
+                }`}>?</span>
+              </button>
+            )}
+          </div>
           <p className="text-xs text-slate-400 mt-0.5">
             {blockers.length > 0 ? '먼저 정리할 게 있어요'
               : tradeActions.length > 0 ? `${pickStyle === 'VALUE' ? '테마 비중 + 손해 큰 종목 우선' : `테마 비중 ±${threshold}%p 기준`} · 매도 ${actions.filter(a => a.side === 'SELL').length}건 · 매수 ${actions.filter(a => a.side === 'BUY').length}건`
@@ -187,7 +329,7 @@ export const ThemeTodo = ({
               className={`shrink-0 h-11 sm:h-9 px-3.5 rounded-full text-xs font-medium transition-colors ${
                 withContribution ? 'bg-primary-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
               }`}>
-              {withContribution ? '✓ ' : ''}이번 달 납입금 {fmt(monthlyBudget)}원 포함
+              {withContribution ? '✓ ' : ''}{preview ? `${preview}월` : '이번 달'} 납입금 {fmt(monthlyBudget)}원 포함
             </button>
           )}
           {/* 끄면 무거운 테마도 팔지 않고 새 납입금으로만 비중을 맞춤 — VALUE는 수익 실현 기준으로만 팔아서 숨김 */}
@@ -199,6 +341,11 @@ export const ThemeTodo = ({
           </button>}
         </div>
       </div>
+
+      {why && plan && (
+        <RecommendExplain themes={themes} holdings={holdings} accounts={accounts} plan={plan}
+          pickStyle={pickStyle} profitTake={profitTake} allowSell={allowSell} threshold={threshold} />
+      )}
 
       {blockers.length > 0 && (
         <div className="mt-3 space-y-2">
@@ -213,6 +360,11 @@ export const ThemeTodo = ({
         </div>
       )}
 
+      {preview && (
+        <p className="mt-2 rounded-lg bg-primary-50/70 dark:bg-primary-900/15 px-3 py-2 text-xs text-primary-700 dark:text-primary-300">
+          지금 시세와 {preview}월 납입금으로 미리 계산했어요. 실제 주문·'체결 완료'는 {preview}월이 되면 그 달 화면에서 해 주세요 — 그때 시세로 다시 계산돼요.
+        </p>
+      )}
       <PickStyleRow style={pickStyle} profitTake={profitTake} onSave={onSaveStyle} />
       <TradeCosts feeRate={feeRate} priceBuffer={priceBuffer} onSave={onSaveCosts} />
 
@@ -265,7 +417,7 @@ export const ThemeTodo = ({
                     {list.map((a, i) => {
                       const h = byId(a.holdingId);
                       const st = SIDE[a.side];
-                      const tradable = (a.side === 'BUY' || a.side === 'SELL') && h;
+                      const tradable = !preview && (a.side === 'BUY' || a.side === 'SELL') && h;
                       return (
                         <li key={i} className="flex items-center gap-3 py-2.5 min-w-0">
                           <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-bold ${st.chip}`}>{st.label}</span>

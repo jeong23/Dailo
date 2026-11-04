@@ -491,9 +491,12 @@ export const InvestDashboardPage = () => {
     );
   }
 
-  // 실시간 시세는 이번 달 화면에만 적용 (지난 달은 그 달에 저장된 현재가 유지)
+  // 실시간 시세·할 일 계산은 이번 달과 다음 달 이후(미리 보기)에만 — 지난 달은 그 달에 저장된 현재가 유지
+  //  다음 달 이후는 아직 체결이 없으니 그 달 납입금으로 미리 계산 (체결 완료 버튼은 숨김 — 체결은 그 달에)
   const isCurrentMonth = ym === currentYm;
-  const priced = applyManualValues(isCurrentMonth ? applyLiveQuotes(data, quotes) : data);
+  const isPreview = ym > currentYm;
+  const isLive = isCurrentMonth || isPreview;
+  const priced = applyManualValues(isLive ? applyLiveQuotes(data, quotes) : data);
   // 종목 색은 설정 순서로 고정 — 정렬 뒤에 매기면 실시간 시세로 순위가 바뀔 때마다 색이 바뀜
   const colorOf: Record<number, string> = {};
   priced.accounts.flatMap(a => a.holdings).forEach((h, i) => { colorOf[h.holdingId] = HOLDING_COLORS[i % HOLDING_COLORS.length]; });
@@ -518,7 +521,7 @@ export const InvestDashboardPage = () => {
   // 보유 수량은 있는데 현재가가 없는 종목이 있으면 비중을 알 수 없어서 추천하지 않음
   const holdingById: Record<number, DashHolding> = {};
   allHoldings.forEach(h => { holdingById[h.holdingId] = h; });
-  const plans = isCurrentMonth && rebalance
+  const plans = isLive && rebalance
     ? view.accounts.filter(a => a.holdings.length > 0 && a.active !== false).map(acc => {
         const missing = acc.holdings.filter(h => (h.shares ?? 0) > 0 && h.evalAmt == null);
         const dupCodes = duplicateCodes(acc.holdings);
@@ -571,7 +574,7 @@ export const InvestDashboardPage = () => {
       if (noPrice.length) blockers.push({ accountId: acc.id, kind: 'price', text: `${acc.name}: 현재가 없는 종목 — ${noPrice.map(h => h.ticker).join(', ')} (종목코드를 넣으면 시세가 들어와요)` });
     });
   }
-  const themePlan = themeMode && isCurrentMonth && blockers.length === 0
+  const themePlan = themeMode && isLive && blockers.length === 0
     ? rebalanceByTheme(
         themes,
         themeHoldings.map(h => ({
@@ -618,7 +621,7 @@ export const InvestDashboardPage = () => {
     <div className="space-y-5">
       <PageHeader right={
         <div className="flex items-center gap-2 flex-wrap justify-end">
-          {isCurrentMonth && <LiveBadge status={quoteStatus} streaming={streaming} hasCodes={hasCodes} />}
+          {isLive && <LiveBadge status={quoteStatus} streaming={streaming} hasCodes={hasCodes} />}
           {monthPicker}
         </div>
       } />
@@ -647,8 +650,8 @@ export const InvestDashboardPage = () => {
       )}
 
       {/* ── 이번 달 할 일: 리밸런싱 추천 → 증권 앱에서 실행 → 체결 완료(보유 수량·평균단가 자동 반영) ── */}
-      {themeMode && isCurrentMonth && (
-        <ThemeTodo themes={themes} holdings={themeHoldings} accounts={themeAccounts} plan={themePlan} blockers={blockers}
+      {themeMode && isLive && (
+        <ThemeTodo preview={isPreview ? Number(ym.slice(5)) : null} themes={themes} holdings={themeHoldings} accounts={themeAccounts} plan={themePlan} blockers={blockers}
           threshold={view.rebalanceThreshold} monthlyBudget={view.monthlyBudget}
           withContribution={withContribution} onToggleContribution={() => setWithContribution(v => !v)}
           allowSell={allowSell} onToggleSell={toggleAllowSell} onTrade={openTrade}
@@ -661,7 +664,7 @@ export const InvestDashboardPage = () => {
         <section className={`${CARD} p-4 sm:p-5`}>
           <div className="flex items-start justify-between gap-3 flex-wrap">
             <div className="min-w-0">
-              <p className="text-lg font-bold text-slate-900 dark:text-dark-text">이번 달 할 일</p>
+              <p className="text-lg font-bold text-slate-900 dark:text-dark-text">{isPreview ? `${Number(ym.slice(5))}월 할 일 미리 보기` : '이번 달 할 일'}</p>
               <p className="text-xs text-slate-400 mt-0.5">
                 {todoCount > 0
                   ? <>매도 {sellCount}건 · 매수 {buyCount}건{trades.length > 0 && ` · 체결 ${trades.length}건 완료`}</>
@@ -745,7 +748,7 @@ export const InvestDashboardPage = () => {
                             <p className={`text-sm font-bold tabular-nums ${st.text}`}>{it.shares ? `${it.shares}주` : `${fmt(it.amount)}원`}</p>
                             <p className="text-[11px] text-slate-400 tabular-nums">{it.shares ? `${fmt(it.amount)}원` : it.shares === 0 ? '1주 미만' : ''}</p>
                           </div>
-                          {h && (
+                          {h && !isPreview && (
                             <button onClick={() => setTradeSheet({
                                 holdingId: h.holdingId, side: it.action as 'BUY' | 'SELL',
                                 shares: it.shares ? String(it.shares) : '', price: h.currentPrice ? fmt(h.currentPrice) : '',
