@@ -246,7 +246,7 @@ export const SavingsPage = ({ embedded = false }: { embedded?: boolean }) => {
       {/* 추가·수정 시트 */}
       {form && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setForm(null)}>
-          <div className="bg-white dark:bg-dark-card w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl shadow-2xl max-h-[92vh] flex flex-col" onClick={e => e.stopPropagation()}>
+          <div className="bg-white dark:bg-dark-card w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl shadow-2xl max-h-[92dvh] flex flex-col" onClick={e => e.stopPropagation()}>
             <div className="px-6 pt-5 pb-3 flex items-center justify-between gap-3">
               <h3 className="text-lg font-bold text-slate-900 dark:text-dark-text">{isHousing ? '주택청약' : '적금'} {form.id ? '수정' : '추가'}</h3>
               <button onClick={() => setForm(null)} aria-label="닫기" className="w-11 h-11 -mr-2 rounded-full text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 text-xl">×</button>

@@ -1108,7 +1108,7 @@ export const InvestDashboardPage = () => {
       {/* ── 입력 바텀시트 ── */}
       {sheetAcc && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setSheetAccId(null)}>
-          <div className="bg-white dark:bg-dark-card w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl shadow-2xl max-h-[92vh] flex flex-col" onClick={e => e.stopPropagation()}>
+          <div className="bg-white dark:bg-dark-card w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl shadow-2xl max-h-[92dvh] flex flex-col" onClick={e => e.stopPropagation()}>
             <div className="px-6 pt-5 pb-3 flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-xs text-slate-400">{yy}년 {mm}월 · {accountTypeLabel(sheetAcc.type)}</p>

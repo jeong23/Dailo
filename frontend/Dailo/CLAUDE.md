@@ -486,6 +486,8 @@ src/
 - `rounded-3xl shadow-2xl` — 테두리 없음
 
 ## 과거 실수 기록
+- 홈 대시보드 '새 지출 등록' 창에 max-h·overflow가 없어 칸(적금·계좌)이 늘자 화면보다 길어져 스크롤이 안 됐음 (2026-11-05)
+  → 시트는 항상 `max-h-[92dvh] overflow-y-auto overscroll-contain` + 하단 `pb-[calc(1.5rem+env(safe-area-inset-bottom))]` — vh는 폰 주소창 높이를 포함해 맨 아래가 가려짐
 - 월급일은 로그인 때만 localStorage에 저장 → 다른 기기에서 바꾸면 정산월 어긋남. components/SalaryDaySync(Layout)가 앱 열 때 서버 값과 맞추고 바뀌었으면 한 번 새로고침 (2026-11-02)
 - 만기 지난 적금은 자산 현황 적금 칸·적금 합계에서 0 — 만기 수령액은 서버가 만기일에 현금 잔액에 더함 (currentPrincipal)
 - 날짜 문자열을 `new Date().toISOString().split('T')[0]`로 만들면 KST 0~9시엔 어제 — 25일 아침 지출이 지난 정산월로 들어갔음 (2026-11-02)

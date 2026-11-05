@@ -2,7 +2,7 @@
 
 ## 프로젝트 개요
 - 개인용 가계부 + 플래너 + 투자관리 풀스택 앱
-- 모노레포: `Dailo/` 최상위에 단일 `.git` (GitHub: jeong23/LifePlan)
+- 모노레포: `Dailo/` 최상위에 단일 `.git` (GitHub: jeong23/Dailo — 2026-11 LifePlan에서 이름 변경)
   - `backend/Dailo` — Spring Boot 3.5.x + Java 17 + JPA + MariaDB (포트 8888)
   - `frontend/Dailo` — React 19 + TypeScript + Tailwind CSS + Recharts (개발 포트 3000)
 - 배포: React 빌드 후 `backend/Dailo/src/main/resources/static/`에 복사해서 Spring Boot 하나로 서빙
@@ -30,6 +30,7 @@ dailo                      # /Users/user/Desktop/workspace/Dailo 로 이동
 - 모든 앞단의 페이지는 web, mobile 화면단에 잘 나오게 설계해야 한다.
   → 터치 타깃 최소 44px, 텍스트 잘림 방지(min-w-0 + truncate), 가로 스크롤 없는 레이아웃
   → 모달은 모바일 바텀시트(items-end, rounded-t-3xl) + 데스크탑 중앙 팝업(sm:items-center, sm:rounded-3xl)
+  → 시트 높이는 `max-h-[92dvh] overflow-y-auto overscroll-contain` (vh 금지 — 폰 주소창에 하단이 가려짐) + 하단 `pb-[env(safe-area-inset-bottom)]`(p-6이면 calc(1.5rem+…)) sm:pb-0/6
   → 테이블은 모바일 카드 리스트(lg:hidden) + 데스크탑 테이블(hidden lg:block) 이중 구현 (lg 기준 — 폴드 펼침 화면 대응)
 - 컴파일/테스트/서버 기동은 Claude가 직접 실행해서 결과를 바로 확인한다
   → 백엔드: `./mvnw compile` / `./mvnw test` / `./mvnw spring-boot:run` (**`mvn`은 PATH에 없음 — 반드시 `./mvnw`**)

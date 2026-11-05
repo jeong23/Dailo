@@ -712,7 +712,7 @@ const DashboardHome = () => {
           onClick={() => setDetailModalType(null)}
         >
           <div
-            className="bg-white dark:bg-dark-card w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl shadow-2xl flex flex-col max-h-[80vh]"
+            className="bg-white dark:bg-dark-card w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl shadow-2xl flex flex-col max-h-[80dvh] pb-[env(safe-area-inset-bottom)] sm:pb-0"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex justify-between items-start px-6 pt-6 pb-4">
@@ -766,7 +766,7 @@ const DashboardHome = () => {
           onClick={() => setFixedModalOpen(false)}
         >
           <div
-            className="bg-white dark:bg-dark-card w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl shadow-2xl flex flex-col max-h-[80vh]"
+            className="bg-white dark:bg-dark-card w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl shadow-2xl flex flex-col max-h-[80dvh] pb-[env(safe-area-inset-bottom)] sm:pb-0"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex justify-between items-start px-6 pt-6 pb-4">
@@ -811,11 +811,15 @@ const DashboardHome = () => {
 
       {/* 지출 등록 모달 */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div className="bg-white dark:bg-dark-card w-full max-w-md rounded-3xl shadow-2xl p-6">
-            <div className="flex justify-between items-center mb-6">
+        // 모바일 바텀시트 + 데스크탑 중앙. 칸이 늘어 화면보다 길어질 수 있어 시트 안에서 스크롤 (max-h dvh — 폰 주소창에 안 가리게)
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/50 backdrop-blur-sm"
+          onClick={() => setIsModalOpen(false)}>
+          <div className="bg-white dark:bg-dark-card w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl shadow-2xl max-h-[92dvh] overflow-y-auto overscroll-contain themed-scrollbar px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] sm:pb-6"
+            onClick={e => e.stopPropagation()}>
+            <div className="sticky top-0 z-10 -mx-6 px-6 pt-6 pb-4 mb-2 bg-white dark:bg-dark-card flex justify-between items-center">
               <h3 className="text-xl font-bold dark:text-dark-text">새 지출 등록</h3>
-              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600 text-xl">×</button>
+              <button type="button" onClick={() => setIsModalOpen(false)} aria-label="닫기"
+                className="w-11 h-11 -mr-2 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 text-xl">×</button>
             </div>
 
             <form className="space-y-4" onSubmit={handleSave}>

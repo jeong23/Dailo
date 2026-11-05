@@ -733,7 +733,7 @@ export const ExpensesPage = () => {
       {/* 지출 모달 */}
       {isExpenseModalOpen && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm">
-          <div className="bg-white dark:bg-dark-card w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl shadow-2xl p-6 max-h-[92vh] overflow-y-auto">
+          <div className="bg-white dark:bg-dark-card w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl shadow-2xl p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] sm:pb-6 max-h-[92dvh] overflow-y-auto overscroll-contain themed-scrollbar">
             <div className="flex justify-between items-center mb-6">
               <h3 className="text-xl font-bold dark:text-dark-text">
                 {editingExpense ? '지출 수정' : '새 지출 등록'}
@@ -819,7 +819,7 @@ export const ExpensesPage = () => {
       {/* 수입 모달 */}
       {isIncomeModalOpen && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm">
-          <div className="bg-white dark:bg-dark-card w-full sm:max-w-sm rounded-t-3xl sm:rounded-3xl shadow-2xl p-6 max-h-[92vh] overflow-y-auto">
+          <div className="bg-white dark:bg-dark-card w-full sm:max-w-sm rounded-t-3xl sm:rounded-3xl shadow-2xl p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] sm:pb-6 max-h-[92dvh] overflow-y-auto overscroll-contain themed-scrollbar">
             <div className="flex justify-between items-center mb-6">
               <h3 className="text-xl font-bold dark:text-dark-text">
                 {editingIncome ? '수입 수정' : '수입 등록'}

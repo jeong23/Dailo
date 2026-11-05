@@ -502,7 +502,7 @@ export const HabitPage = () => {
       {/* 습관 추가/수정 모달 */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm">
-          <div className="bg-white dark:bg-dark-card w-full sm:max-w-sm rounded-t-3xl sm:rounded-3xl shadow-2xl p-6 max-h-[92vh] overflow-y-auto">
+          <div className="bg-white dark:bg-dark-card w-full sm:max-w-sm rounded-t-3xl sm:rounded-3xl shadow-2xl p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] sm:pb-6 max-h-[92dvh] overflow-y-auto overscroll-contain">
             <div className="flex justify-between items-center mb-6">
               <h3 className="text-xl font-bold dark:text-dark-text">
                 {editingHabit ? '습관 수정' : '습관 추가'}

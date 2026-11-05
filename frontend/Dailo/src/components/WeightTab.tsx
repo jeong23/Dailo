@@ -259,7 +259,7 @@ const ExerciseDetail: React.FC<{
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in" onClick={onClose}>
-      <div className="bg-white dark:bg-dark-card w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl shadow-2xl max-h-[92vh] flex flex-col animate-sheet-up" onClick={e => e.stopPropagation()}>
+      <div className="bg-white dark:bg-dark-card w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl shadow-2xl max-h-[92dvh] flex flex-col animate-sheet-up pb-[env(safe-area-inset-bottom)] sm:pb-0" onClick={e => e.stopPropagation()}>
         <div className="sm:hidden flex justify-center pt-2"><span className="w-10 h-1 rounded-full bg-slate-200 dark:bg-slate-700" /></div>
         <div className="overflow-y-auto px-5 pt-3 pb-4 space-y-5 themed-scrollbar">
           <div className="flex items-start justify-between gap-3 animate-rise-in" style={delay(0)}>
@@ -447,7 +447,7 @@ const ExercisePicker: React.FC<{
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in" onClick={onClose}>
-      <div className="bg-white dark:bg-dark-card w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl shadow-2xl h-[80vh] sm:h-[600px] flex flex-col animate-sheet-up" onClick={e => e.stopPropagation()}>
+      <div className="bg-white dark:bg-dark-card w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl shadow-2xl h-[80dvh] sm:h-[600px] flex flex-col animate-sheet-up pb-[env(safe-area-inset-bottom)] sm:pb-0" onClick={e => e.stopPropagation()}>
         <div className="px-5 pt-5 pb-3 space-y-3">
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-bold text-slate-900 dark:text-dark-text">종목 추가</h3>
@@ -1228,7 +1228,7 @@ export const WeightTab: React.FC = () => {
       {/* ── 루틴 편집 시트 ── */}
       {editingRoutine && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setEditingRoutine(null)}>
-          <div className="bg-white dark:bg-dark-card w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl shadow-2xl p-6 max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+          <div className="bg-white dark:bg-dark-card w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl shadow-2xl p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] sm:pb-6 max-h-[92dvh] overflow-y-auto overscroll-contain" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-bold text-slate-900 dark:text-dark-text">{editingRoutine.id ? '루틴 편집' : '새 루틴'}</h2>
               <button onClick={() => setEditingRoutine(null)} aria-label="닫기" className="w-11 h-11 -mr-2 rounded-full text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 text-xl">×</button>
