@@ -46,6 +46,7 @@ export const WithdrawSection = ({ className }: { className: string }) => {
               <li>지금 바로 로그아웃되고, 다른 기기의 로그인도 끊겨요.</li>
               <li><b>30일 안에</b> 다시 로그인하면 그대로 복구할 수 있어요.</li>
               <li>30일이 지나면 지출·자산·투자·플래너·운동 기록이 <b>모두 삭제</b>되고 되돌릴 수 없어요.</li>
+              <li>기록을 남겨 두려면 먼저 위 <b>내 데이터 내보내기</b>에서 받아 두세요.</li>
             </ul>
             <label className="block mt-5 text-sm text-slate-500 dark:text-slate-400">
               확인을 위해 <b className="text-slate-800 dark:text-slate-100">탈퇴</b>를 입력하세요

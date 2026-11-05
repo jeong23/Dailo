@@ -9,6 +9,7 @@
 
 ## 실행
 - npm start (개발) / 변경 확인은 보통 `ddeploy` + 백엔드 재시작 방식 사용 (루트 CLAUDE.md 참고)
+- `.npmrc` legacy-peer-deps=true: react-scripts 5 peer가 TypeScript ≤4라 TS 5와 충돌 — 지우면 `npm ci`(CI)가 ERESOLVE로 실패
 
 ## 폴더 구조
 ```
@@ -218,6 +219,11 @@ src/
 - 화면 설정(/preferences) 맨 아래 components/WithdrawSection — '탈퇴' 입력 확인 시트 → DELETE /members/{id} → endSession('withdrawn')
 - LoginPage: 409 + data.code==='WITHDRAWN'이면 삭제 예정일 + '계정 복구하고 로그인'(restore:true로 다시 로그인). 데이터는 30일 뒤 서버가 삭제 (backend CLAUDE.md '회원 탈퇴')
 
+## 내 데이터 내보내기 (2026-11-05)
+- 화면 설정(/preferences) 탈퇴 위 components/ExportSection — GET /export/items로 체크 목록·행 수(서버 단일 소스, 라벨 하드코딩 금지), 기록 있는 묶음만 기본 체크
+  → 받기: api.get('/export', {responseType:'blob'}) → blob URL + a.download (JWT 헤더 때문에 <a href> 직접 링크 불가), revoke는 10초 뒤(모바일 사파리)
+  → 오류 응답도 blob이라 text() → JSON 파싱해서 서버 메시지 표시 (errorMessage)
+
 ## 공통 UI (2026-10-29 정리)
 - 알림은 전부 useToast() + <Toast /> — alert() 금지 (confirm은 삭제 확인에만)
 - 달별 메모는 서버: hooks/useServerNote(key, legacyKey) — GET/PUT /notes/{budget|planner}-YYYY-MM, 예전 localStorage 값은 처음 열 때 옮기고 지움
@@ -380,6 +386,12 @@ src/
   → 칸 사이: 넘치는 현금·투자 → 모자란 현금·투자·적금, 큰 차이끼리 먼저, 만원 단위 내림. 직접 입력(부동산)·적금 넘침은 옮기지 않고 stuck 안내
   → 투자 안: '옮긴 뒤 투자 금액' × 테마 목표% − 현재. allowSell=false면 넘친 테마는 HOLD_BUY, 매수 합계를 들어오는 돈에 맞춰 비례 축소
 - `components/AssetGuidePanel.tsx`: xl은 오른쪽 360px sticky, 모바일은 요약 → 가이드 → 목표 배분 순서 (grid-cols-1 + col/row-start)
+
+## 순자산 추이 (2026-11-05, 자산 현황)
+- AllocationPage가 load 끝나면 칸 금액을 종류별(cash/invest/savings/manual) 합쳐 PUT /assets/snapshots/current → GET 목록 → components/NetWorthTrend
+  → 연동 칸(CASH·INVEST·SAVINGS) 중 있는 칸의 API가 하나라도 실패하면 기록 안 함 (0으로 저장돼 그래프가 꺼지는 것 방지), 칸 저장 후에도 다시 기록
+  → 합계는 화면 total과 같은 규칙(칸 종류별 amountOf 합) — 칸 계산을 바꾸면 recordSnapshot도 같이
+  → 화면을 연 달만 기록됨(안 연 달은 빈칸). 증감 색은 한국 관례(증가 rose / 감소 blue), 그래프 아래 최근 6개월 표(그래프 대체)
 
 ## SavingsPage 규칙 (적금)
 - 고정비(사라지는 돈)와 분리 — 적금은 자산. 자산 배분 SAVINGS 칸 금액 = 적금 현재 원금 합계(만기 지나도 삭제 전까지 포함)

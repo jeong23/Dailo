@@ -20,7 +20,7 @@ class VisionBoardServiceTest {
     private static final Long OTHER = 2L;
 
     private final VisionBoardItemRepository repo = mock(VisionBoardItemRepository.class);
-    private final VisionBoardService service = new VisionBoardService(repo);
+    private final VisionBoardService service = new VisionBoardService(repo, mock(ImageCleanupService.class));
 
     private VisionBoardItem item(Long memberId) {
         return VisionBoardItem.builder().memberId(memberId).imageUrl("/uploads/future-vision/a.jpg")

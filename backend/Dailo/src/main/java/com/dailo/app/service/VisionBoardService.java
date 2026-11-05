@@ -19,6 +19,7 @@ public class VisionBoardService {
     static final double MIN_SIZE = 5;
 
     private final VisionBoardItemRepository repository;
+    private final ImageCleanupService imageCleanup;
 
     public List<VisionBoardDto.Response> findAll(Long memberId) {
         return repository.findByMemberIdOrderByZAsc(memberId)
@@ -53,7 +54,10 @@ public class VisionBoardService {
 
     @Transactional
     public void delete(Long memberId, Long id) {
-        repository.delete(findOwned(memberId, id));
+        VisionBoardItem item = findOwned(memberId, id);
+        repository.delete(item);
+        repository.flush(); // 참조 개수 확인이 이 삭제를 보도록
+        imageCleanup.deleteUnreferencedAfterCommit(List.of(item.getImageUrl()));
     }
 
     // 보드 밖으로 나가지 않게 퍼센트 범위로 맞춤 (null이면 기존 값 유지)

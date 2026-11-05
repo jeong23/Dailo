@@ -10,12 +10,14 @@ import { LIQUIDITY_DISCLAIMER, accountTypeLabel, liquidityOf } from '../utils/ac
 import { assetGuide } from '../utils/assetGuide';
 import { AssetGuidePanel } from '../components/AssetGuidePanel';
 import { getCurrentSettleMonth } from '../utils/format';
+import { NetWorthTrend, Snapshot } from '../components/NetWorthTrend';
 
 // 자산 현황 (/assets, 옛 /allocation) — 전체 자산을 칸(현금·투자·부동산·적금 …)으로 모아 보고, 맨 아래 '목표 배분'에서 목표 비중 대비 현재를 본다.
 //  CASH: 현금 자산 페이지 최신 잔액 / INVEST: 투자 현황 평가금액 합계(시세 반영) / SAVINGS: 적금 현재 원금 합계 / MANUAL: 직접 입력
 //  투자 칸 안은 테마 비중(투자 설정 > 테마)으로 한 번 더 나눠 보여줌
 //  오른쪽(모바일은 목표 배분 위) 리밸런싱 가이드: 칸 사이 이동 + 투자 안 테마별 매수·줄이기 (utils/assetGuide)
 //  기록 모드(투자 설정 '목표 비중 맞추기' 꺼짐): 목표 %·가이드·테마 비중을 숨기고 칸별 금액·비중만 — 투자 방식은 사람마다 달라서
+//  순자산 추이: 열 때마다 이번 정산월 스냅샷을 덮어씀(PUT /assets/snapshots/current) — 연동 칸 데이터를 다 불러왔을 때만 (일부 실패면 빠진 값이 0으로 기록돼 그래프가 꺼짐)
 //  꺼낼 수 있는 돈 / 묶인 돈: 현금·적금·일반·ISA vs 연금저축·IRP (계좌 종류로 판단 — utils/accountLiquidity), 직접 입력 칸은 제외
 
 interface Bucket { id?: number; name: string; kind: 'CASH' | 'INVEST' | 'SAVINGS' | 'MANUAL'; targetPct: number; manualAmount: number | null; sortOrder?: number }
@@ -52,32 +54,52 @@ export const AllocationPage = () => {
   // 투자 설정: 비중 맞출 때 팔기 / 리밸런싱 기준(%p) — 가이드가 '팔기' 대신 '새 돈 돌리기'로 안내할지, 테마 밴드
   const [investPrefs, setInvestPrefs] = useState({ allowSell: true, threshold: 5, rebalance: true });
   const [loading, setLoading] = useState(true);
+  const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
   const [editing, setEditing] = useState<Bucket[] | null>(null);
   const [saving, setSaving] = useState(false);
   const { toast, show } = useToast();
   useEscapeKey(editing !== null, () => setEditing(null));
+
+  // 칸 금액을 종류별로 합쳐 이번 달 스냅샷 저장 → 목록 다시 읽기. 저장 실패해도 화면은 그대로 (목록만 읽음)
+  const recordSnapshot = async (bs: Bucket[], v: { cash: number | null; invest: number | null; savings: number | null }, ok: boolean) => {
+    const sumOf = (kind: Bucket['kind']) => bs.filter(b => b.kind === kind)
+      .reduce((t, b) => t + (kind === 'CASH' ? v.cash ?? 0 : kind === 'INVEST' ? v.invest ?? 0 : kind === 'SAVINGS' ? v.savings ?? 0 : b.manualAmount ?? 0), 0);
+    if (ok && bs.length > 0) {
+      try {
+        await api.put('/assets/snapshots/current', {
+          cash: Math.round(sumOf('CASH')), invest: Math.round(sumOf('INVEST')),
+          savings: Math.round(sumOf('SAVINGS')), manual: Math.round(sumOf('MANUAL')),
+        });
+      } catch { /* 기록 실패는 조용히 — 다음에 열 때 다시 */ }
+    }
+    try { setSnapshots((await api.get('/assets/snapshots')).data.data || []); } catch {}
+  };
 
   const load = async () => {
     const [bRes, cRes, dRes, qRes, sRes] = await Promise.allSettled([
       api.get('/assets/buckets'), api.get(`/cash-assets?settleMonth=${getCurrentSettleMonth()}`),
       api.get(`/invest/dashboard?yearMonth=${currentYm}`), api.get('/invest/quotes'), api.get('/savings'),
     ]);
+    let cashValue: number | null = null, investValue: number | null = null, savingsValue: number | null = null;
     if (sRes.status === 'fulfilled') {
       const today = toYmd(new Date());
       // 만기 지난 적금도 아직 안 찾았으면 자산 — 삭제할 때까지 원금 합계에 포함
-      setSavingsTotal((sRes.value.data.data || []).reduce((t: number, s: any) => t + currentPrincipal({ ...s, ratePct: s.ratePct ?? 0 }, today), 0));
+      savingsValue = (sRes.value.data.data || []).reduce((t: number, s: any) => t + currentPrincipal({ ...s, ratePct: s.ratePct ?? 0 }, today), 0);
+      setSavingsTotal(savingsValue);
     }
     if (bRes.status === 'fulfilled') setBuckets(bRes.value.data.data || []);
     if (cRes.status === 'fulfilled') {
       const hist = cRes.value.data.data || [];
-      setCashBalance(hist.length ? hist[hist.length - 1].balance : null);
+      cashValue = hist.length ? hist[hist.length - 1].balance : null;
+      setCashBalance(cashValue);
     }
     if (dRes.status === 'fulfilled') {
       const d = dRes.value.data.data;
       setInvestPrefs({ allowSell: d.allowSell !== false, threshold: d.rebalanceThreshold ?? 5, rebalance: d.rebalanceMode !== false });
       const quotes = qRes.status === 'fulfilled' ? qRes.value.data.data?.quotes || {} : {};
       const holdings: Holding[] = (d.accounts || []).flatMap((a: any) => a.holdings);
-      setInvestTotal(holdings.reduce((s, h) => s + holdingValue(h, quotes), 0));
+      investValue = holdings.reduce((s, h) => s + holdingValue(h, quotes), 0);
+      setInvestTotal(investValue);
       setAccountValues((d.accounts || []).map((a: any) => ({
         id: a.id, name: a.name, type: a.type,
         value: (a.holdings as Holding[]).reduce((s, h) => s + holdingValue(h, quotes), 0),
@@ -87,7 +109,16 @@ export const AllocationPage = () => {
       })));
     }
     setLoading(false);
+    const bs: Bucket[] = bRes.status === 'fulfilled' ? bRes.value.data.data || [] : [];
+    const has = (k: Bucket['kind']) => bs.some(b => b.kind === k);
+    const ok = bRes.status === 'fulfilled'
+      && (!has('CASH') || cRes.status === 'fulfilled')
+      && (!has('INVEST') || dRes.status === 'fulfilled')
+      && (!has('SAVINGS') || sRes.status === 'fulfilled');
+    recordSnapshot(bs, { cash: cashValue, invest: investValue, savings: savingsValue }, ok);
   };
+  // 처음 한 번만 불러옴 (load는 매 렌더 새로 만들어지는 함수)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, []);
 
   const amountOf = (b: Bucket) => b.kind === 'CASH' ? cashBalance ?? 0 : b.kind === 'INVEST' ? investTotal ?? 0 : b.kind === 'SAVINGS' ? savingsTotal ?? 0 : b.manualAmount ?? 0;
@@ -124,6 +155,7 @@ export const AllocationPage = () => {
       })));
       setBuckets(r.data.data);
       setEditing(null);
+      recordSnapshot(r.data.data, { cash: cashBalance, invest: investTotal, savings: savingsTotal }, true);
       show('저장했어요');
     } catch (e: any) {
       show(e?.response?.data?.message || '저장에 실패했어요', 'error');
@@ -224,6 +256,8 @@ export const AllocationPage = () => {
               </p>
             </section>
           )}
+
+          <NetWorthTrend snapshots={snapshots} className={`${CARD} p-5 sm:p-6`} />
 
           </div>
 

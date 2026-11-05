@@ -1,0 +1,72 @@
+# push·PR마다 백엔드 테스트(빈 MariaDB + Flyway)와 프론트 테스트·빌드를 돌린다.
+# application.yml은 커밋 금지 파일이라 CI에는 없음 → DB 접속은 환경변수(SPRING_DATASOURCE_*)로, 나머지는 application.properties·코드 기본값
+name: CI
+
+on:
+  push:
+    branches: [main, EJY]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (./mvnw test)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend/Dailo
+    services:
+      mariadb:
+        image: mariadb:10.11  # 운영 DB와 같은 버전
+        env:
+          MARIADB_ROOT_PASSWORD: ci-root
+          MARIADB_DATABASE: dailo
+          MARIADB_USER: dailo
+          MARIADB_PASSWORD: dailo
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s --health-timeout=5s --health-retries=20
+    env:
+      SPRING_DATASOURCE_URL: jdbc:mariadb://127.0.0.1:3306/dailo?characterEncoding=UTF-8&serverTimezone=Asia/Seoul
+      SPRING_DATASOURCE_USERNAME: dailo
+      SPRING_DATASOURCE_PASSWORD: dailo
+      QUOTE_NAVER_ENABLED: "false"  # 외부 시세 폴링 끔
+      JWT_SECRET: ci-only-jwt-secret-not-used-anywhere-else-0123456789  # 테스트 전용 (운영 키 아님)
+      TZ: Asia/Seoul
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+      # 빈 DB에서 Flyway V1부터 적용 → Hibernate validate → 테스트 전체 (스키마·엔티티 불일치도 여기서 잡힘)
+      - run: ./mvnw -B test
+
+  frontend:
+    name: Frontend (test + build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend/Dailo
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/Dailo/package-lock.json
+      - run: npm ci --no-audit --no-fund  # .npmrc legacy-peer-deps
+      - run: npx react-scripts test --watchAll=false
+        env:
+          CI: "true"
+      # CI=true면 ESLint 경고도 빌드 실패 — 경고를 쌓지 않게
+      - run: npm run build
+        env:
+          CI: "true"

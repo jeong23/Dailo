@@ -35,8 +35,13 @@ dailo                      # /Users/user/Desktop/workspace/Dailo 로 이동
   → 백엔드: `./mvnw compile` / `./mvnw test` / `./mvnw spring-boot:run` (**`mvn`은 PATH에 없음 — 반드시 `./mvnw`**)
   → 프론트: `npm start` / `npm run build`
 - 변경 확인 워크플로우: 프론트 dev 서버 따로 안 띄움 — `ddeploy`(빌드+static 복사) 후 백엔드 재시작해서 8888에서 확인
+- 비밀값(DB 비밀번호·JWT 키·API 키)은 application.yml(커밋 금지, 예시는 application.yml.example) 또는 환경변수에만 — 코드 기본값·application.properties·CLAUDE.md에 쓰지 말 것 (저장소 public)
 - git add/commit/push는 자동 실행 금지 — 개발자가 직접 하거나("`ship`/`dcommit` 실행해줘"처럼) 명시적으로 요청했을 때만 진행
 - 새 SPA 페이지 추가 시 SpaController + SecurityConfig 두 곳 모두 경로 추가 필수
+- DB 스키마 변경은 Flyway 마이그레이션 파일로만 (2026-11-05~, ddl-auto=validate) — backend CLAUDE.md 'DB 마이그레이션'
+- CI(2026-11-05): `.github/workflows/ci.yml` — push(main·EJY)·PR마다 백엔드 `./mvnw test`(빈 MariaDB 10.11 + Flyway) + 프론트 test·`CI=true` build
+  → CI=true 빌드는 ESLint 경고도 실패 처리 — 로컬 `npm run build`에서 경고 없게 유지
+  → application.yml은 CI에 없음: 새 설정값은 `@Value("${x:기본값}")`처럼 기본값을 두거나 application.properties(비밀값 아닌 것만)에
 
 ## 로그 기록 규칙 (logs/)
 - `logs/analysis.log`: DB 구조 분석, 구현 방식 결정 등 "왜 이렇게 만들었는지"를 append (덮어쓰기 금지)
@@ -66,5 +71,9 @@ dailo                      # /Users/user/Desktop/workspace/Dailo 로 이동
 ## 다음 작업 후보
 - [x] ~~🔴 DailyExpense 지출 집계 IDOR~~ — 2026-10-29 수정: member 컬럼 추가 대신 monthlyBudget.member로 소유자 판정, 지출·수입·습관·러닝·대시보드 통계 전부 회원 범위로 (backend CLAUDE.md 'IDOR 회원 범위 규칙')
 - [x] ~~카테고리 누구나 수정·삭제~~ — 2026-11-02: 공용 유지 + 생성·수정·삭제는 member.role=ADMIN만(403). 가입·회원 수정 API로 role 지정하던 권한 상승도 막음 (관리자는 DB에서 지정)
+- [x] ~~DB 마이그레이션·CI·데이터 내보내기~~ — 2026-11-05: Flyway V1 baseline + validate, GitHub Actions, 화면 설정 '내 데이터 내보내기'
+- [x] ~~🔴 JWT 기본 비밀키(공개 저장소에 노출) → 토큰 위조 가능~~ — 2026-11-05: 기본값 제거, jwt.secret/JWT_SECRET 없거나 32바이트 미만·예전 값이면 기동 실패
+- [x] ~~application.yml git 추적~~ — 2026-11-05 `git rm --cached`(로컬 파일 유지) + application.yml.example 추가
+- [ ] 🔴 DB 비밀번호 변경 — 예전 커밋(7d18ff9, d25451f)의 application.yml에 남아 public 저장소에서 보임. 바꾸고 로컬 yml도 수정 [공통]
 - [ ] 런칭 전 법률 검토: 계좌별 매수 수량 안내가 투자자문/유사투자자문에 해당하는지 (현재는 사용자가 넣은 종목·규칙만 계산, 상품 추천 없음) [공통]
 - [x] ~~N+1 쿼리 개선~~ — 2026-11-02: DailyExpenseRepository.sumByMonth / IncomeRepository.sumByMonth 정산월별 그룹 쿼리 1번씩

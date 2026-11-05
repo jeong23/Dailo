@@ -6,10 +6,12 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.List;
 
 // 탈퇴 유예가 끝난 회원의 데이터를 전부 지운다 (개인정보 파기).
 // 새 회원 데이터 테이블을 만들면 여기 추가 — MemberPurgeServiceTest가 member_id 엔티티 누락을 잡는다
+// (DataExportService.GROUPS에도 추가 — DataExportServiceTest가 이 목록 기준으로 내보내기 누락을 잡는다)
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -31,16 +33,23 @@ public class MemberPurgeService {
     static final List<String> MEMBER_TABLES = List.of(
             "invest_trade", "invest_account", "invest_theme", "invest_setting", "invest_diary",
             "monthly_budget", "fixed_cost", "income",
-            "cash_account", "cash_asset", "savings", "asset_bucket", "member_note",
+            "cash_account", "cash_asset", "savings", "asset_bucket", "asset_snapshot", "member_note",
             "daily_plan", "todo_item", "time_box_slot", "time_box_block", "vision_board_item",
             "habit", "running_record", "running_goal",
             "workout_log", "workout_routine", "workout_bookmark"
     );
 
     private final JdbcTemplate jdbc;
+    private final ImageCleanupService imageCleanup;
 
     @Transactional
     public void purge(Long memberId) {
+        // 행을 지우기 전에 이 회원의 사진 주소를 모아 둠 → 다 지운 뒤 아무도 안 쓰는 파일만 커밋 후 삭제
+        List<String> images = new ArrayList<>();
+        for (String[] r : ImageCleanupService.REFERENCES) {
+            images.addAll(jdbc.queryForList("SELECT " + r[1] + " FROM " + r[0] + " WHERE member_id = ? AND " + r[1] + " IS NOT NULL",
+                    String.class, memberId));
+        }
         int rows = 0;
         for (String[] c : CHILD_TABLES) {
             rows += jdbc.update("DELETE FROM " + c[0] + " WHERE " + c[1] + " IN (" + c[2] + ")", memberId);
@@ -49,6 +58,7 @@ public class MemberPurgeService {
             rows += jdbc.update("DELETE FROM " + t + " WHERE member_id = ?", memberId);
         }
         jdbc.update("DELETE FROM member WHERE id = ?", memberId);
-        log.info("탈퇴 회원 {} 데이터 삭제 — {}행", memberId, rows);
+        imageCleanup.deleteUnreferencedAfterCommit(images);
+        log.info("탈퇴 회원 {} 데이터 삭제 — {}행, 사진 주소 {}개 정리 대상", memberId, rows, images.size());
     }
 }

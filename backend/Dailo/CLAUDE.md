@@ -32,6 +32,7 @@ com.dailo.app
 - ApiResponse 메서드명: ApiResponse.ok() 사용 (success() 아님)
 
 ## DB 테이블 목록
+> 주요 테이블만. 전체 컬럼은 `src/main/resources/db/migration/V1__baseline.sql`(+ 이후 V 파일)이 기준
 - MEMBER (회원 — username, password, name, role, salaryGross, salaryDay)
 - MONTHLY_BUDGET (월별 예산)
 - DAILY_EXPENSE (일일 지출 — settleMonth는 expenseDate 기준 자동 계산)
@@ -45,7 +46,20 @@ com.dailo.app
 - HABIT (습관 — memberId, name, emoji, color, isActive, sortOrder)
 - HABIT_LOG (습관 체크 기록 — habit_id, log_date, UNIQUE(habit_id, log_date))
 
+## DB 마이그레이션 (Flyway, 2026-11-05)
+- 스키마 단일 소스 = `src/main/resources/db/migration/V{n}__설명.sql`. Hibernate는 validate만 — 엔티티와 DB가 다르면 **기동 실패**
+  → 엔티티에 필드·테이블 추가 시 반드시 다음 번호 V 파일도 같이 (ALTER/CREATE). 파일만 추가하면 다음 기동 때 자동 적용
+  → 이미 적용된 V 파일은 절대 수정 금지(checksum 불일치로 기동 실패) — 고칠 게 있으면 새 V 파일
+  → MariaDB 예약어 컬럼(`year_month` 등)은 SQL에서도 백틱. NOT NULL 컬럼 추가는 DEFAULT 주거나 기존 행 UPDATE 먼저
+- V1__baseline.sql = 2026-11-05 운영 DB를 mariadb-dump --no-data로 뜬 것(33 테이블). 새 DB로 만든 스키마와 기존 DB diff 0 확인함
+  → 기존 DB는 baseline-on-migrate로 V1 건너뜀(flyway_schema_history에 BASELINE 1). V2 = 카테고리가 비었을 때만 기본 7개
+- 공통 설정은 커밋되는 `application.properties`(같은 위치 application.yml보다 우선) — ddl-auto·flyway.*만, 비밀값 금지
+- `docs/migrations/*.sql`(10-28, 10-29)은 Flyway 이전 수동 이관 기록 — 이미 V1에 반영됨, 다시 실행하지 말 것
+- 로컬 새 DB 확인: `docker run --rm -d -p 3399:3306 -e MARIADB_DATABASE=dailo -e MARIADB_USER=dailo -e MARIADB_PASSWORD=dailo -e MARIADB_ROOT_PASSWORD=x mariadb:10.11` 후 datasource 인자로 기동 (budget 계정은 CREATE DATABASE 권한 없음)
+
 ## 인증 (JWT)
+- 서명 키: `jwt.secret`(application.yml) 또는 환경변수 `JWT_SECRET` **필수** — 기본값 없음. 비었거나 32바이트 미만·예전 공개 기본값(LEAKED_SECRETS)이면 기동 실패 (JwtUtilTest)
+  → 키를 바꾸면 기존 토큰이 전부 무효(한 번 로그아웃). CI는 workflow의 테스트 전용 JWT_SECRET
 - 방식: Stateless JWT (jjwt 0.12.6), **1시간 만료**(JwtUtil.EXPIRATION_MS) — 사용 중엔 프론트가 POST /api/auth/refresh로 연장
   → 인증 실패는 SecurityConfig authenticationEntryPoint가 401 JSON (기본 403이면 프론트가 만료를 몰라 로그아웃 안 됨)
 - 필터: JwtAuthenticationFilter (OncePerRequestFilter) — Authorization: Bearer 헤더 파싱
@@ -63,7 +77,7 @@ com.dailo.app
 - memberId: 프론트 전역에서 getStoredMemberId() 사용 — 하드코딩 1 절대 금지
 - 예산 분배: 생활비 35% / ISA 25% / 연금저축 15% / 비상금 15% / 자유재량 10%
 - 가용금액 계산: 실수령액 + 기타수입(INCOME 합계) - 고정비(활성만)
-- ddl-auto: update (초기 설정 완료)
+- ddl-auto: **validate** (2026-11-05~ Flyway) — 위 'DB 마이그레이션'. 엔티티 변경 = V 파일 추가
 
 ## 계산 로직 (DashboardService)
 - fixedCostTotal: FixedCostRepository.sumActiveByMemberId() 실시간 조회 — 할부는 이번 달(달력 월)에 결제 있는 것만 합산
@@ -98,8 +112,17 @@ com.dailo.app
 - MemberPurgeJob(매일 04:30 KST, @EnableScheduling) → deletedAt 30일 지난 회원마다 MemberPurgeService.purge (회원별 트랜잭션)
   → JdbcTemplate DELETE: CHILD_TABLES(member_id 없는 자식, FK 순서) 먼저 → MEMBER_TABLES → member
   → **새 회원 데이터 테이블을 만들면 MemberPurgeService 목록에 추가** — MemberPurgeServiceTest가 엔티티 스캔으로 누락을 잡음
-  → 업로드 이미지 파일(R2·로컬)은 아직 안 지움 — DB 행만 삭제
+  → 업로드 사진 파일: 행 삭제 전에 주소를 모아 두고, 다 지운 뒤 ImageCleanupService로 아무도 안 쓰는 파일만 커밋 후 삭제 (2026-11-05)
 - 탈퇴 유예 중에도 username은 사용 중 (같은 아이디로 재가입 불가)
+
+## 내 데이터 내보내기 (2026-11-05 — DataExportService / DataExportController)
+- GET /api/export/items(묶음별 행 수) · GET /api/export?items=a,b → CSV ZIP. 묶음·파일·SQL은 DataExportService.GROUPS 상수가 단일 소스
+  → SQL 파라미터는 로그인 memberId 하나뿐, 요청 key는 화이트리스트(resolve)로만 확인 — 요청 값을 SQL에 넣지 말 것
+  → member 시트는 password·role·deleted_at 제외(SELECT * 금지), 나머지는 SELECT * (컬럼 추가 시 자동 포함)
+- CSV: UTF-8 BOM + CRLF(엑셀용), =·+·-·@로 시작하는 글자는 앞에 ' (엑셀 수식 주입 방지 — 숫자 음수는 그대로), 행 없어도 헤더는 씀
+- ZIP 안 파일명은 한글(UTF-8 플래그) — Finder·윈도우 탐색기는 정상, macOS 터미널 `unzip`만 깨짐(확인은 `ditto -x -k`)
+- **새 회원 데이터 테이블은 MemberPurgeService + DataExportService.GROUPS 둘 다 추가** — DataExportServiceTest가 파기 목록 기준으로 누락을 잡음
+- 사진 파일은 안 넣음(image_url만). 응답 Cache-Control: no-store
 
 ## IDOR 회원 범위 규칙 (2026-10-29)
 - daily_expense엔 member 컬럼이 없음 → 소유자 = monthlyBudget.member. 월 기준 쿼리는 `e.monthlyBudget.member.id = :memberId` 필수
@@ -148,10 +171,13 @@ com.dailo.app
 - 런칭 시: application.yml r2.* 에 실제 키만 넣으면 R2로 전환. 기존 /uploads/ 이미지는 옮겨야 함
 
 ## VisionBoard 규칙 (미래 시각화 보드, 2026-10)
-- `vision_board_item` (memberId, imageUrl, x, y, w, h, z) — 회원별 보드 하나, 날짜 무관. ddl-auto update로 테이블 생성
+- `vision_board_item` (memberId, imageUrl, x, y, w, h, z) — 회원별 보드 하나, 날짜 무관
 - x/y/w/h는 보드 대비 퍼센트(0~100) — `VisionBoardService.apply()`가 보드 밖·최소 크기(5%) 보정, null 필드는 기존 값 유지
 - imageUrl은 `/uploads/` 또는 `https://`만 허용, 회원당 20장. 수정·삭제는 findOwned로 소유자 확인(IDOR)
-- 사진 삭제 시 저장소 파일은 지우지 않음(R2/로컬 모두) — 고아 파일 정리가 필요하면 별도 작업
+- 사진 삭제 시 저장소 파일도 삭제(2026-11-05, ImageCleanupService) — 단 **전체 회원 기준** 남은 참조(vision_board_item.image_url, daily_plan.future_vision_url)가 0일 때만, DB 커밋 후
+  → 보드 주소는 사용자가 보낼 수 있어서 다른 회원 주소를 넣고 지우는 공격을 막으려고 회원 구분 없이 셈. 새 이미지 주소 컬럼은 ImageCleanupService.REFERENCES에 추가
+  → 로컬 삭제는 업로드 폴더 밖(../) 경로 무시, R2는 r2.public-domain으로 시작하는 주소만(owns). 외부 https 주소는 안 건드림
+  → 옛 DailyPlan.futureVisionUrl은 바꿀 UI가 없어 교체 시 삭제는 안 함. 업로드만 하고 저장 안 한 파일은 남음
 
 ## TimeBoxBlock 규칙
 - TIME_BOX_SLOT과 TIME_BOX_BLOCK은 별개 — SLOT은 시간별 텍스트 2칸, BLOCK은 드래그 병합 블록
@@ -181,7 +207,6 @@ com.dailo.app
 - InvestMonthlyRecord.evalAmt: 종목별 평가금액 (nullable) — updateActual()에 4번째 파라미터로 포함
   → 프론트에서 evalAmt - actualAmt = 이번 달 손익 표시
   → InvestMonthlyRecord.yearMonth 컬럼: @Column(name = "`year_month`") 백틱 필수 (MariaDB 예약어)
-  → invest_monthly_record 테이블은 ddl-auto:update가 자동 생성 안 함 → 최초 실행 시 수동 CREATE TABLE 필요
 - 투자 탭 구조: 투자 현황(납입입력+평가금액 통합) / 투자일기 / 투자 설정 — 납입기록 탭 제거됨
   → /invest/records 접근 시 /invest로 리다이렉트 (SpaController·SecurityConfig에 경로 유지 필요)
 
@@ -217,6 +242,8 @@ com.dailo.app
 - Spring Boot 재시작은 수동으로 별도 진행
 
 ## 과거 실수 기록
+- JwtUtil이 `${jwt.secret:기본값}`이었는데 application.yml에 jwt 설정이 없어 공개 저장소의 기본값으로 서명 중이었음 → 누구나 아무 회원 토큰 위조 가능 (2026-11-05 수정). 비밀값에 코드 기본값 두지 말 것
+- application.yml이 .gitignore에 있는데도 첫 커밋부터 추적돼 DB 비밀번호가 GitHub에 올라갔음 → `git rm --cached` (2026-11-05). .gitignore는 이미 추적 중인 파일을 막지 못함
 - 회원 삭제가 cash_asset만 지우고 나머지 회원 데이터 테이블 23개를 고아로 남겼음 (2026-11-03) → 30일 유예 + MemberPurgeService 일괄 파기로 교체
 - 가입(POST /members)·회원 수정 body의 role을 그대로 저장해 누구나 ADMIN이 될 수 있었음 (2026-11-02) → 항상 USER, 수정은 기존 role 유지. 관리자는 DB에서만
   → CustomUserDetails.admin(role=ADMIN) — 카테고리 생성·수정·삭제는 admin만 (AccessDeniedException → 403, GlobalExceptionHandler)
@@ -242,7 +269,7 @@ com.dailo.app
 - TodoItem::getIsDone filter 시 메서드 레퍼런스 사용 시 NPE 가능 → Boolean.TRUE.equals() 사용
 - MariaDB에서 `password`, `year_month`(YEAR 포함) 등 예약어 컬럼명 → Hibernate 엔티티에서 @Column(name = "`year_month`") 백틱 처리 필수
   → SQL DDL 직접 작성 시에도 백틱 필수
-  → invest_monthly_record 테이블은 ddl-auto가 자동 생성 안 함 → 수동 CREATE TABLE 실행 필요했음
+  → (Flyway 이전) invest_monthly_record는 ddl-auto가 못 만들어 수동 CREATE TABLE 했었음 — 지금은 V1에 포함
 - MemberService.update()에서 null 필드를 그대로 쓰면 부분 업데이트 시 기존 값 덮어씀
   → null이면 기존 member 값 유지하도록 수정
 - application.yml YAML 들여쓰기 깨짐(spring.jpa.properties 하위 hibernate가 최상위로 밀림) → 앱 시작 실패
@@ -252,9 +279,9 @@ com.dailo.app
   → 자식 엔티티는 부모 경로로 검증 (record → holding → account.memberId / set → workoutLog가 지금 저장 중인 로그인지)
   → 새 `{id}` 엔드포인트 추가 시 반드시 소유권 검증 + `OwnershipGuardTest`에 케이스 추가 (플래너는 `PlannerOwnershipGuardTest`)
 - 플래너(daily-plans/todo-items/time-box/time-box-blocks)에 memberId가 아예 없어 모든 계정이 같은 플랜을 공유·수정 (2026-10-28 수정)
-  → ddl-auto update는 NOT NULL 컬럼을 0으로 채우고 기존 unique 인덱스를 지우지 않음 → 컬럼 추가 마이그레이션은 SQL로 먼저 실행
-  → `./mvnw test`의 contextLoads는 실제 DB(3333)에 붙음 — 엔티티 스키마 변경 후 마이그레이션 전이면 `-Dspring.jpa.hibernate.ddl-auto=none`으로 실행
-- WorkoutSet.setType (NORMAL/WARMUP/DROP/FAILURE, nullable — 기존 로우 null은 응답에서 NORMAL) — ddl-auto update로 컬럼 자동 추가, 허용값 외는 서비스에서 NORMAL로 정규화
+  → (Flyway 이전 교훈) 기존 행이 있는 테이블에 NOT NULL 컬럼 추가 = V 파일에서 컬럼 추가 → 기존 행 UPDATE → NOT NULL, unique 인덱스 변경도 SQL로
+  → `./mvnw test`의 contextLoads는 실제 DB(3333)에 붙고 Flyway도 그 DB에 적용됨 — 엔티티를 바꿨는데 V 파일이 없으면 validate로 실패
+- WorkoutSet.setType (NORMAL/WARMUP/DROP/FAILURE, nullable — 기존 로우 null은 응답에서 NORMAL) — 허용값 외는 서비스에서 NORMAL로 정규화
 - 운동 종목 즐겨찾기: `workout_bookmark`(member_id, exercise_name 유니크) — 종목 마스터 테이블이 없어 종목명 문자열로 저장
   → 종목명에 공백·한글이 있어 path variable 대신 POST body / DELETE query param 사용, 항상 로그인 memberId로만 조회·삭제
 
@@ -308,3 +335,10 @@ com.dailo.app
 - member_note(member_id, note_key, content TEXT) — 키는 (budget|planner)-YYYY-MM만, 5000자, 빈 내용이면 삭제
 
 - InvestTheme.satellite(2026-11-02, nullable — 옛 행 null=false): 위성 테마 = targetPct가 상한. 저장 시 cash=true면 satellite 강제 false. ThemeDto에 satellite 필드
+
+## 순자산 스냅샷 (2026-11-05 — AssetSnapshotService / asset_snapshot, V3)
+- asset_snapshot(member_id, settle_month, cash, invest, savings, manual, captured_at), unique(member_id, settle_month)
+- PUT /assets/snapshots/current: 정산월은 **서버가** CashFlow.settleMonthOf(KST 오늘, member.salaryDay ?? 25)로 정함 → 지난 달 기록은 API로 못 바꿈, 같은 달은 덮어씀
+  → 금액은 프론트 자산 현황 계산값(시세 반영 투자 평가금액·적금 원금 계산이 프론트에 있어서) — 서버는 0 이상·1000조 이하만 검증
+- 회원 데이터 테이블이라 MemberPurgeService·DataExportService(현금·적금 묶음)에 포함
+

@@ -73,9 +73,15 @@ public class R2UploadService {
         return publicDomain + "/" + key;
     }
 
+    // 이 버킷 공개 주소로 올린 파일인지 — 외부 주소·로컬 주소는 false
+    public boolean owns(String imageUrl) {
+        return configured && imageUrl != null && imageUrl.startsWith(publicDomain + "/")
+                && imageUrl.length() > publicDomain.length() + 1;
+    }
+
     public void delete(String imageUrl) {
-        if (!configured || imageUrl == null || imageUrl.isBlank()) return;
-        String key = imageUrl.replace(publicDomain + "/", "");
+        if (!owns(imageUrl)) return;
+        String key = imageUrl.substring(publicDomain.length() + 1);
         s3Client.deleteObject(DeleteObjectRequest.builder()
                 .bucket(bucketName)
                 .key(key)

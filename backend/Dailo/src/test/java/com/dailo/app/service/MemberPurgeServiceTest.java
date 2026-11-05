@@ -43,7 +43,7 @@ class MemberPurgeServiceTest {
     @Test
     void 자식_테이블을_먼저_지우고_회원은_마지막에_지운다() {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
-        new MemberPurgeService(jdbc).purge(7L);
+        new MemberPurgeService(jdbc, mock(ImageCleanupService.class)).purge(7L);
 
         InOrder order = inOrder(jdbc);
         order.verify(jdbc).update(startsWith("DELETE FROM invest_monthly_record"), eq(7L));
@@ -52,6 +52,22 @@ class MemberPurgeServiceTest {
         order.verify(jdbc).update(eq("DELETE FROM invest_account WHERE member_id = ?"), eq(7L));
         order.verify(jdbc).update(eq("DELETE FROM monthly_budget WHERE member_id = ?"), eq(7L));
         order.verify(jdbc).update(eq("DELETE FROM member WHERE id = ?"), eq(7L));
+    }
+
+    @Test
+    void 회원_사진_주소를_모아_행_삭제_뒤_정리를_맡긴다() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        ImageCleanupService cleanup = mock(ImageCleanupService.class);
+        when(jdbc.queryForList(startsWith("SELECT image_url FROM vision_board_item"), eq(String.class), eq(7L)))
+                .thenReturn(List.of("/uploads/future-vision/a.jpg"));
+        when(jdbc.queryForList(startsWith("SELECT future_vision_url FROM daily_plan"), eq(String.class), eq(7L)))
+                .thenReturn(List.of("/uploads/future-vision/b.jpg"));
+
+        new MemberPurgeService(jdbc, cleanup).purge(7L);
+
+        InOrder order = inOrder(jdbc, cleanup);
+        order.verify(jdbc).update(eq("DELETE FROM member WHERE id = ?"), eq(7L));
+        order.verify(cleanup).deleteUnreferencedAfterCommit(List.of("/uploads/future-vision/a.jpg", "/uploads/future-vision/b.jpg"));
     }
 
     private static List<Class<?>> entities() throws ClassNotFoundException {

@@ -34,4 +34,12 @@ public class LocalImageStorage {
         Files.write(target, bytes);
         return URL_PREFIX + key;
     }
+
+    // /uploads/folder/uuid.jpg → 그 파일 삭제. 업로드 폴더 밖을 가리키는 주소(../ 등)는 무시
+    public boolean delete(String url) throws IOException {
+        if (url == null || !url.startsWith(URL_PREFIX)) return false;
+        Path target = baseDir.resolve(url.substring(URL_PREFIX.length())).normalize();
+        if (!target.startsWith(baseDir) || target.equals(baseDir)) return false;
+        return Files.deleteIfExists(target);
+    }
 }
