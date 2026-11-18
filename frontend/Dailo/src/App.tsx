@@ -26,7 +26,8 @@ import { isAuthenticated } from './api/axios';
 import { expireStaleSession } from './utils/session';
 import { BudgetType, DailyExpense, Category, DashboardSummary, DailyStats, CategoryStats } from './types';
 import api from './api/axios';
-import { formatNumber, parseNumber, getCurrentSettleMonth, getSettleMonthForDate, todayYmd } from './utils/format';
+import { formatNumber, parseNumber, getCurrentSettleMonth, getSettleMonthForDate, todayYmd, settlePeriod } from './utils/format';
+import { monthEndForecast } from './utils/forecast';
 import { ExpenseAccountField, SavingsOption, SavingsSelect, useExpenseLinks } from './components/ExpenseLinkFields';
 import { useEscapeKey } from './hooks/useEscapeKey';
 import { Toast, useToast } from './components/Toast';
@@ -268,14 +269,20 @@ const DashboardHome = () => {
   useEscapeKey(fixedModalOpen, () => setFixedModalOpen(false));
 
   // 상세 모달 데이터 (생활비 카드는 비상금과 통합 표시 — OR 조건)
+  // 'cat:분류명' = 파이차트 조각/칩에서 연 분류별 내역 (큰 금액순)
+  const detailCategory = detailModalType?.startsWith('cat:') ? detailModalType.slice(4) : null;
   const detailModalItems = detailModalType === null ? [] :
-    detailModalType === '카드'
+    detailCategory !== null
+      ? expenses.filter(e => (e.categoryName || '미분류') === detailCategory).sort((a, b) => b.amount - a.amount)
+      : detailModalType === '카드'
       ? expenses.filter(e => e.paymentMethod === '카드')
       : detailModalType === '생활비'
       ? expenses.filter(e => e.budgetType === '생활비' || e.budgetType === '비상금')
       : expenses.filter(e => e.budgetType === detailModalType);
   const detailModalTotal = detailModalItems.reduce((sum, e) => sum + e.amount, 0);
-  const detailModalTitle = detailModalType === '카드'
+  const detailModalTitle = detailCategory !== null
+    ? `${detailCategory} 지출 내역`
+    : detailModalType === '카드'
     ? '카드 지출 내역'
     : detailModalType === '생활비'
     ? '생활비·비상금 지출 내역'
@@ -294,6 +301,11 @@ const DashboardHome = () => {
   const combinedBudget = livingBudget + emergencyBudget;
   const combinedExpenses = livingExpenses + emergencyExpenses;
   const combinedRate = combinedBudget > 0 ? Math.round((combinedExpenses / combinedBudget) * 100) : 0;
+  // 이 속도면 월말에 — 보고 있는 달이 진행 중인 정산월일 때만 (오늘이 기간 밖이면 null)
+  const forecast = combinedBudget > 0
+    ? monthEndForecast(combinedExpenses, combinedBudget, settlePeriod(selectedMonth), new Date())
+    : null;
+  const forecastOver = forecast ? forecast.projected - combinedBudget : 0;
   const getBarColor = (rate: number) => {
     if (rate <= 50) return 'bg-green-500';
     if (rate <= 80) return 'bg-yellow-500';
@@ -446,6 +458,25 @@ const DashboardHome = () => {
               <div className={`${getBarColor(combinedRate)} h-full rounded-full transition-all duration-500`} style={{ width: `${Math.min(combinedRate, 100)}%` }} />
             </div>
           </div>
+          {forecast && (
+            <div className={`mt-3 rounded-xl px-3 py-2 text-xs ${
+              forecastOver > 0
+                ? 'bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400'
+                : 'bg-slate-50 text-slate-500 dark:bg-slate-800/50 dark:text-slate-400'
+            }`}>
+              <p>
+                이 속도면 월말 <span className="font-semibold tabular-nums">{forecast.projected.toLocaleString()}원</span>
+                {forecastOver > 0
+                  ? <> · 예산보다 <span className="font-semibold tabular-nums">{forecastOver.toLocaleString()}원</span> 넘어요</>
+                  : <> · 예산 안이에요</>}
+              </p>
+              {forecast.dailyAllowance !== null && (
+                <p className="mt-0.5 opacity-80 tabular-nums">
+                  남은 {forecast.totalDays - forecast.elapsedDays}일 동안 하루 {forecast.dailyAllowance.toLocaleString()}원까지 쓸 수 있어요
+                </p>
+              )}
+            </div>
+          )}
           <p className="text-xs text-slate-400 mt-2">
             생활비 {livingBudget.toLocaleString()}원{emergencyBudget > 0 ? ` · 비상금 ${emergencyBudget.toLocaleString()}원` : ''} · 자유재량 {discretionaryBudget.toLocaleString()}원
           </p>
@@ -598,9 +629,14 @@ const DashboardHome = () => {
                     animationDuration={900}
                     label={renderPieLabel}
                     labelLine={{ stroke: '#475569', strokeWidth: 1 }}
+                    onClick={(d: any) => {
+                      const name = d?.categoryName ?? d?.payload?.categoryName;
+                      if (name) setDetailModalType(`cat:${name}`);
+                    }}
+                    className="cursor-pointer"
                   >
                     {pieChartData.map((_, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} className="cursor-pointer outline-none" />
                     ))}
                   </Pie>
                   <Tooltip
@@ -614,6 +650,28 @@ const DashboardHome = () => {
               </div>
             )}
           </div>
+          {/* 분류 칩 — 파이 조각은 작아서 폰에서 누르기 어려움. 누르면 그 분류 지출 내역 */}
+          {pieChartData.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {[...pieChartData]
+                .map((d, i) => ({ ...d, color: COLORS[i % COLORS.length] }))
+                .sort((a, b) => b.value - a.value)
+                .map(d => (
+                  <button
+                    key={d.categoryName}
+                    onClick={() => setDetailModalType(`cat:${d.categoryName}`)}
+                    className="flex items-center gap-1.5 min-h-[36px] px-3 rounded-full bg-slate-50 dark:bg-slate-800/60 hover:bg-primary-50 dark:hover:bg-slate-700 text-xs text-slate-600 dark:text-slate-300 transition-colors"
+                  >
+                    <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: d.color }} />
+                    <span className="truncate max-w-[7rem]">{d.name}</span>
+                    <span className="tabular-nums text-slate-400">{d.value.toLocaleString()}</span>
+                  </button>
+                ))}
+            </div>
+          )}
+          {pieChartData.length > 0 && (
+            <p className="mt-2 text-[11px] text-slate-400">조각이나 분류를 누르면 그 분류 지출을 큰 금액순으로 볼 수 있어요.</p>
+          )}
         </div>
 
         {/* 막대 차트 */}

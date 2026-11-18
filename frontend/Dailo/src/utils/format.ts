@@ -46,6 +46,17 @@ export const getCurrentSettleMonth = (): string => {
   return `${settleDate.getFullYear()}-${String(settleDate.getMonth() + 1).padStart(2, '0')}`;
 };
 
+// 정산월의 첫날·마지막 날 — getSettleMonthForDate와 같은 규칙(월급일 이후면 다음 정산월)
+//  예: 월급일 25, '2026-12' → 2026-11-25 ~ 2026-12-24. 월급일이 그 달에 없으면(31일·2월 등) 다음 달 1일부터
+export const settlePeriod = (settleMonth: string, salaryDay = parseInt(localStorage.getItem('salaryDay') || '25', 10)) => {
+  const [y, m] = settleMonth.split('-').map(Number); // m: 1-based
+  const daysIn = (yy: number, mm0: number) => new Date(yy, mm0 + 1, 0).getDate();
+  const prevDays = daysIn(y, m - 2);
+  const start = salaryDay <= prevDays ? new Date(y, m - 2, salaryDay) : new Date(y, m - 1, 1);
+  const end = new Date(y, m - 1, Math.min(salaryDay - 1, daysIn(y, m - 1)));
+  return { start, end };
+};
+
 // 로컬 날짜 'YYYY-MM-DD' — toISOString()은 UTC라 KST 오전 9시 전엔 어제가 됨 (날짜 문자열은 항상 이걸로)
 export const toYmd = (d: Date): string =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;

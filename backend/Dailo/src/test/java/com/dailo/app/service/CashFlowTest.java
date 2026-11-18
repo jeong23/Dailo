@@ -146,4 +146,32 @@ class CashFlowTest {
         assertThat(CashFlow.maturityAmount(300_000, 12, 3.5, true, 30_000, null)).isEqualTo(3_600_000 + 68_250 + 360_000);
         assertThat(CashFlow.maturityAmount(300_000, 12, 3.5, true, 30_000, 400_000L)).isEqualTo(3_600_000 + 68_250 + 400_000);
     }
+
+    @Test
+    void 달별_내역_합계는_달말_잔액_차이와_같음() {
+        String dec = "2026-12";
+        LocalDate today = LocalDate.of(2026, 12, 20);
+        var events = List.of(
+                cash(null, -20_000, LocalDate.of(2026, 11, 5), NOV),
+                card(40_000, LocalDate.of(2026, 11, 8), NOV),
+                cash(null, -15_000, LocalDate.of(2026, 12, 3), dec),
+                cash(null, 70_000, LocalDate.of(2026, 12, 4), dec),
+                card(90_000, LocalDate.of(2026, 12, 6), dec),
+                new Event(null, -300_000, LocalDate.of(2026, 12, 10), null, dec, false, CashFlow.SAVINGS)
+        );
+        var monthly = List.of(new MonthlyFlow(dec, 3_000_000, 1_200_000));
+        var r = CashFlow.calculate(List.of(acc(1, 1_000_000)), events, monthly, dec, today);
+
+        assertThat(r.monthItems().get(dec)).containsExactly(
+                java.util.Map.entry(CashFlow.SALARY, 3_000_000L),
+                java.util.Map.entry(CashFlow.INCOME, 70_000L),
+                java.util.Map.entry(CashFlow.FIXED, -1_200_000L),
+                java.util.Map.entry(CashFlow.CARD, -90_000L),
+                java.util.Map.entry(CashFlow.SPEND, -15_000L),
+                java.util.Map.entry(CashFlow.SAVINGS, -300_000L));
+        long sum = r.monthItems().get(dec).values().stream().mapToLong(Long::longValue).sum();
+        assertThat(r.monthEnd().get(dec) - r.monthEnd().get(NOV)).isEqualTo(sum);
+        // 기준 달: 월급은 이미 반영된 걸로 봐서 없음, 0인 항목은 빠짐
+        assertThat(r.monthItems().get(NOV)).containsOnlyKeys(CashFlow.CARD, CashFlow.SPEND);
+    }
 }

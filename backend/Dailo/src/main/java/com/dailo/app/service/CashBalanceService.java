@@ -58,8 +58,10 @@ public class CashBalanceService {
         expenseRepo.findByMonthlyBudgetMemberIdAndSettleMonthGreaterThanEqual(memberId, from).forEach(e -> {
             if (e.getExpenseDate() == null || e.getSettleMonth() == null || e.getAmount() == null) return;
             if (e.getSavingsId() != null) recorded.computeIfAbsent(e.getSavingsId(), k -> new HashSet<>()).add(e.getSettleMonth());
+            boolean card = "카드".equals(e.getPaymentMethod());
+            // 적금·청약 납입 지출은 내역에서 '적금 납입'으로 (자동 납입과 같은 칸)
             events.add(new CashFlow.Event(e.getCashAccountId(), -e.getAmount(), e.getExpenseDate(), e.getCreatedAt(),
-                    e.getSettleMonth(), "카드".equals(e.getPaymentMethod())));
+                    e.getSettleMonth(), card, card ? CashFlow.CARD : e.getSavingsId() != null ? CashFlow.SAVINGS : CashFlow.SPEND));
         });
         incomeRepo.findByMemberIdAndSettleMonthGreaterThanEqual(memberId, from).forEach(i -> {
             if (i.getIncomeDate() == null || i.getSettleMonth() == null || i.getAmount() == null) return;

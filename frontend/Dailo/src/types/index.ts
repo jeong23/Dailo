@@ -138,6 +138,7 @@ export interface CashAssetEntry {
   balance: number;
   memo: string | null;
   auto?: boolean; // 현금 계좌 기준으로 계산한 달 (직접 저장한 값 아님)
+  breakdown?: Record<string, number>; // auto 달만: 그 달 기록으로 바뀐 금액 (SALARY·INCOME·MATURITY·FIXED·CARD·SPEND·SAVINGS)
 }
 
 export interface MonthlyReport {

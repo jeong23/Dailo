@@ -326,6 +326,9 @@ com.dailo.app
   → 적금 만기(2026-11-02): CashFlow.maturityPayout — 만기일(start.plusMonths(months))에 세후 수령액(프론트 savingsSummary.maturityAmount와 같은 식) +, 기본 계좌. 청약 없음
     → 프론트 currentPrincipal·적금 합계는 MATURED를 0으로 (자산 현황 두 번 세기 방지)
 - 옛 계좌(balance_as_of null)는 updatedAt·최근 cash_asset 달을 기준으로 씀
+- 달별 변화 내역(2026-11-18): CashFlow.Event.kind(INCOME·SPEND·CARD·SAVINGS·MATURITY, 6인자 생성자는 카드/부호로 자동) + MonthlyFlow → SALARY·FIXED
+  → Result.monthItems(달 → 항목별 금액, 0 제외) = balanceAtMonthEnd와 같은 규칙의 그 달 몫. GET /cash-assets auto 달에 breakdown으로 내려감
+  → 납입 지출(savingsId)은 SAVINGS로 분류. 새 이벤트 종류를 만들면 kind를 꼭 지정 (테스트 '달별_내역_합계는_달말_잔액_차이와_같음')
 
 ## 생활비 예산·메모 (2026-10-29)
 - DashboardService.getSummary/getMonthlyReport: 생활비·비상금 예산 = 같은 이름 분배 항목 금액(labeledAmount), 없으면 레거시 비율

@@ -62,7 +62,7 @@
 - GET/POST   /api/invest/accounts
 - PATCH      /api/invest/accounts/{id}/active   {active} — 계좌 켜기/끄기만 바로 저장
 - GET/POST   /api/cash-accounts                 (POST·PUT·DELETE·PATCH는 ?settleMonth=YYYY-MM 필수, GET은 선택 — balance = 기준 잔액 + 그 뒤 지출·수입·월급·고정비 계산값, baseBalance·balanceAsOf·pendingCard)
-  - daily-expenses·incomes body에 cashAccountId(선택, null = 기본 계좌), daily-expenses는 savingsId(선택 — 적금·청약 납입 기록) / GET /api/cash-assets?settleMonth= 는 기준 달부터 auto 계산값
+  - daily-expenses·incomes body에 cashAccountId(선택, null = 기본 계좌), daily-expenses는 savingsId(선택 — 적금·청약 납입 기록) / GET /api/cash-assets?settleMonth= 는 기준 달부터 auto 계산값 (auto 달은 breakdown {SALARY·INCOME·MATURITY·FIXED·CARD·SPEND·SAVINGS: 금액} 포함)
 - PUT/DELETE /api/cash-accounts/{id}
 - PATCH      /api/cash-accounts/{id}/active    {active}
 - GET/PUT    /api/notes/{key}                  key = budget-YYYY-MM | planner-YYYY-MM, PUT {content} (빈 값 = 삭제)

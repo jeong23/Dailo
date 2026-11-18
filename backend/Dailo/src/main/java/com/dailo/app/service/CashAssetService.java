@@ -28,12 +28,14 @@ public class CashAssetService {
         Map<String, CashAssetResponseDto> byMonth = new LinkedHashMap<>();
         cashAssetRepository.findByMemberIdOrderBySettleMonthAsc(memberId)
                 .forEach(c -> byMonth.put(c.getSettleMonth(), CashAssetResponseDto.from(c)));
-        balanceService.compute(memberId, settleMonth).monthEnd().forEach((month, total) -> {
+        CashFlow.Result flow = balanceService.compute(memberId, settleMonth);
+        flow.monthEnd().forEach((month, total) -> {
             CashAssetResponseDto stored = byMonth.get(month);
             byMonth.put(month, CashAssetResponseDto.builder()
                     .id(stored != null ? stored.getId() : null).settleMonth(month)
                     .balance((int) Math.max(Math.min(total, Integer.MAX_VALUE), Integer.MIN_VALUE))
-                    .memo(stored != null ? stored.getMemo() : null).auto(true).build());
+                    .memo(stored != null ? stored.getMemo() : null).auto(true)
+                    .breakdown(flow.monthItems().getOrDefault(month, Map.of())).build());
         });
         List<CashAssetResponseDto> list = new ArrayList<>(byMonth.values());
         list.sort(Comparator.comparing(CashAssetResponseDto::getSettleMonth));

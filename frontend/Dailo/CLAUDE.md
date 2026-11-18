@@ -258,9 +258,17 @@ src/
   → SortIcon(지출, primary색) / IncomeSortIcon(수입, blue색)
 - 빈 결과: expenses.length===0 → "등록 없음", filteredExpenses.length===0 → "검색 결과 없음"
 
-## ReportPage 규칙 (2026-11-18)
-- 월 카드 전체가 버튼 → components/MonthSpendingSheet: GET /daily-expenses/month/{월}로 '분류별 순위'(누르면 그 분류 지출 펼침) / '큰 지출 Top 10' 탭 + 예산 구분 칩
-  → 적금·청약 납입(savingsId 있음)은 소비가 아니라 순위에서 제외. 달별 응답은 모듈 Map 캐시
+## 눌러서 자세히 보기 (2026-11-18)
+- 리포트 월 카드 전체가 버튼 → components/MonthSpendingSheet: 탭 '분류별'(지난달 대비 ▲▼, 이번 달엔 안 쓴 분류도 아래에) / '자주 쓴 곳'(지출 이름별, 2번 이상만) / '큰 지출'(Top 10) + 예산 구분 칩
+  → 적금·청약 납입(savingsId 있음)은 소비가 아니라 제외. 달별 응답은 모듈 Map<Promise> 캐시(실패는 지움), 지난달 지출이 0건이면 비교 숨김
+  → 지출 증감 색: 늘면 rose / 줄면 blue (한국 관례 — 순자산·투자와 같은 방향)
+  → '자주 쓴 곳'은 itemName 트림·공백 정리·소문자로 묶음 — 가게명 컬럼은 없음
+- 홈 파이차트: 조각 또는 아래 분류 칩 → detailModalType 'cat:분류명' (큰 금액순). 칩은 폰에서 조각이 작아서 둔 것 — 지우지 말 것
+- 홈 생활비·비상금 카드: utils/forecast.ts monthEndForecast(쓴 돈, 예산, settlePeriod(selectedMonth), 오늘) — 진행 중 정산월 + 3일째부터만, 남은 날 하루 쓸 수 있는 돈
+  → settlePeriod(utils/format.ts)는 getSettleMonthForDate와 같은 규칙(월급일 그 달에 없으면 다음 달 1일부터). 테스트 __tests__/forecast.test.ts
+- 현금 자산 월별 상세: auto 달 + breakdown 있는 행만 누를 수 있음 → components/CashChangeSheet (서버 CashFlow.monthItems)
+  → 전월 잔액 + 항목 합 ≠ 이번 달 잔액이면 차이는 '잔액 맞추기·기타'(기준 잔액 다시 맞춘 달, 첫 auto 달, 사이 달 없음)
+- 순자산 추이: 최근 6개월 표 행 또는 그래프 점 → 칸(현금·투자·적금·직접 입력)별 증감 펼침(KindBreakdown). 사이 달 기록 없으면 '○월 기록과 비교'
 
 ## DashboardHome 규칙
 - 상단 요약 카드 4개: 가용금액 / 생활비·비상금 소진율(통합) / 카드 실적 / 주식 투자

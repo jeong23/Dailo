@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { resolveColors, rgbToHex, useTheme } from '../utils/theme';
 
@@ -63,10 +63,16 @@ export const NetWorthTrend = ({ snapshots, className }: { snapshots: Snapshot[];
   const grid = isDark ? '#334155' : '#e2e8f0';
   const tick = isDark ? '#94a3b8' : '#64748b';
 
-  const data = snapshots.map((s, i) => ({ ...s, prev: i > 0 ? snapshots[i - 1].total : undefined }));
+  const data = snapshots.map((s, i) => ({ ...s, prev: i > 0 ? snapshots[i - 1].total : undefined, prevSnap: i > 0 ? snapshots[i - 1] : undefined }));
   const last = data[data.length - 1];
   const first = data[0];
-  const recent = [...data].reverse().slice(0, 6);
+  // 펼친 달 — 표에서 누르거나 그래프 점을 누르면 칸별 증감
+  const [openMonth, setOpenMonth] = useState<string | null>(null);
+  const recentBase = [...data].reverse().slice(0, 6);
+  // 그래프에서 6개월보다 오래된 달을 누르면 표에 그 달도 붙여서 보여줌
+  const older = openMonth && !recentBase.some(s => s.settleMonth === openMonth) ? data.find(s => s.settleMonth === openMonth) : undefined;
+  const recent = older ? [...recentBase, older] : recentBase;
+  const toggle = (m: string) => setOpenMonth(cur => (cur === m ? null : m));
 
   return (
     <section className={className} aria-labelledby="net-worth-title">
@@ -92,7 +98,8 @@ export const NetWorthTrend = ({ snapshots, className }: { snapshots: Snapshot[];
         <>
           <div className="mt-4 h-52 sm:h-60 -ml-2">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+              <AreaChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}
+                onClick={(st: any) => { if (st?.activeLabel) setOpenMonth(st.activeLabel); }} className="cursor-pointer">
                 <defs>
                   <linearGradient id="netWorthFill" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor={line} stopOpacity={0.22} />
@@ -120,18 +127,79 @@ export const NetWorthTrend = ({ snapshots, className }: { snapshots: Snapshot[];
         </>
       )}
 
-      {/* 표 보기 — 그래프 없이도 읽히게 (최근 6개월) */}
+      {/* 표 보기 — 그래프 없이도 읽히게 (최근 6개월). 달을 누르면 칸별 증감 */}
       {data.length > 0 && (
         <ul className="mt-4 pt-3 border-t border-slate-100 dark:border-dark-border/60 divide-y divide-slate-50 dark:divide-dark-border/40">
-          {recent.map(s => (
-            <li key={s.settleMonth} className="flex items-center gap-3 py-2 text-sm min-w-0">
-              <span className="w-20 shrink-0 text-slate-500 dark:text-slate-400">{fullMonth(s.settleMonth).slice(2)}</span>
-              <span className="flex-1 min-w-0 truncate tabular-nums font-semibold text-slate-800 dark:text-dark-text">{won(s.total)}</span>
-              <span className="shrink-0 text-xs">{s.prev != null ? <Delta value={s.total - s.prev} /> : <span className="text-slate-400">첫 기록</span>}</span>
+          {recent.map(s => {
+            const open = openMonth === s.settleMonth;
+            return (
+              <li key={s.settleMonth}>
+                <button
+                  onClick={() => toggle(s.settleMonth)}
+                  aria-expanded={open}
+                  className="w-full flex items-center gap-3 min-h-[44px] py-2 text-sm min-w-0 text-left hover:bg-slate-50/70 dark:hover:bg-slate-800/30 rounded-lg -mx-1 px-1 transition-colors"
+                >
+                  <span className="w-20 shrink-0 text-slate-500 dark:text-slate-400">{fullMonth(s.settleMonth).slice(2)}</span>
+                  <span className="flex-1 min-w-0 truncate tabular-nums font-semibold text-slate-800 dark:text-dark-text">{won(s.total)}</span>
+                  <span className="shrink-0 text-xs">{s.prev != null ? <Delta value={s.total - s.prev} /> : <span className="text-slate-400">첫 기록</span>}</span>
+                  <span className={`shrink-0 text-slate-300 dark:text-slate-600 transition-transform ${open ? 'rotate-90' : ''}`} aria-hidden>›</span>
+                </button>
+                {open && <KindBreakdown cur={s} prev={s.prevSnap} />}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
+  );
+};
+
+
+// 직전 기록 대비 칸(현금·투자·적금·직접 입력)별 증감 — 어디서 늘고 줄었는지
+const nextMonth = (ym: string) => {
+  const [y, m] = ym.split('-').map(Number);
+  return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`;
+};
+
+const KindBreakdown = ({ cur, prev }: { cur: Snapshot; prev?: Snapshot }) => {
+  const rows = KINDS
+    .map(k => ({ ...k, now: cur[k.key], diff: prev ? cur[k.key] - prev[k.key] : null }))
+    .filter(r => r.now !== 0 || (r.diff ?? 0) !== 0);
+  const maxAbs = Math.max(1, ...rows.map(r => Math.abs(r.diff ?? 0)));
+  const gap = prev && nextMonth(prev.settleMonth) !== cur.settleMonth;
+  return (
+    <div className="mb-2 ml-1 rounded-xl bg-slate-50 dark:bg-slate-800/40 px-3 py-3">
+      {prev ? (
+        <p className="text-[11px] text-slate-400 mb-2">
+          {gap ? `${fullMonth(prev.settleMonth)} 기록과 비교 (사이 달은 기록 없음)` : '전월 대비 칸별 증감'}
+        </p>
+      ) : (
+        <p className="text-[11px] text-slate-400 mb-2">첫 기록이라 칸별 금액만 보여요</p>
+      )}
+      {rows.length === 0 ? (
+        <p className="text-xs text-slate-400">자산 칸이 비어 있어요.</p>
+      ) : (
+        <ul className="space-y-2">
+          {rows.map(r => (
+            <li key={r.key}>
+              <div className="flex items-baseline justify-between gap-2 text-xs">
+                <span className="text-slate-600 dark:text-slate-300 min-w-0 truncate">
+                  {r.label} <span className="text-slate-400 tabular-nums">{won(r.now)}</span>
+                </span>
+                {r.diff != null && <Delta value={r.diff} className="shrink-0" />}
+              </div>
+              {r.diff != null && r.diff !== 0 && (
+                <div className="mt-1 h-1 bg-slate-200/70 dark:bg-slate-700 rounded-full overflow-hidden">
+                  <div
+                    className={`h-full rounded-full ${r.diff > 0 ? 'bg-rose-400' : 'bg-blue-400'}`}
+                    style={{ width: `${(Math.abs(r.diff) / maxAbs) * 100}%` }}
+                  />
+                </div>
+              )}
             </li>
           ))}
         </ul>
       )}
-    </section>
+    </div>
   );
 };

@@ -7,6 +7,7 @@ import api from '../api/axios';
 import { CashAssetEntry } from '../types';
 import { formatSignedNumber, parseSignedNumber, getCurrentSettleMonth } from '../utils/format';
 import { Toast, useToast } from '../components/Toast';
+import { CashChangeSheet } from '../components/CashChangeSheet';
 
 const currentSettleMonth = getCurrentSettleMonth();
 
@@ -23,6 +24,8 @@ export const EmergencyPage = () => {
   const [formMemo, setFormMemo] = useState('');
   const [surplusApplied, setSurplusApplied] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
+  // 월별 상세에서 누른 달 — 잔액 변화 내역 시트 (자동 계산 달만)
+  const [changeMonth, setChangeMonth] = useState<string | null>(null);
 
   const fetchAll = () => {
     setLoading(true);
@@ -67,7 +70,10 @@ export const EmergencyPage = () => {
   const rows = history.map((h, i) => ({
     ...h,
     diff: i > 0 ? h.balance - history[i - 1].balance : null as number | null,
+    prev: i > 0 ? history[i - 1] : null,
+    canExplain: !!h.auto && !!h.breakdown,
   }));
+  const changeRow = changeMonth ? rows.find(r => r.settleMonth === changeMonth) ?? null : null;
   const latest = rows.length > 0 ? rows[rows.length - 1] : null;
   const latestDiff = latest ? latest.diff : null;
 
@@ -268,6 +274,9 @@ export const EmergencyPage = () => {
       <div className="bg-white dark:bg-dark-card rounded-2xl shadow-[0_1px_8px_rgba(0,0,0,0.06)] dark:shadow-none overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-50 dark:border-dark-border/50">
           <h3 className="text-lg font-semibold dark:text-dark-text">월별 상세</h3>
+          {rows.some(r => r.canExplain) && (
+            <p className="text-xs text-slate-400 mt-0.5">'자동' 달을 누르면 잔액이 왜 바뀌었는지 볼 수 있어요.</p>
+          )}
         </div>
 
         {rows.length === 0 ? (
@@ -279,10 +288,16 @@ export const EmergencyPage = () => {
               {[...rows].reverse().map(h => {
                 const isOver = h.diff !== null && h.diff < 0;
                 return (
-                  <div key={h.settleMonth} className="px-4 py-3">
+                  <div
+                    key={h.settleMonth}
+                    {...explainProps(h.canExplain, () => setChangeMonth(h.settleMonth))}
+                    className={`px-4 py-3 ${h.canExplain ? 'cursor-pointer active:bg-slate-50 dark:active:bg-slate-800/40' : ''}`}
+                  >
                     <div className="flex justify-between items-center gap-2">
                       <span className="text-sm font-medium dark:text-dark-text min-w-0 truncate">{h.settleMonth.replace('-', '년 ')}월{h.auto && <AutoBadge />}</span>
-                      <span className="text-sm font-bold text-amber-500 tabular-nums shrink-0">{fmt(h.balance)}원</span>
+                      <span className="text-sm font-bold text-amber-500 tabular-nums shrink-0">
+                        {fmt(h.balance)}원{h.canExplain && <span className="ml-1 text-slate-300 dark:text-slate-600 font-normal">›</span>}
+                      </span>
                     </div>
                     <div className="flex gap-3 mt-1 text-xs text-slate-400 items-center">
                       <span className={`font-semibold ${h.diff === null ? 'text-slate-400' : isOver ? 'text-red-500' : 'text-emerald-500'}`}>
@@ -310,7 +325,11 @@ export const EmergencyPage = () => {
                   {[...rows].reverse().map(h => {
                     const isOver = h.diff !== null && h.diff < 0;
                     return (
-                      <tr key={h.settleMonth} className="hover:bg-primary-50/30 dark:hover:bg-slate-800/30 transition-colors">
+                      <tr
+                        key={h.settleMonth}
+                        {...explainProps(h.canExplain, () => setChangeMonth(h.settleMonth))}
+                        className={`hover:bg-primary-50/30 dark:hover:bg-slate-800/30 transition-colors ${h.canExplain ? 'cursor-pointer' : ''}`}
+                      >
                         <td className="px-6 py-4 font-medium dark:text-dark-text">
                           {h.settleMonth.replace('-', '년 ')}월{h.auto && <AutoBadge />}
                         </td>
@@ -319,6 +338,7 @@ export const EmergencyPage = () => {
                         </td>
                         <td className={`px-6 py-4 text-right font-semibold tabular-nums ${h.diff === null ? 'text-slate-400' : isOver ? 'text-red-500' : 'text-emerald-500'}`}>
                           {h.diff === null ? '-' : `${sign(h.diff)}${fmt(h.diff)}원`}
+                          {h.canExplain && <span className="ml-2 text-xs font-medium text-primary-500">내역 ›</span>}
                         </td>
                         <td className="px-6 py-4 text-slate-400 dark:text-dark-muted max-w-xs truncate">
                           {h.memo || '-'}
@@ -332,9 +352,29 @@ export const EmergencyPage = () => {
           </>
         )}
       </div>
+
+      {changeRow && (
+        <CashChangeSheet
+          month={changeRow.settleMonth}
+          balance={changeRow.balance}
+          prevMonth={changeRow.prev?.settleMonth ?? null}
+          prevBalance={changeRow.prev?.balance ?? null}
+          breakdown={changeRow.breakdown ?? {}}
+          isLatest={changeRow.settleMonth === latest?.settleMonth}
+          onClose={() => setChangeMonth(null)}
+        />
+      )}
     </div>
   );
 };
+
+// 누를 수 있는 행 — 키보드(Enter·Space)로도 열림
+const explainProps = (enabled: boolean, open: () => void) => enabled ? {
+  role: 'button' as const,
+  tabIndex: 0,
+  onClick: open,
+  onKeyDown: (e: React.KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } },
+} : {};
 
 const SummaryCard = ({ label, value, color }: { label: string; value: string; color: string }) => (
   <div className="bg-white dark:bg-dark-card rounded-2xl shadow-[0_1px_8px_rgba(0,0,0,0.06)] dark:shadow-none p-5">

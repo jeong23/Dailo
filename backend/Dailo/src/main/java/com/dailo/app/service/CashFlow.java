@@ -19,16 +19,28 @@ public final class CashFlow {
 
     public record Anchor(Long accountId, boolean on, long balance, LocalDateTime asOf, String month) {}
 
-    // amount: 들어오면 +, 나가면 −
-    public record Event(Long accountId, long amount, LocalDate date, LocalDateTime createdAt, String month, boolean card) {}
+    // 달별 잔액 변화 내역 항목 (현금 자산 화면 '왜 이만큼 바뀌었나')
+    public static final String INCOME = "INCOME", SPEND = "SPEND", CARD = "CARD", SALARY = "SALARY", FIXED = "FIXED",
+            SAVINGS = "SAVINGS", MATURITY = "MATURITY";
+
+    // amount: 들어오면 +, 나가면 − / kind: 위 내역 항목
+    public record Event(Long accountId, long amount, LocalDate date, LocalDateTime createdAt, String month, boolean card, String kind) {
+        // 지출·수입 기록 — 카드면 CARD, 들어오면 INCOME, 나가면 SPEND
+        public Event(Long accountId, long amount, LocalDate date, LocalDateTime createdAt, String month, boolean card) {
+            this(accountId, amount, date, createdAt, month, card, card ? CARD : amount > 0 ? INCOME : SPEND);
+        }
+    }
 
     // 정산월 시작 시 들어오고 나가는 돈 (월급 − 고정비)
     public record MonthlyFlow(String month, long salary, long fixedCost) {}
 
     public record AccountBalance(long current, long pendingCard) {}
 
-    public record Result(Map<Long, AccountBalance> accounts, Map<String, Long> monthEnd) {
-        public static Result empty() { return new Result(Map.of(), Map.of()); }
+    // monthItems: monthEnd의 각 달에 그 달 기록으로 바뀐 금액(항목별, 0인 항목 없음) — 켜진 계좌만, monthEnd와 같은 규칙
+    //  monthEnd(m) − monthEnd(m−1) = monthItems(m) 합계. 기준 잔액이 있는 첫 달은 '잔액 맞추기' 차이가 따로 있을 수 있음
+    public record Result(Map<Long, AccountBalance> accounts, Map<String, Long> monthEnd, Map<String, Map<String, Long>> monthItems) {
+        public Result(Map<Long, AccountBalance> accounts, Map<String, Long> monthEnd) { this(accounts, monthEnd, Map.of()); }
+        public static Result empty() { return new Result(Map.of(), Map.of(), Map.of()); }
     }
 
     // anchors는 계좌 정렬 순서대로 (기본 계좌 판정)
@@ -66,6 +78,7 @@ public final class CashFlow {
 
         // 달별 말 잔액 — 켜진 계좌 모두 기준 잔액이 있는 달부터 (그 전 달은 저장된 기록을 씀)
         Map<String, Long> monthEnd = new LinkedHashMap<>();
+        Map<String, Map<String, Long>> monthItems = new LinkedHashMap<>();
         Optional<String> start = anchors.stream().filter(Anchor::on).map(Anchor::month).max(Comparator.naturalOrder());
         if (start.isPresent() && start.get().compareTo(currentMonth) <= 0) {
             for (YearMonth ym = YearMonth.parse(start.get()); !ym.isAfter(YearMonth.parse(currentMonth)); ym = ym.plusMonths(1)) {
@@ -77,9 +90,33 @@ public final class CashFlow {
                             Objects.equals(a.accountId(), defaultId), monthly, m);
                 }
                 monthEnd.put(m, total);
+                monthItems.put(m, itemsOfMonth(anchors, byAccount, defaultId, monthly, m));
             }
         }
-        return new Result(accounts, monthEnd);
+        return new Result(accounts, monthEnd, monthItems);
+    }
+
+    // 그 정산월 기록만 — balanceAtMonthEnd에서 그 달 몫. 순서 고정(LinkedHashMap)
+    private static Map<String, Long> itemsOfMonth(List<Anchor> anchors, Map<Long, List<Event>> byAccount, Long defaultId,
+                                                  List<MonthlyFlow> monthly, String m) {
+        Map<String, Long> items = new LinkedHashMap<>();
+        for (String k : List.of(SALARY, INCOME, MATURITY, FIXED, CARD, SPEND, SAVINGS)) items.put(k, 0L);
+        for (Anchor a : anchors) {
+            if (!a.on()) continue;
+            for (Event e : byAccount.getOrDefault(a.accountId(), List.of())) {
+                if (!e.month().equals(m)) continue;
+                if (e.card() ? e.month().compareTo(a.month()) >= 0 : after(e, a)) items.merge(e.kind(), e.amount(), Long::sum);
+            }
+            if (Objects.equals(a.accountId(), defaultId) && m.compareTo(a.month()) > 0) {
+                for (MonthlyFlow f : monthly) {
+                    if (!f.month().equals(m)) continue;
+                    items.merge(SALARY, f.salary(), Long::sum);
+                    items.merge(FIXED, -f.fixedCost(), Long::sum);
+                }
+            }
+        }
+        items.values().removeIf(v -> v == 0);
+        return items;
     }
 
     // 그 정산월 말 — 그 달 카드값, 미래 날짜로 적어둔 그 달 기록까지 포함
@@ -114,7 +151,7 @@ public final class CashFlow {
             LocalDate d = start.plusMonths(n);
             String month = settleMonthOf(d, salaryDay);
             if (month.compareTo(untilMonth) > 0) break;
-            if (d.isAfter(from) && !recorded.contains(month)) out.add(new Event(null, -monthly, d, null, month, false));
+            if (d.isAfter(from) && !recorded.contains(month)) out.add(new Event(null, -monthly, d, null, month, false, SAVINGS));
         }
         return out;
     }
@@ -128,7 +165,7 @@ public final class CashFlow {
         LocalDate d = start.plusMonths(months);
         String month = settleMonthOf(d, salaryDay);
         if (!d.isAfter(from) || month.compareTo(untilMonth) > 0) return Optional.empty();
-        return Optional.of(new Event(null, maturityAmount(monthly, months, ratePct, taxFree, monthlyBonus, bonusBalance), d, null, month, false));
+        return Optional.of(new Event(null, maturityAmount(monthly, months, ratePct, taxFree, monthlyBonus, bonusBalance), d, null, month, false, MATURITY));
     }
 
     static long maturityAmount(long monthly, int months, double ratePct, boolean taxFree, long monthlyBonus, Long bonusBalance) {
