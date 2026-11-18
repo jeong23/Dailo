@@ -26,25 +26,26 @@ const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
 
 // toISOString()은 UTC라 KST 오전 9시 전엔 어제 날짜가 됨 → 로컬 기준으로 직접 조립
 const toYmd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-const now = new Date();
-const todayStr = toYmd(now);
+// '오늘'은 쓸 때마다 계산 — 모듈 상수면 자정이 지나도 어제가 오늘로 남음
+const todayYmd = () => toYmd(new Date());
 const dayLabel = (ymd: string) => {
   const d = new Date(`${ymd}T00:00:00`);
   return { day: d.getDate(), weekday: WEEKDAYS[d.getDay()] };
 };
 const CARD = 'bg-white dark:bg-dark-card rounded-2xl shadow-[0_1px_8px_rgba(0,0,0,0.06)] dark:shadow-none';
-const EMPTY_FORM = { date: todayStr, marketMood: 'NEUTRAL', myEmotion: 'CALM', title: '', body: '' };
+const emptyForm = () => ({ date: todayYmd(), marketMood: 'NEUTRAL', myEmotion: 'CALM', title: '', body: '' });
 
 export const InvestDiaryPage = () => {
-  const [year, setYear] = useState(now.getFullYear());
-  const [month, setMonth] = useState(now.getMonth() + 1);
+  const [year, setYear] = useState(() => new Date().getFullYear());
+  const [month, setMonth] = useState(() => new Date().getMonth() + 1);
+  const todayStr = todayYmd();
   const [diaries, setDiaries] = useState<Diary[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
   const [highlightId, setHighlightId] = useState<number | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Diary | null>(null);
-  const [form, setForm] = useState(EMPTY_FORM);
+  const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
   const cardRefs = useRef<Record<number, HTMLElement | null>>({});
   const { toast, show } = useToast();
@@ -76,9 +77,9 @@ export const InvestDiaryPage = () => {
     });
   };
 
-  const openNew = (date = todayStr) => {
+  const openNew = (date = todayYmd()) => {
     setEditing(null);
-    setForm({ ...EMPTY_FORM, date });
+    setForm({ ...emptyForm(), date });
     setShowForm(true);
   };
 

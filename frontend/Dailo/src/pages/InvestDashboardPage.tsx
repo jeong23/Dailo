@@ -72,8 +72,8 @@ const LIQUIDITY_TEXT: Record<LiquidityLevel, string> = {
 // 도넛·종목 행 왼쪽 컬러바에 같은 색을 써서 차트와 리스트를 눈으로 연결 (토스증권 방식)
 const HOLDING_COLORS = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#f43f5e', '#06b6d4', '#84cc16', '#ec4899', '#64748b'];
 
-const now = new Date();
-const currentYm = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+// '이번 달'은 렌더마다 계산 — 모듈 상수면 앱을 켜 둔 채 달이 바뀌어도 지난 달을 이번 달로 봄
+const currentYmNow = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; };
 const fmtNum = (v: string) => v.replace(/[^0-9]/g, '').replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 const parseNum = (v?: string) => parseInt((v || '').replace(/,/g, ''), 10);
 const fmt = (n: number) => n.toLocaleString();
@@ -235,7 +235,8 @@ const PageHeader = ({ right }: { right?: React.ReactNode }) => (
 
 export const InvestDashboardPage = () => {
   const navigate = useNavigate();
-  const [ym, setYm] = useState(currentYm);
+  const [ym, setYm] = useState(currentYmNow);
+  const currentYm = currentYmNow();
   const [data, setData] = useState<Dashboard | null>(null);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState(false);

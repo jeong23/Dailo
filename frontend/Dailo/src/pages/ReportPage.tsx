@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import api from '../api/axios';
 import { MonthlyReport } from '../types';
+import { MonthSpendingSheet } from '../components/MonthSpendingSheet';
 
 export const ReportPage = () => {
   const [reports, setReports] = useState<MonthlyReport[]>([]);
   const [loading, setLoading] = useState(true);
+  const [rankMonth, setRankMonth] = useState<string | null>(null);
 
   useEffect(() => {
     api.get('/dashboard/monthly-report')
@@ -35,7 +37,7 @@ export const ReportPage = () => {
   return (
     <div className="space-y-6">
       <div>
-        <p className="text-xs font-medium text-slate-400 dark:text-slate-500 mb-1">누적 정산 내역</p>
+        <p className="text-xs font-medium text-slate-400 dark:text-slate-500 mb-1">누적 정산 내역 · 달을 누르면 지출 순위</p>
         <h1 className="text-2xl font-bold text-slate-900 dark:text-dark-text">월별 정산 리포트</h1>
       </div>
 
@@ -47,13 +49,21 @@ export const ReportPage = () => {
           return (
             <div
               key={r.settleMonth}
-              className="bg-white dark:bg-dark-card rounded-2xl shadow-[0_1px_8px_rgba(0,0,0,0.06)] dark:shadow-none overflow-hidden"
+              role="button"
+              tabIndex={0}
+              aria-label={`${r.settleMonth} 지출 순위 보기`}
+              onClick={() => setRankMonth(r.settleMonth)}
+              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setRankMonth(r.settleMonth); } }}
+              className="group bg-white dark:bg-dark-card rounded-2xl shadow-[0_1px_8px_rgba(0,0,0,0.06)] dark:shadow-none overflow-hidden cursor-pointer transition-shadow hover:shadow-[0_2px_16px_rgba(0,0,0,0.1)] focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
             >
               {/* 월 헤더 */}
               <div className="px-4 sm:px-6 py-4 bg-slate-50/80 dark:bg-slate-800/30 flex flex-wrap justify-between items-center gap-2 border-b border-slate-50 dark:border-dark-border/50">
-                <h3 className="text-base sm:text-lg font-bold dark:text-dark-text">
-                  {r.settleMonth.replace('-', '년 ')}월
-                </h3>
+                <div className="flex items-baseline gap-2 min-w-0">
+                  <h3 className="text-base sm:text-lg font-bold dark:text-dark-text">
+                    {r.settleMonth.replace('-', '년 ')}월
+                  </h3>
+                  <span className="text-xs font-medium text-primary-500 group-hover:underline whitespace-nowrap">지출 순위 ›</span>
+                </div>
                 <div className="flex flex-wrap gap-2 text-sm">
                   <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${
                     livingOver
@@ -142,6 +152,8 @@ export const ReportPage = () => {
           );
         })}
       </div>
+
+      {rankMonth && <MonthSpendingSheet month={rankMonth} onClose={() => setRankMonth(null)} />}
     </div>
   );
 };

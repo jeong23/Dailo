@@ -7,16 +7,17 @@
 
 - POST       /api/auth/login                        ← JWT 로그인 (token, memberId, name, salaryDay 반환)
                                                        탈퇴 유예 중이면 409 data {code: WITHDRAWN, purgeAt} — body restore:true로 복구 후 로그인
-- GET/POST   /api/members                           ← GET 목록 / POST 회원가입 (permitAll — 아이디 소문자 4~20자, 비밀번호 영문+숫자 8자+, 이름 1~30자 검증, 실패 400)
+- POST       /api/members                           ← 회원가입 (permitAll — 아이디 소문자 4~20자, 비밀번호 영문+숫자 8자+, 이름 1~30자 검증, 실패 400)
 - GET/PUT    /api/members/{id}                      ← 조회 / 수정 (authenticated)
 - DELETE     /api/members/{id}                      ← 탈퇴 (본인만) — 30일 유예 후 MemberPurgeJob이 모든 데이터 삭제, data = 삭제 예정 시각
 - GET        /api/export/items                      ← 내보내기 체크 목록 [{key, label, description, rows}] (로그인 회원 기준 행 수)
 - GET        /api/export?items=ledger,invest        ← 고른 묶음 CSV ZIP (application/zip, ApiResponse 아님). key: ledger/assets/invest/planner/habit/workout/profile, 모르는 key·빈 선택 400
 - GET        /api/assets/snapshots                  ← 순자산 스냅샷 목록 [{settleMonth, cash, invest, savings, manual, total, capturedAt}] 정산월 오름차순
 - PUT        /api/assets/snapshots/current          ← 이번 정산월 기록(덮어쓰기) {cash, invest, savings, manual} 0 이상 — 정산월은 서버가 회원 월급일(KST)로 정함
-- GET/POST   /api/monthly-budgets
-- GET        /api/monthly-budgets/member/{memberId}
-- GET        /api/monthly-budgets/member/{memberId}/month/{settleMonth}
+- POST       /api/monthly-budgets                   ← 내 예산 생성
+- GET        /api/monthly-budgets/mine                       ← 내 예산 목록 (memberId는 토큰에서 — 예전 /member/{memberId}는 없어짐)
+- GET        /api/monthly-budgets/mine/month/{settleMonth}
+- GET        /api/monthly-budgets/{id}                       ← 본인 것만
 - PUT/DELETE /api/monthly-budgets/{id}
 - GET/POST   /api/daily-expenses
 - GET        /api/daily-expenses/month/{settleMonth}

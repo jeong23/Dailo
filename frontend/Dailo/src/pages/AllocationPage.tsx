@@ -33,8 +33,8 @@ const FIELD_INPUT = 'w-full min-w-0 flex-1 bg-transparent outline-none text-sm t
 const fmt = (n: number) => Math.round(n).toLocaleString();
 const fmtNum = (v: string) => v.replace(/[^0-9]/g, '').replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 const parseNum = (v: string) => parseInt(v.replace(/,/g, ''), 10) || 0;
-const now = new Date();
-const currentYm = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+// '이번 달'은 불러올 때마다 계산 (모듈 상수면 앱을 켜 둔 채 달이 바뀌면 지난 달 투자 기록을 읽음)
+const currentYmNow = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; };
 
 // 종목 평가금액: 시세(네이버/KIS) > 저장된 현재가 > 직접 입력 금액
 const holdingValue = (h: Holding, quotes: Record<string, { price: number }>) => {
@@ -78,7 +78,7 @@ export const AllocationPage = () => {
   const load = async () => {
     const [bRes, cRes, dRes, qRes, sRes] = await Promise.allSettled([
       api.get('/assets/buckets'), api.get(`/cash-assets?settleMonth=${getCurrentSettleMonth()}`),
-      api.get(`/invest/dashboard?yearMonth=${currentYm}`), api.get('/invest/quotes'), api.get('/savings'),
+      api.get(`/invest/dashboard?yearMonth=${currentYmNow()}`), api.get('/invest/quotes'), api.get('/savings'),
     ]);
     let cashValue: number | null = null, investValue: number | null = null, savingsValue: number | null = null;
     if (sRes.status === 'fulfilled') {

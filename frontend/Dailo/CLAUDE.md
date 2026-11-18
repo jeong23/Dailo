@@ -57,10 +57,10 @@ src/
 
 ## 상태 관리 규칙
 - memberId: 프론트 전역에서 getStoredMemberId() 사용 — 하드코딩 1 절대 금지
-- monthlyBudgetId: 하드코딩 금지 → /monthly-budgets/member/{memberId}/month/{월} API로 조회
+- monthlyBudgetId: 하드코딩 금지 → /monthly-budgets/mine/month/{월} API로 조회
 - categoryId 초기값: 하드코딩 금지 → categories[0].id 사용
 - selectedMonth 초기값: 하드코딩 금지 → getCurrentSettleMonth() 사용
-- monthOptions: getMonthOptions() 금지 → /monthly-budgets/member/{memberId} API로 저장된 월만 조회
+- monthOptions: getMonthOptions() 금지 → /monthly-budgets/mine API로 저장된 월만 조회
   (BudgetSettingsPage만 예외: 신규 달 입력을 위해 현재 정산월 없으면 목록 앞에 추가)
 - 복수 API 동시 호출 시 Promise.allSettled 사용 (Promise.all 금지 — 하나 실패 시 전체 실패)
 
@@ -257,6 +257,10 @@ src/
   → 같은 컬럼 재클릭 시 방향 토글, 다른 컬럼 클릭 시 desc로 초기화
   → SortIcon(지출, primary색) / IncomeSortIcon(수입, blue색)
 - 빈 결과: expenses.length===0 → "등록 없음", filteredExpenses.length===0 → "검색 결과 없음"
+
+## ReportPage 규칙 (2026-11-18)
+- 월 카드 전체가 버튼 → components/MonthSpendingSheet: GET /daily-expenses/month/{월}로 '분류별 순위'(누르면 그 분류 지출 펼침) / '큰 지출 Top 10' 탭 + 예산 구분 칩
+  → 적금·청약 납입(savingsId 있음)은 소비가 아니라 순위에서 제외. 달별 응답은 모듈 Map 캐시
 
 ## DashboardHome 규칙
 - 상단 요약 카드 4개: 가용금액 / 생활비·비상금 소진율(통합) / 카드 실적 / 주식 투자
@@ -486,6 +490,7 @@ src/
 - `rounded-3xl shadow-2xl` — 테두리 없음
 
 ## 과거 실수 기록
+- 투자 현황·자산 현황·투자일기가 '이번 달/오늘'을 모듈 상수(const now = new Date())로 들고 있었음 → 앱을 켜 둔 채 달이 바뀌면 지난 달을 이번 달로 보고 시세를 붙임 (2026-11-05 수정, currentYmNow()/todayYmd()를 렌더·load 안에서)
 - 홈 대시보드 '새 지출 등록' 창에 max-h·overflow가 없어 칸(적금·계좌)이 늘자 화면보다 길어져 스크롤이 안 됐음 (2026-11-05)
   → 시트는 항상 `max-h-[92dvh] overflow-y-auto overscroll-contain` + 하단 `pb-[calc(1.5rem+env(safe-area-inset-bottom))]` — vh는 폰 주소창 높이를 포함해 맨 아래가 가려짐
 - 월급일은 로그인 때만 localStorage에 저장 → 다른 기기에서 바꾸면 정산월 어긋남. components/SalaryDaySync(Layout)가 앱 열 때 서버 값과 맞추고 바뀌었으면 한 번 새로고침 (2026-11-02)

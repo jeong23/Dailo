@@ -23,6 +23,7 @@ ddeploy                    # 빌드 + static 복사만
 dcommit m="fix: 버그 수정" # git add -A + commit만 (백엔드만 변경 시 사용)
 dailo                      # /Users/user/Desktop/workspace/Dailo 로 이동
 ```
+- 커밋 메시지는 여러 줄·따옴표·$ 그대로 됨: `make ship m="$(printf 'fix: 제목\n\n본문')"` (Makefile이 COMMIT_MSG 환경변수 + `commit -F -`로 넘김, 2026-11-05)
 - `ship`/`dcommit`은 git commit을 포함하므로 자동 실행 금지 — 개발자가 직접 실행하거나 명시적으로 요청했을 때만 진행
 - 커밋은 `Dailo/` 루트 기준으로 한 번만 하면 됨 (빌드 결과물 `static/static/` 등은 `.gitignore`로 제외)
 
